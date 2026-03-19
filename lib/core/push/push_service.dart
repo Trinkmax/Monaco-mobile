@@ -62,7 +62,7 @@ class PushService {
         {
           'client_id': clientId,
           'device_id': deviceId,
-          'fcm_token': token,
+          'token': token,
           'platform': Platform.isIOS ? 'ios' : 'android',
           'updated_at': DateTime.now().toUtc().toIso8601String(),
         },

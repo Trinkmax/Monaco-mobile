@@ -96,19 +96,14 @@ class _BranchDetailContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final branch = (data['branch'] ?? {}) as Map<String, dynamic>;
     final waiting = (data['waiting'] ?? []) as List;
     final inProgress = (data['in_progress'] ?? []) as List;
     final staff = (data['staff'] ?? []) as List;
     final availableCount = (data['available_staff_count'] ?? 0) as int;
     final isOpen = data['is_open'] == true;
-    final openTime = branch['open_time'] ?? '--:--';
-    final closeTime = branch['close_time'] ?? '--:--';
-
-    // Estimate ETA: ~15 min per waiting client / available barbers
-    final etaMinutes = availableCount > 0
-        ? ((waiting.length * 15) / availableCount).ceil()
-        : waiting.length * 15;
+    final openTime = data['business_hours_open'] ?? '--:--';
+    final closeTime = data['business_hours_close'] ?? '--:--';
+    final etaMinutes = (data['eta_minutes'] ?? 0) as int;
 
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -175,10 +170,11 @@ class _BranchDetailContent extends StatelessWidget {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: BarberStatusTile(
-                  name:
-                      '${s['first_name'] ?? ''} ${s['last_name'] ?? ''}'.trim(),
+                  name: s['full_name'] ?? 'Barbero',
                   status: s['status'] ?? 'disponible',
+                  avatarUrl: s['avatar_url'] as String?,
                   currentClientName: currentClient?['client_name'],
+                  etaMinutes: s['eta_minutes'] as int?,
                 )
                     .animate(delay: (200 + i * 60).ms)
                     .fadeIn(duration: 350.ms)
@@ -430,6 +426,13 @@ class _ScheduleRow extends StatelessWidget {
 
   const _ScheduleRow({required this.openTime, required this.closeTime});
 
+  /// Strip seconds from HH:MM:SS → HH:MM
+  String _formatTime(String t) {
+    final parts = t.split(':');
+    if (parts.length >= 2) return '${parts[0]}:${parts[1]}';
+    return t;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -446,7 +449,7 @@ class _ScheduleRow extends StatelessWidget {
               size: 20, color: MonacoColors.textSecondary),
           const SizedBox(width: 12),
           Text(
-            'Horario: $openTime - $closeTime',
+            'Horario: ${_formatTime(openTime)} - ${_formatTime(closeTime)}',
             style: TextStyle(
               color: MonacoColors.textPrimary,
               fontSize: 14,

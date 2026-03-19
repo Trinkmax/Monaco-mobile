@@ -34,25 +34,46 @@ final branchDetailProvider =
     FutureProvider.family<Map<String, dynamic>, String>((ref, branchId) async {
   final supabase = ref.read(supabaseClientProvider);
 
-  // Fetch branch info, queue entries, and staff in parallel
+  // Fetch branch info, queue, staff, visits (for ETA), and settings in parallel
   final results = await Future.wait([
+    // 0: branch info
     supabase
         .from('branches')
         .select()
         .eq('id', branchId)
         .maybeSingle(),
+    // 1: active queue entries
     supabase
         .from('queue_entries')
-        .select('*, staff:barber_id(id, full_name)')
+        .select('*, staff:barber_id(id, full_name, avatar_url)')
         .eq('branch_id', branchId)
         .inFilter('status', ['waiting', 'in_progress'])
         .order('created_at'),
+    // 2: barbers (only role=barber, not hidden)
     supabase
         .from('staff')
         .select()
         .eq('branch_id', branchId)
-        .eq('is_active', true),
+        .eq('role', 'barber')
+        .eq('is_active', true)
+        .order('full_name'),
+    // 3: branch open status
     supabase.rpc('get_branch_open_status', params: {'p_branch_id': branchId}),
+    // 4: last 200 completed visits for avg wait time calculation
+    supabase
+        .from('visits')
+        .select('barber_id, started_at, completed_at')
+        .eq('branch_id', branchId)
+        .not('started_at', 'is', null)
+        .not('completed_at', 'is', null)
+        .order('completed_at', ascending: false)
+        .limit(200),
+    // 5: app_settings for business hours
+    supabase
+        .from('app_settings')
+        .select('business_hours_open, business_hours_close')
+        .limit(1)
+        .maybeSingle(),
   ]);
 
   final branch =
@@ -66,6 +87,15 @@ final branchDetailProvider =
           .toList() ??
       [];
   final openStatus = results[3];
+  final visitsList = (results[4] as List?)
+          ?.map((e) => Map<String, dynamic>.from(e))
+          .toList() ??
+      [];
+  final appSettings =
+      results[5] != null ? Map<String, dynamic>.from(results[5] as Map) : {};
+
+  // Compute per-barber average minutes from real visit data
+  final barberAvgMap = _buildBarberAvgMinutes(visitsList, 25);
 
   // Compute metrics
   final waiting =
@@ -75,10 +105,13 @@ final branchDetailProvider =
   final availableStaff =
       staffList.where((s) => !inProgress.any((q) => q['barber_id'] == s['id'])).toList();
 
-  // Build staff with status
+  // Build staff with status and individual ETA
   final staffWithStatus = staffList.map((s) {
+    final barberId = s['id'] as String;
     final activeQueue =
-        inProgress.where((q) => q['barber_id'] == s['id']).toList();
+        inProgress.where((q) => q['barber_id'] == barberId).toList();
+    final waitingForBarber =
+        waiting.where((q) => q['barber_id'] == barberId).toList();
     String status;
     Map<String, dynamic>? currentClient;
     if (activeQueue.isNotEmpty) {
@@ -89,12 +122,41 @@ final branchDetailProvider =
     } else {
       status = 'disponible';
     }
+    final avg = barberAvgMap[barberId] ?? barberAvgMap['__fallback'] ?? 25;
+    final totalLoad = waitingForBarber.length + (activeQueue.isNotEmpty ? 1 : 0);
+    final eta = (totalLoad * avg).round();
     return {
       ...s,
       'status': status,
       'current_client': currentClient,
+      'eta_minutes': eta,
+      'avg_minutes': avg,
     };
   }).toList();
+
+  // get_branch_open_status returns TABLE → List with one row
+  bool isOpen = false;
+  if (openStatus is List && openStatus.isNotEmpty) {
+    isOpen = openStatus.first['is_open'] == true;
+  } else if (openStatus is Map) {
+    isOpen = openStatus['is_open'] == true;
+  } else if (openStatus is bool) {
+    isOpen = openStatus;
+  }
+
+  // Global ETA: min ETA across available barbers, or fallback for unassigned
+  int globalEta = 0;
+  if (waiting.isNotEmpty) {
+    final barberEtas = staffWithStatus
+        .where((s) => s['status'] != 'descanso')
+        .map((s) => s['eta_minutes'] as int)
+        .toList();
+    if (barberEtas.isNotEmpty) {
+      globalEta = barberEtas.reduce((a, b) => a < b ? a : b);
+    } else {
+      globalEta = waiting.length * 25;
+    }
+  }
 
   return {
     'branch': branch,
@@ -104,9 +166,38 @@ final branchDetailProvider =
     'staff': staffWithStatus,
     'available_staff_count': availableStaff.length,
     'total_staff_count': staffList.length,
-    'is_open': openStatus is bool ? openStatus : (openStatus == true),
+    'is_open': isOpen,
+    'eta_minutes': globalEta,
+    'business_hours_open': appSettings['business_hours_open'] ?? '--:--',
+    'business_hours_close': appSettings['business_hours_close'] ?? '--:--',
   };
 });
+
+/// Builds per-barber average service time from recent visits (mirrors barber-utils.ts)
+Map<String, num> _buildBarberAvgMinutes(
+    List<Map<String, dynamic>> visits, int fallback) {
+  final groups = <String, List<double>>{};
+  for (final v in visits) {
+    final barberId = v['barber_id'] as String?;
+    final startedAt = v['started_at'] as String?;
+    final completedAt = v['completed_at'] as String?;
+    if (barberId == null || startedAt == null || completedAt == null) continue;
+    final start = DateTime.tryParse(startedAt);
+    final end = DateTime.tryParse(completedAt);
+    if (start == null || end == null) continue;
+    final mins = end.difference(start).inSeconds / 60.0;
+    if (mins < 5 || mins > 120) continue;
+    (groups[barberId] ??= []).add(mins);
+  }
+  final result = <String, num>{};
+  for (final entry in groups.entries) {
+    final durations = entry.value;
+    result[entry.key] =
+        (durations.reduce((a, b) => a + b) / durations.length).round();
+  }
+  result['__fallback'] = fallback;
+  return result;
+}
 
 // ── Branch Realtime Stream (for detail page) ───────────────────────────────
 

@@ -110,7 +110,7 @@ class PushHandler {
         duration: const Duration(seconds: 4),
         action: SnackBarAction(
           label: 'Ver',
-          textColor: const Color(0xFFD4A853),
+          textColor: const Color(0xFFF3F3F3),
           onPressed: () => _handleMessage(message),
         ),
       ),

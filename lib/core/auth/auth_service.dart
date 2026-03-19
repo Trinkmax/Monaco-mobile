@@ -63,10 +63,26 @@ class AuthService {
       final clientId = data['client_id'] as String;
       final isNew = data['is_new_client'] as bool? ?? false;
 
+      // Fetch actual client name from DB (may differ from what was sent)
+      String clientName = name ?? phone;
+      try {
+        final clientRow = await _client
+            .from('clients')
+            .select('name')
+            .eq('id', clientId)
+            .maybeSingle();
+        final dbName = clientRow?['name'] as String?;
+        if (dbName != null && dbName.isNotEmpty) {
+          clientName = dbName;
+        }
+      } catch (_) {
+        // Fall back to provided name or phone
+      }
+
       // Save client info locally
       await SecureStorageService.saveClientInfo(
         clientId: clientId,
-        name: name ?? phone,
+        name: clientName,
         phone: phone,
       );
 

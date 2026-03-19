@@ -90,7 +90,7 @@ class PointsScreen extends ConsumerWidget {
       loading: () => _shimmerCard(),
       error: (e, _) => _errorCard('Error al cargar puntos'),
       data: (data) {
-        final total = data['total_points'] ?? 0;
+        final total = data['total_balance'] ?? 0;
         final earned = data['total_earned'] ?? 0;
         final redeemed = data['total_redeemed'] ?? 0;
 
@@ -223,7 +223,7 @@ class PointsScreen extends ConsumerWidget {
                   final b = branches[i];
                   final branchData = b['branches'] as Map<String, dynamic>?;
                   final name = branchData?['name'] ?? 'Sucursal';
-                  final pts = b['points'] ?? 0;
+                  final pts = b['points_balance'] ?? 0;
 
                   return Container(
                     width: 140,

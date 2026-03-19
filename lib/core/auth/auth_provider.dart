@@ -80,9 +80,29 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final session = _client.auth.currentSession;
     if (session != null) {
       final clientId = await SecureStorageService.getClientId();
-      final clientName = await SecureStorageService.getClientName();
+      var clientName = await SecureStorageService.getClientName();
 
       if (clientId != null) {
+        // Refresh name from DB if stored name looks like a phone number
+        if (clientName != null && RegExp(r'^\d+$').hasMatch(clientName)) {
+          try {
+            final row = await _client
+                .from('clients')
+                .select('name')
+                .eq('id', clientId)
+                .maybeSingle();
+            final dbName = row?['name'] as String?;
+            if (dbName != null && dbName.isNotEmpty) {
+              clientName = dbName;
+              await SecureStorageService.saveClientInfo(
+                clientId: clientId,
+                name: dbName,
+                phone: await SecureStorageService.getClientPhone() ?? '',
+              );
+            }
+          } catch (_) {}
+        }
+
         final bioEnabled = await SecureStorageService.isBiometricEnabled();
         if (bioEnabled) {
           state = AuthState(
@@ -108,10 +128,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final result = await _authService.loginWithPhone(phone: phone, name: name);
 
     if (result.success) {
+      // Read the name that auth_service saved (fetched from DB)
+      final savedName = await SecureStorageService.getClientName();
       state = AuthState(
         status: AuthStatus.authenticated,
         clientId: result.clientId,
-        clientName: name ?? phone,
+        clientName: savedName ?? name ?? phone,
         isNewClient: result.isNewClient,
       );
     } else {

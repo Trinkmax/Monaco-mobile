@@ -4,13 +4,17 @@ import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 class BarberStatusTile extends StatelessWidget {
   final String name;
   final String status; // disponible | ocupado | descanso
+  final String? avatarUrl;
   final String? currentClientName;
+  final int? etaMinutes;
 
   const BarberStatusTile({
     super.key,
     required this.name,
     required this.status,
+    this.avatarUrl,
     this.currentClientName,
+    this.etaMinutes,
   });
 
   Color get _statusColor {
@@ -61,22 +65,11 @@ class BarberStatusTile extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Avatar
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: _statusColor.withOpacity(0.15),
-            child: Text(
-              _initial,
-              style: TextStyle(
-                color: _statusColor,
-                fontWeight: FontWeight.w800,
-                fontSize: 15,
-              ),
-            ),
-          ),
+          // Avatar — photo or initials
+          _buildAvatar(),
           const SizedBox(width: 14),
 
-          // Name + status
+          // Name + subtitle
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -102,6 +95,15 @@ class BarberStatusTile extends StatelessWidget {
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                  )
+                else if (etaMinutes != null && etaMinutes! > 0)
+                  Text(
+                    '~$etaMinutes min de espera',
+                    style: TextStyle(
+                      color: MonacoColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                    ),
                   ),
               ],
             ),
@@ -149,6 +151,29 @@ class BarberStatusTile extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildAvatar() {
+    if (avatarUrl != null && avatarUrl!.isNotEmpty) {
+      return CircleAvatar(
+        radius: 22,
+        backgroundImage: NetworkImage(avatarUrl!),
+        backgroundColor: MonacoColors.surface,
+        onBackgroundImageError: (_, __) {},
+      );
+    }
+    return CircleAvatar(
+      radius: 22,
+      backgroundColor: _statusColor.withOpacity(0.15),
+      child: Text(
+        _initial,
+        style: TextStyle(
+          color: _statusColor,
+          fontWeight: FontWeight.w800,
+          fontSize: 15,
+        ),
       ),
     );
   }

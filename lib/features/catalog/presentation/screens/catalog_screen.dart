@@ -15,8 +15,14 @@ import 'package:monaco_mobile/features/catalog/providers/catalog_provider.dart';
 final clientGlobalPointsProvider = FutureProvider<int>((ref) async {
   final supabase = ref.read(supabaseClientProvider);
   final res = await supabase.rpc('get_client_global_points');
-  if (res is int) return res;
-  if (res is Map && res.containsKey('points')) return res['points'] as int;
+  // RPC returns TABLE → List with one row containing total_balance
+  if (res is List && res.isNotEmpty) {
+    final row = res.first;
+    return (row['total_balance'] as num?)?.toInt() ?? 0;
+  }
+  if (res is Map) {
+    return (res['total_balance'] as num?)?.toInt() ?? 0;
+  }
   return 0;
 });
 

@@ -9,33 +9,14 @@ import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
 import 'package:monaco_mobile/core/auth/auth_provider.dart';
 import 'package:monaco_mobile/features/home/presentation/widgets/points_card.dart';
 import 'package:monaco_mobile/features/home/presentation/widgets/occupancy_mini_card.dart';
+import 'package:monaco_mobile/features/points/providers/points_provider.dart';
+import 'package:monaco_mobile/features/reviews/providers/reviews_provider.dart';
+import 'package:monaco_mobile/features/occupancy/providers/occupancy_provider.dart';
 
 // ── Providers ──────────────────────────────────────────────────────────────
-
-final globalPointsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
-  final supabase = ref.read(supabaseClientProvider);
-  final res = await supabase.rpc('get_client_global_points');
-  if (res is List && res.isNotEmpty) return Map<String, dynamic>.from(res.first);
-  if (res is Map) return Map<String, dynamic>.from(res);
-  return {'total_balance': 0, 'total_earned': 0};
-});
-
-final pendingReviewsProvider = FutureProvider<List<dynamic>>((ref) async {
-  final supabase = ref.read(supabaseClientProvider);
-  final res = await supabase.rpc('get_client_pending_reviews');
-  if (res is List) return res;
-  return [];
-});
-
-final branchSignalsHomeProvider =
-    FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  final supabase = ref.read(supabaseClientProvider);
-  final res = await supabase.rpc('get_client_branch_signals');
-  if (res is List) {
-    return res.map((e) => Map<String, dynamic>.from(e)).toList();
-  }
-  return [];
-});
+// globalPointsProvider  → imported from points_provider.dart
+// pendingReviewsProvider → imported from reviews_provider.dart
+// branchSignalsProvider  → imported from occupancy_provider.dart
 
 final billboardProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
@@ -58,7 +39,7 @@ class HomeScreen extends ConsumerWidget {
     final auth = ref.watch(authProvider);
     final points = ref.watch(globalPointsProvider);
     final reviews = ref.watch(pendingReviewsProvider);
-    final branches = ref.watch(branchSignalsHomeProvider);
+    final branches = ref.watch(branchSignalsProvider);
     final billboard = ref.watch(billboardProvider);
 
     final userName = auth.clientName ?? 'Cliente';
@@ -73,7 +54,7 @@ class HomeScreen extends ConsumerWidget {
           onRefresh: () async {
             ref.invalidate(globalPointsProvider);
             ref.invalidate(pendingReviewsProvider);
-            ref.invalidate(branchSignalsHomeProvider);
+            ref.invalidate(branchSignalsProvider);
             ref.invalidate(billboardProvider);
           },
           child: SingleChildScrollView(
@@ -238,7 +219,7 @@ class HomeScreen extends ConsumerWidget {
                     _QuickAction(
                       icon: Icons.history_rounded,
                       label: 'Historial',
-                      onTap: () => context.push('/history'),
+                      onTap: () => context.push('/points'),
                     ),
                   ],
                 ),

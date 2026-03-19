@@ -61,9 +61,9 @@ class MonacoColors {
     colors: [Color(0xFF2A2A2A), Color(0xFF1E1E1E)],
   );
 
-  // Points/Rewards gold accent
-  static const Color gold = Color(0xFFD4A853);
-  static const Color goldLight = Color(0xFFE8C878);
+  // Accent (Monaco branding — white on dark)
+  static const Color gold = Color(0xFFF3F3F3);
+  static const Color goldLight = Color(0xFFFFFFFF);
 
   // Review stars
   static const Color starFilled = Color(0xFFF5A623);
