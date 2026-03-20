@@ -61,7 +61,7 @@ lib/
 8. **ProfileScreen** — Nombre, telefono, biometria toggle, PIN, logout
 
 ### Detail Screens
-9. **BranchDetailScreen** — Detalle de sucursal con cola realtime, barberos, ETA
+9. **BranchDetailScreen** — Detalle de sucursal con fila realtime, barberos, ETA
 10. **PointsScreen** — Billetera global, por sucursal, historial
 11. **CatalogScreen** — Grid de items canjeables con confirmacion
 12. **ReviewsScreen** — Bandeja de resenas pendientes

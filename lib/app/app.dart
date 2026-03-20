@@ -11,7 +11,7 @@ class MonacoApp extends ConsumerWidget {
     final router = ref.watch(routerProvider);
 
     return MaterialApp.router(
-      title: 'Monaco Smart Barber',
+      title: 'barberOS',
       debugShowCheckedModeBanner: false,
       theme: MonacoTheme.dark,
       routerConfig: router,

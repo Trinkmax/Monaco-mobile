@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/core/auth/auth_provider.dart';
 
@@ -69,7 +68,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF1A1A1A),
+      backgroundColor: MonacoColors.background,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -80,32 +79,28 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // --- Logo ---
-                  Icon(
-                    Icons.content_cut_rounded,
-                    size: 48,
-                    color: MonacoColors.gold,
+                  // --- Logo barberOS ---
+                  ColorFiltered(
+                    colorFilter: const ColorFilter.matrix([
+                      //  R    G    B    A   offset
+                           0,   0,   0,   0,  255,
+                           0,   0,   0,   0,  255,
+                           0,   0,   0,   0,  255,
+                          -1,   0,   0,   1,    0,
+                    ]),
+                    child: Image.asset(
+                      'assets/images/barberos_logo.png',
+                      width: 220,
+                    ),
                   )
                       .animate()
                       .fadeIn(duration: 500.ms)
                       .scale(
-                        begin: const Offset(0.8, 0.8),
+                        begin: const Offset(0.85, 0.85),
                         end: const Offset(1.0, 1.0),
                         duration: 500.ms,
+                        curve: Curves.easeOut,
                       ),
-
-                  const SizedBox(height: 12),
-
-                  Text(
-                    'MONACO',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                      letterSpacing: 8,
-                    ),
-                  ).animate().fadeIn(delay: 200.ms, duration: 400.ms),
 
                   const SizedBox(height: 48),
 

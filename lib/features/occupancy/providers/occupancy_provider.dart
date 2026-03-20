@@ -49,13 +49,14 @@ final branchDetailProvider =
         .eq('branch_id', branchId)
         .inFilter('status', ['waiting', 'in_progress'])
         .order('created_at'),
-    // 2: barbers (only role=barber, not hidden)
+    // 2: barbers (only role=barber, activos y visibles)
     supabase
         .from('staff')
         .select()
         .eq('branch_id', branchId)
         .eq('role', 'barber')
         .eq('is_active', true)
+        .eq('hidden_from_checkin', false)
         .order('full_name'),
     // 3: branch open status
     supabase.rpc('get_branch_open_status', params: {'p_branch_id': branchId}),
@@ -74,6 +75,13 @@ final branchDetailProvider =
         .select('business_hours_open, business_hours_close')
         .limit(1)
         .maybeSingle(),
+    // 6: attendance_logs de hoy para filtrar barberos con clock_out
+    supabase
+        .from('attendance_logs')
+        .select('staff_id, action_type')
+        .eq('branch_id', branchId)
+        .gte('recorded_at', _todayStartIso())
+        .order('recorded_at', ascending: false),
   ]);
 
   final branch =
@@ -93,6 +101,25 @@ final branchDetailProvider =
       [];
   final appSettings =
       results[5] != null ? Map<String, dynamic>.from(results[5] as Map) : {};
+  final attendanceLogs = (results[6] as List?)
+          ?.map((e) => Map<String, dynamic>.from(e))
+          .toList() ??
+      [];
+
+  // Última acción de asistencia por barbero (lista ya viene ordenada desc)
+  final latestAttendance = <String, String>{};
+  for (final log in attendanceLogs) {
+    final sid = log['staff_id'] as String?;
+    if (sid != null && !latestAttendance.containsKey(sid)) {
+      latestAttendance[sid] = log['action_type'] as String? ?? '';
+    }
+  }
+
+  // Solo barberos que ficharon entrada hoy (última acción = clock_in)
+  final activatedStaff = staffList.where((s) {
+    final lastAction = latestAttendance[s['id'] as String?];
+    return lastAction == 'clock_in';
+  }).toList();
 
   // Compute per-barber average minutes from real visit data
   final barberAvgMap = _buildBarberAvgMinutes(visitsList, 25);
@@ -103,10 +130,10 @@ final branchDetailProvider =
   final inProgress =
       queueEntries.where((e) => e['status'] == 'in_progress').toList();
   final availableStaff =
-      staffList.where((s) => !inProgress.any((q) => q['barber_id'] == s['id'])).toList();
+      activatedStaff.where((s) => !inProgress.any((q) => q['barber_id'] == s['id'])).toList();
 
-  // Build staff with status and individual ETA
-  final staffWithStatus = staffList.map((s) {
+  // Build staff with status and individual ETA (solo barberos con clock_in)
+  final staffWithStatus = activatedStaff.map((s) {
     final barberId = s['id'] as String;
     final activeQueue =
         inProgress.where((q) => q['barber_id'] == barberId).toList();
@@ -117,7 +144,7 @@ final branchDetailProvider =
     if (activeQueue.isNotEmpty) {
       status = 'ocupado';
       currentClient = activeQueue.first;
-    } else if (s['on_break'] == true) {
+    } else if (s['status'] == 'paused' || s['status'] == 'blocked') {
       status = 'descanso';
     } else {
       status = 'disponible';
@@ -165,13 +192,20 @@ final branchDetailProvider =
     'in_progress': inProgress,
     'staff': staffWithStatus,
     'available_staff_count': availableStaff.length,
-    'total_staff_count': staffList.length,
+    'total_staff_count': activatedStaff.length,
     'is_open': isOpen,
     'eta_minutes': globalEta,
     'business_hours_open': appSettings['business_hours_open'] ?? '--:--',
     'business_hours_close': appSettings['business_hours_close'] ?? '--:--',
   };
 });
+
+/// Retorna el inicio del día actual en UTC (para filtrar attendance_logs de hoy)
+String _todayStartIso() {
+  final now = DateTime.now();
+  final todayLocal = DateTime(now.year, now.month, now.day);
+  return todayLocal.toUtc().toIso8601String();
+}
 
 /// Builds per-barber average service time from recent visits (mirrors barber-utils.ts)
 Map<String, num> _buildBarberAvgMinutes(

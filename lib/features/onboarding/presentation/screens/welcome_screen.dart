@@ -9,12 +9,14 @@ import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 class _SlideData {
   final String title;
   final String subtitle;
-  final IconData icon;
+  final IconData? icon;
+  final String? imagePath;
 
   const _SlideData({
     required this.title,
     required this.subtitle,
-    required this.icon,
+    this.icon,
+    this.imagePath,
   });
 }
 
@@ -22,17 +24,17 @@ const _slides = [
   _SlideData(
     title: 'Tu barberia inteligente',
     subtitle: 'Consulta la disponibilidad en tiempo real',
-    icon: Icons.content_cut_rounded,
+    imagePath: 'assets/images/onboarding_barber.png',
   ),
   _SlideData(
     title: 'Acumula puntos',
     subtitle: 'Ganas puntos por cada servicio y canjealos por premios',
-    icon: Icons.star_rounded,
+    imagePath: 'assets/images/onboarding_reviews.png',
   ),
   _SlideData(
     title: 'Opina y mejoramos',
     subtitle: 'Tu feedback nos ayuda a darte un mejor servicio',
-    icon: Icons.chat_rounded,
+    imagePath: 'assets/images/onboarding_gifts.png',
   ),
 ];
 
@@ -177,28 +179,45 @@ class _SlideWidget extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // --- Animated icon ---
-          Container(
-            width: 120,
-            height: 120,
-            decoration: BoxDecoration(
-              color: MonacoColors.gold.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              slide.icon,
-              size: 56,
-              color: MonacoColors.gold,
-            ),
-          )
-              .animate()
-              .fadeIn(duration: 500.ms)
-              .scale(
-                begin: const Offset(0.8, 0.8),
-                end: const Offset(1.0, 1.0),
-                duration: 500.ms,
-                curve: Curves.easeOut,
-              ),
+          // --- Animated icon or image ---
+          (slide.imagePath != null)
+              ? SizedBox(
+                  width: 360, // Make the illustration much bigger as requested
+                  height: 360,
+                  child: Image.asset(
+                    slide.imagePath!,
+                    fit: BoxFit.contain,
+                  ),
+                )
+                  .animate()
+                  .fadeIn(duration: 500.ms)
+                  .scale(
+                    begin: const Offset(0.8, 0.8),
+                    end: const Offset(1.0, 1.0),
+                    duration: 500.ms,
+                    curve: Curves.easeOut,
+                  )
+              : Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    color: MonacoColors.gold.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    slide.icon,
+                    size: 56,
+                    color: MonacoColors.gold,
+                  ),
+                )
+                  .animate()
+                  .fadeIn(duration: 500.ms)
+                  .scale(
+                    begin: const Offset(0.8, 0.8),
+                    end: const Offset(1.0, 1.0),
+                    duration: 500.ms,
+                    curve: Curves.easeOut,
+                  ),
 
           const SizedBox(height: 48),
 
