@@ -69,10 +69,10 @@ final branchDetailProvider =
         .not('completed_at', 'is', null)
         .order('completed_at', ascending: false)
         .limit(200),
-    // 5: app_settings for business hours
+    // 5: app_settings for business hours and shift end margin
     supabase
         .from('app_settings')
-        .select('business_hours_open, business_hours_close')
+        .select('business_hours_open, business_hours_close, shift_end_margin_minutes')
         .limit(1)
         .maybeSingle(),
     // 6: attendance_logs de hoy para filtrar barberos con clock_out
@@ -82,6 +82,12 @@ final branchDetailProvider =
         .eq('branch_id', branchId)
         .gte('recorded_at', _todayStartIso())
         .order('recorded_at', ascending: false),
+    // 7: horarios de staff de hoy para calcular fin de turno
+    supabase
+        .from('staff_schedules')
+        .select('staff_id, start_time, end_time')
+        .eq('day_of_week', DateTime.now().weekday % 7)
+        .eq('is_active', true),
   ]);
 
   final branch =
@@ -105,6 +111,12 @@ final branchDetailProvider =
           ?.map((e) => Map<String, dynamic>.from(e))
           .toList() ??
       [];
+  final schedulesList = (results[7] as List?)
+          ?.map((e) => Map<String, dynamic>.from(e))
+          .toList() ??
+      [];
+  final shiftEndMargin =
+      (appSettings['shift_end_margin_minutes'] as num?)?.toInt() ?? 35;
 
   // Última acción de asistencia por barbero (lista ya viene ordenada desc)
   final latestAttendance = <String, String>{};
@@ -129,9 +141,6 @@ final branchDetailProvider =
       queueEntries.where((e) => e['status'] == 'waiting').toList();
   final inProgress =
       queueEntries.where((e) => e['status'] == 'in_progress').toList();
-  final availableStaff =
-      activatedStaff.where((s) => !inProgress.any((q) => q['barber_id'] == s['id'])).toList();
-
   // Build staff with status and individual ETA (solo barberos con clock_in)
   final staffWithStatus = activatedStaff.map((s) {
     final barberId = s['id'] as String;
@@ -146,6 +155,9 @@ final branchDetailProvider =
       currentClient = activeQueue.first;
     } else if (s['status'] == 'paused' || s['status'] == 'blocked') {
       status = 'descanso';
+    } else if (_isBarberBlockedByShiftEnd(
+        barberId, schedulesList, DateTime.now(), shiftEndMargin)) {
+      status = 'fin_turno';
     } else {
       status = 'disponible';
     }
@@ -159,7 +171,7 @@ final branchDetailProvider =
       'eta_minutes': eta,
       'avg_minutes': avg,
     };
-  }).toList();
+  }).where((s) => s['status'] != 'fin_turno').toList();
 
   // get_branch_open_status returns TABLE → List with one row
   bool isOpen = false;
@@ -191,14 +203,63 @@ final branchDetailProvider =
     'waiting': waiting,
     'in_progress': inProgress,
     'staff': staffWithStatus,
-    'available_staff_count': availableStaff.length,
-    'total_staff_count': activatedStaff.length,
+    'available_staff_count': staffWithStatus.where((s) => s['status'] == 'disponible').length,
+    'total_staff_count': staffWithStatus.length,
     'is_open': isOpen,
     'eta_minutes': globalEta,
     'business_hours_open': appSettings['business_hours_open'] ?? '--:--',
     'business_hours_close': appSettings['business_hours_close'] ?? '--:--',
   };
 });
+
+/// Espejo de isBarberBlockedByShiftEnd de barber-utils.ts.
+/// Devuelve true si el barbero está cerca del fin de su último bloque de horario
+/// y no tiene otro bloque que comience después del margen.
+bool _isBarberBlockedByShiftEnd(
+  String barberId,
+  List<Map<String, dynamic>> schedules,
+  DateTime now,
+  int marginMinutes,
+) {
+  final barberSchedules = schedules
+      .where((s) => s['staff_id'] == barberId)
+      .toList()
+    ..sort((a, b) =>
+        (a['start_time'] as String).compareTo(b['start_time'] as String));
+
+  if (barberSchedules.isEmpty) return false;
+
+  DateTime timeToDate(String timeStr) {
+    final parts = timeStr.split(':');
+    final h = int.parse(parts[0]);
+    final m = int.parse(parts[1]);
+    return DateTime(now.year, now.month, now.day, h, m);
+  }
+
+  final lastBlock = barberSchedules.last;
+  final lastEnd = timeToDate(lastBlock['end_time'] as String);
+
+  if (!now.isBefore(lastEnd)) return true;
+
+  for (int i = 0; i < barberSchedules.length; i++) {
+    final blockEnd = timeToDate(barberSchedules[i]['end_time'] as String);
+    final msToEnd = blockEnd.difference(now).inMilliseconds;
+
+    if (msToEnd <= 0) continue;
+
+    if (msToEnd <= marginMinutes * 60 * 1000) {
+      if (i + 1 >= barberSchedules.length) return true;
+      final nextStart =
+          timeToDate(barberSchedules[i + 1]['start_time'] as String);
+      final gapMinutes = nextStart.difference(blockEnd).inMinutes;
+      if (gapMinutes > marginMinutes) return true;
+    }
+
+    return false;
+  }
+
+  return true;
+}
 
 /// Retorna el inicio del día actual en UTC (para filtrar attendance_logs de hoy)
 String _todayStartIso() {
