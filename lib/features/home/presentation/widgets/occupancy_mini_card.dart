@@ -5,22 +5,27 @@ import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 
 class OccupancyMiniCard extends StatelessWidget {
   final String branchName;
-  final String occupancyLevel; // baja | media | alta
+  final String occupancyLevel; // sin_espera | baja | media | alta
   final int etaMinutes;
+  final bool isOpen;
 
   const OccupancyMiniCard({
     super.key,
     required this.branchName,
     required this.occupancyLevel,
     required this.etaMinutes,
+    this.isOpen = true,
   });
 
   Color get _levelColor {
+    if (!isOpen) return const Color(0xFF6B7280); // gris
     switch (occupancyLevel.toLowerCase()) {
       case 'alta':
         return const Color(0xFFEF4444); // red
       case 'media':
         return const Color(0xFFF59E0B); // amber
+      case 'sin_espera':
+        return const Color(0xFF22C55E); // green
       case 'baja':
       default:
         return const Color(0xFF22C55E); // green
@@ -28,11 +33,14 @@ class OccupancyMiniCard extends StatelessWidget {
   }
 
   String get _levelLabel {
+    if (!isOpen) return 'Cerrado';
     switch (occupancyLevel.toLowerCase()) {
       case 'alta':
         return 'Alta';
       case 'media':
         return 'Media';
+      case 'sin_espera':
+        return 'Sin espera';
       case 'baja':
       default:
         return 'Baja';
@@ -109,7 +117,7 @@ class OccupancyMiniCard extends StatelessWidget {
               ),
               const SizedBox(width: 4),
               Text(
-                etaMinutes > 0 ? '~$etaMinutes min' : 'Sin espera',
+                etaMinutes > 0 && isOpen ? '~$etaMinutes min' : (isOpen ? 'Sin espera' : 'Cerrado'),
                 style: TextStyle(
                   color: MonacoColors.textSecondary,
                   fontSize: 12,

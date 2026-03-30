@@ -170,6 +170,7 @@ final branchDetailProvider =
       'current_client': currentClient,
       'eta_minutes': eta,
       'avg_minutes': avg,
+      'waiting_count': waitingForBarber.length,
     };
   }).where((s) => s['status'] != 'fin_turno').toList();
 

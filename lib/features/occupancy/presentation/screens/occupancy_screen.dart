@@ -143,6 +143,8 @@ class _BranchCard extends StatelessWidget {
         return const Color(0xFFEF4444);
       case 'media':
         return const Color(0xFFF59E0B);
+      case 'sin_espera':
+        return const Color(0xFF22C55E);
       case 'baja':
       default:
         return const Color(0xFF22C55E);
@@ -155,6 +157,8 @@ class _BranchCard extends StatelessWidget {
         return 'Ocupación alta';
       case 'media':
         return 'Ocupación media';
+      case 'sin_espera':
+        return 'Sin espera';
       case 'baja':
       default:
         return 'Ocupación baja';

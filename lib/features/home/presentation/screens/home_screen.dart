@@ -130,6 +130,7 @@ class HomeScreen extends ConsumerWidget {
                               branchName: b['branch_name'] ?? 'Sucursal',
                               occupancyLevel: b['occupancy_level'] ?? 'baja',
                               etaMinutes: (b['eta_minutes'] ?? 0).toInt(),
+                              isOpen: (b['is_open'] ?? true) as bool,
                             ),
                           );
                         },

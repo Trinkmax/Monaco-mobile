@@ -14,7 +14,7 @@ class BranchDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final detail = ref.watch(branchDetailProvider(branchId));
-    // Listen to realtime updates to invalidate detail
+    // Escuchar actualizaciones en tiempo real para invalidar el detalle
     ref.listen(branchQueueRealtimeProvider(branchId), (_, __) {
       ref.invalidate(branchDetailProvider(branchId));
     });
@@ -25,6 +25,10 @@ class BranchDetailScreen extends ConsumerWidget {
         backgroundColor: MonacoColors.background,
         foregroundColor: MonacoColors.textPrimary,
         elevation: 0,
+        // Línea divisoria sutil en la parte inferior del AppBar
+        shape: const Border(
+          bottom: BorderSide(color: Colors.white10),
+        ),
         title: detail.when(
           data: (d) => Text(
             d['branch']?['name'] ?? 'Sucursal',
@@ -43,7 +47,8 @@ class BranchDetailScreen extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.error_outline, size: 48, color: MonacoColors.destructive),
+              Icon(Icons.error_outline,
+                  size: 48, color: MonacoColors.destructive),
               const SizedBox(height: 12),
               Text(
                 'Error al cargar detalle',
@@ -53,8 +58,8 @@ class BranchDetailScreen extends ConsumerWidget {
               TextButton(
                 onPressed: () =>
                     ref.invalidate(branchDetailProvider(branchId)),
-                child: Text('Reintentar',
-                    style: TextStyle(color: MonacoColors.gold)),
+                child:
+                    Text('Reintentar', style: TextStyle(color: MonacoColors.gold)),
               ),
             ],
           ),
@@ -87,7 +92,7 @@ class BranchDetailScreen extends ConsumerWidget {
   }
 }
 
-// ── Detail Content ─────────────────────────────────────────────────────────
+// ── Contenido principal del detalle ────────────────────────────────────────
 
 class _BranchDetailContent extends StatelessWidget {
   final Map<String, dynamic> data;
@@ -100,10 +105,11 @@ class _BranchDetailContent extends StatelessWidget {
     final inProgress = (data['in_progress'] ?? []) as List;
     final staff = (data['staff'] ?? []) as List;
     final availableCount = (data['available_staff_count'] ?? 0) as int;
+    final totalBarbers =
+        data['total_staff_count'] as int? ?? staff.length;
     final isOpen = data['is_open'] == true;
     final openTime = data['business_hours_open'] ?? '--:--';
     final closeTime = data['business_hours_close'] ?? '--:--';
-    final etaMinutes = (data['eta_minutes'] ?? 0) as int;
 
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -111,13 +117,13 @@ class _BranchDetailContent extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Live indicator ──
+          // ── Indicador en vivo ──
           _LiveIndicator(isOpen: isOpen)
               .animate()
               .fadeIn(duration: 400.ms),
           const SizedBox(height: 20),
 
-          // ── Summary Card ──
+          // ── Tarjetas de resumen ──
           _SummaryCard(
             waitingCount: waiting.length,
             inProgressCount: inProgress.length,
@@ -127,28 +133,54 @@ class _BranchDetailContent extends StatelessWidget {
                 end: 0,
                 duration: 500.ms,
               ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
-          // ── ETA ──
-          _EtaSection(etaMinutes: etaMinutes)
+          // ── Tarjeta de ocupación ──
+          _OccupancyCard(
+            waitingCount: waiting.length,
+            availableBarbers: availableCount,
+            totalBarbers: totalBarbers,
+          )
               .animate(delay: 100.ms)
-              .fadeIn(duration: 400.ms),
-          const SizedBox(height: 20),
+              .fadeIn(duration: 400.ms)
+              .slideY(begin: 0.04, end: 0, duration: 400.ms),
+          const SizedBox(height: 16),
 
-          // ── Schedule ──
+          // ── Horario ──
           _ScheduleRow(openTime: openTime, closeTime: closeTime)
               .animate(delay: 150.ms)
               .fadeIn(duration: 400.ms),
           const SizedBox(height: 24),
 
-          // ── Barbers ──
-          Text(
-            'Barberos',
-            style: TextStyle(
-              color: MonacoColors.textPrimary,
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-            ),
+          // ── Encabezado de barberos ──
+          Row(
+            children: [
+              Text(
+                'Barberos',
+                style: TextStyle(
+                  color: MonacoColors.textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                decoration: BoxDecoration(
+                  color: MonacoColors.surfaceVariant,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '$totalBarbers',
+                  style: TextStyle(
+                    color: MonacoColors.textPrimary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
 
@@ -175,6 +207,7 @@ class _BranchDetailContent extends StatelessWidget {
                   avatarUrl: s['avatar_url'] as String?,
                   currentClientName: currentClient?['client_name'],
                   etaMinutes: s['eta_minutes'] as int?,
+                  queueAhead: (s['waiting_count'] as int?) ?? 0,
                 )
                     .animate(delay: (200 + i * 60).ms)
                     .fadeIn(duration: 350.ms)
@@ -189,7 +222,7 @@ class _BranchDetailContent extends StatelessWidget {
   }
 }
 
-// ── Live Indicator ─────────────────────────────────────────────────────────
+// ── Indicador en vivo ───────────────────────────────────────────────────────
 
 class _LiveIndicator extends StatelessWidget {
   final bool isOpen;
@@ -268,7 +301,7 @@ class _LiveIndicator extends StatelessWidget {
   }
 }
 
-// ── Summary Card ───────────────────────────────────────────────────────────
+// ── Tarjetas de resumen ─────────────────────────────────────────────────────
 
 class _SummaryCard extends StatelessWidget {
   final int waitingCount;
@@ -283,59 +316,47 @@ class _SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: MonacoColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: MonacoColors.divider.withOpacity(0.1)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _SummaryItem(
-              value: '$waitingCount',
-              label: 'En espera',
-              color: const Color(0xFFF59E0B),
-            ),
+    return Row(
+      children: [
+        Expanded(
+          child: _MiniStatCard(
+            icon: Icons.hourglass_top_rounded,
+            value: '$waitingCount',
+            label: 'En espera',
+            color: const Color(0xFFF59E0B),
           ),
-          _verticalDivider(),
-          Expanded(
-            child: _SummaryItem(
-              value: '$inProgressCount',
-              label: 'En progreso',
-              color: const Color(0xFF3B82F6),
-            ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _MiniStatCard(
+            icon: Icons.content_cut_rounded,
+            value: '$inProgressCount',
+            label: 'En progreso',
+            color: const Color(0xFF3B82F6),
           ),
-          _verticalDivider(),
-          Expanded(
-            child: _SummaryItem(
-              value: '$availableBarbers',
-              label: 'Disponibles',
-              color: const Color(0xFF22C55E),
-            ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _MiniStatCard(
+            icon: Icons.check_circle_outline_rounded,
+            value: '$availableBarbers',
+            label: 'Disponibles',
+            color: const Color(0xFF22C55E),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _verticalDivider() {
-    return Container(
-      width: 1,
-      height: 40,
-      color: MonacoColors.divider.withOpacity(0.15),
+        ),
+      ],
     );
   }
 }
 
-class _SummaryItem extends StatelessWidget {
+class _MiniStatCard extends StatelessWidget {
+  final IconData icon;
   final String value;
   final String label;
   final Color color;
 
-  const _SummaryItem({
+  const _MiniStatCard({
+    required this.icon,
     required this.value,
     required this.label,
     required this.color,
@@ -343,74 +364,34 @@ class _SummaryItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: TextStyle(
-            color: color,
-            fontSize: 28,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            color: MonacoColors.textSecondary,
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-          ),
-          textAlign: TextAlign.center,
-        ),
-      ],
-    );
-  }
-}
-
-// ── ETA Section ────────────────────────────────────────────────────────────
-
-class _EtaSection extends StatelessWidget {
-  final int etaMinutes;
-
-  const _EtaSection({required this.etaMinutes});
-
-  @override
-  Widget build(BuildContext context) {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
       decoration: BoxDecoration(
-        color: MonacoColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: MonacoColors.divider.withOpacity(0.1)),
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.2)),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Icon(Icons.schedule_rounded,
-              size: 32, color: MonacoColors.gold),
-          const SizedBox(width: 16),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Tiempo estimado de espera',
-                style: TextStyle(
-                  color: MonacoColors.textSecondary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                etaMinutes > 0 ? '~$etaMinutes minutos' : 'Sin espera',
-                style: TextStyle(
-                  color: MonacoColors.textPrimary,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ],
+          Icon(icon, size: 20, color: color),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontSize: 26,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: MonacoColors.textSecondary,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+            textAlign: TextAlign.center,
           ),
         ],
       ),
@@ -418,7 +399,168 @@ class _EtaSection extends StatelessWidget {
   }
 }
 
-// ── Schedule Row ───────────────────────────────────────────────────────────
+// ── Tarjeta de ocupación ────────────────────────────────────────────────────
+
+class _OccupancyCard extends StatelessWidget {
+  final int waitingCount;
+  final int availableBarbers;
+  final int totalBarbers;
+
+  const _OccupancyCard({
+    required this.waitingCount,
+    required this.availableBarbers,
+    required this.totalBarbers,
+  });
+
+  String get _levelKey {
+    if (availableBarbers >= 1) return 'sin_espera';
+    if (waitingCount == 0) return 'baja';
+    if (totalBarbers == 0 || waitingCount < 2 * totalBarbers) return 'media';
+    return 'alta';
+  }
+
+  Color get _levelColor {
+    switch (_levelKey) {
+      case 'alta':
+        return MonacoColors.occupancyHigh;
+      case 'media':
+        return MonacoColors.occupancyMedium;
+      case 'sin_espera':
+      case 'baja':
+      default:
+        return MonacoColors.occupancyLow;
+    }
+  }
+
+  String get _levelLabel {
+    switch (_levelKey) {
+      case 'alta':
+        return 'ALTA';
+      case 'media':
+        return 'MEDIA';
+      case 'sin_espera':
+        return 'SIN ESPERA';
+      case 'baja':
+      default:
+        return 'BAJA';
+    }
+  }
+
+  // Ratio visual para la barra de progreso: llena al 100% cuando waiting = 2 por barbero
+  double get _ratio {
+    if (totalBarbers == 0) return 0.0;
+    return (waitingCount / (2.0 * totalBarbers)).clamp(0.0, 1.0);
+  }
+
+  String get _subtitle {
+    if (availableBarbers >= 1) {
+      return '$availableBarbers barbero${availableBarbers > 1 ? "s" : ""} disponible${availableBarbers > 1 ? "s" : ""}';
+    }
+    if (waitingCount == 0) return 'Todos atendiendo, sin cola';
+    return '$waitingCount en espera · $availableBarbers disponibles';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ratio = _ratio;
+    final color = _levelColor;
+    final label = _levelLabel;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: MonacoColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: MonacoColors.divider.withOpacity(0.12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Encabezado: título + badge de nivel
+          Row(
+            children: [
+              Icon(Icons.bar_chart_rounded,
+                  size: 18, color: MonacoColors.gold),
+              const SizedBox(width: 8),
+              Text(
+                'Ocupación',
+                style: TextStyle(
+                  color: MonacoColors.textPrimary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Barra de progreso con gradiente
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: SizedBox(
+              height: 8,
+              child: Stack(
+                children: [
+                  // Fondo
+                  Container(
+                    width: double.infinity,
+                    color: Colors.white10,
+                  ),
+                  // Relleno coloreado
+                  FractionallySizedBox(
+                    widthFactor: ratio,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            color.withOpacity(0.7),
+                            color,
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Subtítulo debajo de la barra
+          Text(
+            _subtitle,
+            style: TextStyle(
+              color: MonacoColors.textSecondary,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Horario ─────────────────────────────────────────────────────────────────
 
 class _ScheduleRow extends StatelessWidget {
   final String openTime;
@@ -426,7 +568,7 @@ class _ScheduleRow extends StatelessWidget {
 
   const _ScheduleRow({required this.openTime, required this.closeTime});
 
-  /// Strip seconds from HH:MM:SS → HH:MM
+  /// Elimina los segundos de HH:MM:SS → HH:MM
   String _formatTime(String t) {
     final parts = t.split(':');
     if (parts.length >= 2) return '${parts[0]}:${parts[1]}';
@@ -437,23 +579,23 @@ class _ScheduleRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding:
+          const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: MonacoColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: MonacoColors.divider.withOpacity(0.1)),
+        color: MonacoColors.surfaceVariant.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
           Icon(Icons.access_time_rounded,
-              size: 20, color: MonacoColors.textSecondary),
-          const SizedBox(width: 12),
+              size: 16, color: MonacoColors.textSecondary),
+          const SizedBox(width: 10),
           Text(
             'Horario: ${_formatTime(openTime)} - ${_formatTime(closeTime)}',
             style: TextStyle(
-              color: MonacoColors.textPrimary,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
+              color: MonacoColors.textSecondary,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ],
