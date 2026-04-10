@@ -18,6 +18,8 @@ import '../../features/billboard/presentation/screens/billboard_screen.dart';
 import '../../features/catalog/presentation/screens/catalog_screen.dart';
 import '../../features/profile/presentation/screens/profile_screen.dart';
 import '../../features/profile/presentation/screens/pin_setup_screen.dart';
+import '../../features/branch_selection/presentation/screens/branch_selection_screen.dart';
+import '../../features/org_selection/presentation/screens/org_selection_screen.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellNavigatorKey = GlobalKey<NavigatorState>();
@@ -34,6 +36,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       final needsBio = authState.status == AuthStatus.needsBiometric;
       final isUnauthenticated = authState.status == AuthStatus.unauthenticated;
       final isInitial = authState.status == AuthStatus.initial;
+      final hasOrg = authState.hasOrg;
 
       // Allow splash always
       if (path == '/splash') return null;
@@ -49,8 +52,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         return '/welcome';
       }
 
-      // Authenticated, redirect away from auth screens
-      if (isAuth && (path.startsWith('/welcome') || path.startsWith('/login') || path == '/biometric' || path == '/splash')) {
+      // Authenticated pero sin org seleccionada → selección de org
+      if (isAuth && !hasOrg && path != '/select-org') {
+        return '/select-org';
+      }
+
+      // Authenticated con org, redirect away from auth/selection screens
+      if (isAuth && hasOrg &&
+          (path.startsWith('/welcome') || path.startsWith('/login') ||
+           path == '/biometric' || path == '/splash' ||
+           path == '/select-org' || path == '/select-branch')) {
         return '/home';
       }
 
@@ -61,6 +72,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/welcome', builder: (_, __) => const WelcomeScreen()),
       GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
       GoRoute(path: '/biometric', builder: (_, __) => const BiometricGateScreen()),
+      GoRoute(path: '/select-org', builder: (_, __) => const OrgSelectionScreen()),
+      GoRoute(path: '/select-branch', builder: (_, __) => const BranchSelectionScreen()),
 
       // Main app with bottom nav
       ShellRoute(

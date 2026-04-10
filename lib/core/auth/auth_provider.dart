@@ -21,6 +21,10 @@ class AuthState {
   final String? clientName;
   final String? error;
   final bool isNewClient;
+  final String? selectedOrgId;
+  final String? selectedOrgName;
+  final String? selectedBranchId;
+  final String? selectedBranchName;
 
   const AuthState({
     this.status = AuthStatus.initial,
@@ -28,7 +32,14 @@ class AuthState {
     this.clientName,
     this.error,
     this.isNewClient = false,
+    this.selectedOrgId,
+    this.selectedOrgName,
+    this.selectedBranchId,
+    this.selectedBranchName,
   });
+
+  bool get hasOrg => selectedOrgId != null;
+  bool get hasBranch => selectedBranchId != null;
 
   AuthState copyWith({
     AuthStatus? status,
@@ -36,6 +47,10 @@ class AuthState {
     String? clientName,
     String? error,
     bool? isNewClient,
+    String? selectedOrgId,
+    String? selectedOrgName,
+    String? selectedBranchId,
+    String? selectedBranchName,
   }) {
     return AuthState(
       status: status ?? this.status,
@@ -43,6 +58,10 @@ class AuthState {
       clientName: clientName ?? this.clientName,
       error: error,
       isNewClient: isNewClient ?? this.isNewClient,
+      selectedOrgId: selectedOrgId ?? this.selectedOrgId,
+      selectedOrgName: selectedOrgName ?? this.selectedOrgName,
+      selectedBranchId: selectedBranchId ?? this.selectedBranchId,
+      selectedBranchName: selectedBranchName ?? this.selectedBranchName,
     );
   }
 }
@@ -103,18 +122,32 @@ class AuthNotifier extends StateNotifier<AuthState> {
           } catch (_) {}
         }
 
+        // Restaurar organización y sucursal seleccionadas
+        final orgId = await SecureStorageService.getSelectedOrgId();
+        final orgName = await SecureStorageService.getSelectedOrgName();
+        final branchId = await SecureStorageService.getSelectedBranchId();
+        final branchName = await SecureStorageService.getSelectedBranchName();
+
         final bioEnabled = await SecureStorageService.isBiometricEnabled();
         if (bioEnabled) {
           state = AuthState(
             status: AuthStatus.needsBiometric,
             clientId: clientId,
             clientName: clientName,
+            selectedOrgId: orgId,
+            selectedOrgName: orgName,
+            selectedBranchId: branchId,
+            selectedBranchName: branchName,
           );
         } else {
           state = AuthState(
             status: AuthStatus.authenticated,
             clientId: clientId,
             clientName: clientName,
+            selectedOrgId: orgId,
+            selectedOrgName: orgName,
+            selectedBranchId: branchId,
+            selectedBranchName: branchName,
           );
         }
         return;
@@ -159,6 +192,54 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> completeBiometric() async {
     state = state.copyWith(status: AuthStatus.authenticated);
+  }
+
+  /// Guarda la organización seleccionada por el cliente.
+  Future<void> setSelectedOrg(String orgId, String orgName) async {
+    await SecureStorageService.saveSelectedOrg(
+      orgId: orgId,
+      orgName: orgName,
+    );
+    state = state.copyWith(
+      selectedOrgId: orgId,
+      selectedOrgName: orgName,
+    );
+  }
+
+  /// Limpia la organización y sucursal (para cambiar de org).
+  Future<void> clearSelectedOrg() async {
+    await SecureStorageService.clearSelectedOrg();
+    state = AuthState(
+      status: state.status,
+      clientId: state.clientId,
+      clientName: state.clientName,
+      isNewClient: state.isNewClient,
+    );
+  }
+
+  /// Guarda la sucursal seleccionada por el cliente.
+  Future<void> setSelectedBranch(String branchId, String branchName) async {
+    await SecureStorageService.saveSelectedBranch(
+      branchId: branchId,
+      branchName: branchName,
+    );
+    state = state.copyWith(
+      selectedBranchId: branchId,
+      selectedBranchName: branchName,
+    );
+  }
+
+  /// Limpia la sucursal seleccionada (vuelve a selección de branch dentro de la org).
+  Future<void> clearSelectedBranch() async {
+    await SecureStorageService.clearSelectedBranch();
+    state = AuthState(
+      status: state.status,
+      clientId: state.clientId,
+      clientName: state.clientName,
+      isNewClient: state.isNewClient,
+      selectedOrgId: state.selectedOrgId,
+      selectedOrgName: state.selectedOrgName,
+    );
   }
 
   void clearError() {

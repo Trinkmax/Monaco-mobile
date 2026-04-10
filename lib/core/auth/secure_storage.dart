@@ -16,6 +16,10 @@ class SecureStorageService {
   static const _keyClientPhone = 'client_phone';
   static const _keyBiometricEnabled = 'biometric_enabled';
   static const _keyPinEnabled = 'pin_enabled';
+  static const _keySelectedOrgId = 'selected_org_id';
+  static const _keySelectedOrgName = 'selected_org_name';
+  static const _keySelectedBranchId = 'selected_branch_id';
+  static const _keySelectedBranchName = 'selected_branch_name';
 
   // Device Secret
   static Future<String> getOrCreateDeviceSecret() async {
@@ -81,6 +85,54 @@ class SecureStorageService {
     await _storage.write(key: _keyPinEnabled, value: enabled.toString());
   }
 
+  // Selected organization
+  static Future<void> saveSelectedOrg({
+    required String orgId,
+    required String orgName,
+  }) async {
+    await Future.wait([
+      _storage.write(key: _keySelectedOrgId, value: orgId),
+      _storage.write(key: _keySelectedOrgName, value: orgName),
+    ]);
+  }
+
+  static Future<String?> getSelectedOrgId() =>
+      _storage.read(key: _keySelectedOrgId);
+  static Future<String?> getSelectedOrgName() =>
+      _storage.read(key: _keySelectedOrgName);
+
+  static Future<void> clearSelectedOrg() async {
+    await Future.wait([
+      _storage.delete(key: _keySelectedOrgId),
+      _storage.delete(key: _keySelectedOrgName),
+      _storage.delete(key: _keySelectedBranchId),
+      _storage.delete(key: _keySelectedBranchName),
+    ]);
+  }
+
+  // Selected branch
+  static Future<void> saveSelectedBranch({
+    required String branchId,
+    required String branchName,
+  }) async {
+    await Future.wait([
+      _storage.write(key: _keySelectedBranchId, value: branchId),
+      _storage.write(key: _keySelectedBranchName, value: branchName),
+    ]);
+  }
+
+  static Future<String?> getSelectedBranchId() =>
+      _storage.read(key: _keySelectedBranchId);
+  static Future<String?> getSelectedBranchName() =>
+      _storage.read(key: _keySelectedBranchName);
+
+  static Future<void> clearSelectedBranch() async {
+    await Future.wait([
+      _storage.delete(key: _keySelectedBranchId),
+      _storage.delete(key: _keySelectedBranchName),
+    ]);
+  }
+
   // Clear all on logout
   static Future<void> clearAll() async {
     await _storage.deleteAll();
@@ -92,6 +144,10 @@ class SecureStorageService {
       _storage.delete(key: _keyClientId),
       _storage.delete(key: _keyClientName),
       _storage.delete(key: _keyClientPhone),
+      _storage.delete(key: _keySelectedOrgId),
+      _storage.delete(key: _keySelectedOrgName),
+      _storage.delete(key: _keySelectedBranchId),
+      _storage.delete(key: _keySelectedBranchName),
     ]);
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/features/occupancy/providers/occupancy_provider.dart';
@@ -101,6 +102,7 @@ class _BranchDetailContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final branch = data['branch'] as Map<String, dynamic>? ?? {};
     final waiting = (data['waiting'] ?? []) as List;
     final inProgress = (data['in_progress'] ?? []) as List;
     final staff = (data['staff'] ?? []) as List;
@@ -110,6 +112,9 @@ class _BranchDetailContent extends StatelessWidget {
     final isOpen = data['is_open'] == true;
     final openTime = data['business_hours_open'] ?? '--:--';
     final closeTime = data['business_hours_close'] ?? '--:--';
+    final branchLat = (branch['latitude'] as num?)?.toDouble();
+    final branchLng = (branch['longitude'] as num?)?.toDouble();
+    final branchAddress = branch['address'] as String?;
 
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -150,6 +155,17 @@ class _BranchDetailContent extends StatelessWidget {
           _ScheduleRow(openTime: openTime, closeTime: closeTime)
               .animate(delay: 150.ms)
               .fadeIn(duration: 400.ms),
+          const SizedBox(height: 12),
+
+          // ── Dirección + Cómo llegar ──
+          if (branchAddress != null || (branchLat != null && branchLng != null))
+            _DirectionsRow(
+              address: branchAddress,
+              latitude: branchLat,
+              longitude: branchLng,
+            )
+                .animate(delay: 200.ms)
+                .fadeIn(duration: 400.ms),
           const SizedBox(height: 24),
 
           // ── Encabezado de barberos ──
@@ -598,6 +614,91 @@ class _ScheduleRow extends StatelessWidget {
               fontWeight: FontWeight.w500,
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Dirección + Cómo llegar ───────────────────────────────────────────────
+
+class _DirectionsRow extends StatelessWidget {
+  final String? address;
+  final double? latitude;
+  final double? longitude;
+
+  const _DirectionsRow({
+    this.address,
+    this.latitude,
+    this.longitude,
+  });
+
+  Future<void> _openMaps() async {
+    if (latitude == null || longitude == null) return;
+    final url = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=$latitude,$longitude',
+    );
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: MonacoColors.surfaceVariant.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.location_on_outlined,
+              size: 16, color: MonacoColors.textSecondary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              address ?? 'Ubicación disponible',
+              style: TextStyle(
+                color: MonacoColors.textSecondary,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (latitude != null && longitude != null) ...[
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: _openMaps,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: MonacoColors.gold,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.directions_rounded,
+                        size: 14, color: Colors.black),
+                    SizedBox(width: 4),
+                    Text(
+                      'Cómo llegar',
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

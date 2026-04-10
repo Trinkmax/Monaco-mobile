@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../utils/constants.dart';
 import 'secure_storage.dart';
 
 class AuthResult {
@@ -38,6 +39,7 @@ class AuthService {
           'phone': phone,
           'device_id': deviceId,
           'device_secret': deviceSecret,
+          'org_id': AppConstants.defaultOrgId,
           if (name != null) 'name': name,
         },
       );

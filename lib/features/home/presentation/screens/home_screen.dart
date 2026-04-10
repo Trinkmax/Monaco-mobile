@@ -12,6 +12,7 @@ import 'package:monaco_mobile/features/home/presentation/widgets/occupancy_mini_
 import 'package:monaco_mobile/features/points/providers/points_provider.dart';
 import 'package:monaco_mobile/features/reviews/providers/reviews_provider.dart';
 import 'package:monaco_mobile/features/occupancy/providers/occupancy_provider.dart';
+import 'package:monaco_mobile/core/branch/selected_branch_provider.dart';
 
 // ── Providers ──────────────────────────────────────────────────────────────
 // globalPointsProvider  → imported from points_provider.dart
@@ -41,6 +42,7 @@ class HomeScreen extends ConsumerWidget {
     final reviews = ref.watch(pendingReviewsProvider);
     final branches = ref.watch(branchSignalsProvider);
     final billboard = ref.watch(billboardProvider);
+    final selectedBranchName = ref.watch(selectedBranchNameProvider);
 
     final userName = auth.clientName ?? 'Cliente';
     final today = DateFormat("EEEE d 'de' MMMM", 'es').format(DateTime.now());
@@ -65,7 +67,60 @@ class HomeScreen extends ConsumerWidget {
               children: [
                 // ── Header ──
                 _Header(name: userName, date: today),
-                const SizedBox(height: 24),
+                const SizedBox(height: 12),
+
+                // ── Org + Sucursal seleccionada ──
+                if (auth.selectedOrgName != null || selectedBranchName != null)
+                  GestureDetector(
+                    onTap: () {
+                      ref.read(authProvider.notifier).clearSelectedOrg();
+                      context.go('/select-org');
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: MonacoColors.surface,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                            color: MonacoColors.border),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.storefront,
+                              size: 16, color: MonacoColors.gold),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              [
+                                if (auth.selectedOrgName != null) auth.selectedOrgName!,
+                                if (selectedBranchName != null) selectedBranchName,
+                              ].join(' · '),
+                              style: const TextStyle(
+                                color: MonacoColors.textPrimary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Text(
+                            'Cambiar',
+                            style: TextStyle(
+                              color: MonacoColors.foregroundSubtle,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(width: 2),
+                          const Icon(Icons.chevron_right,
+                              size: 14, color: MonacoColors.foregroundSubtle),
+                        ],
+                      ),
+                    ),
+                  ).animate().fadeIn(delay: 300.ms, duration: 400.ms),
+                const SizedBox(height: 20),
 
                 // ── Points Card ──
                 points.when(
