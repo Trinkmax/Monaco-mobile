@@ -65,6 +65,19 @@ class MonacoColors {
   static const Color gold = Color(0xFFFFFFFF);
   static const Color goldLight = Color(0xFFFFFFFF);
 
+  // ── Monaco brand (Liquid Glass iOS 26) ────────────────────────────────────
+  /// Verde Monaco — acento principal del lenguaje visual liquid glass.
+  static const Color monacoGreen = Color(0xFF22C55E);
+
+  /// Verde Monaco más profundo — para gradients y estados "activos".
+  static const Color monacoGreenDeep = Color(0xFF16A34A);
+
+  /// Azul profundo — orbe secundario del backdrop animado.
+  static const Color deepBlue = Color(0xFF1E3A8A);
+
+  /// Violeta — orbe terciario del backdrop animado.
+  static const Color deepViolet = Color(0xFF7C3AED);
+
   // Review stars
   static const Color starFilled = Color(0xFFF5A623);
   static const Color starEmpty = Color(0xFF444444);
