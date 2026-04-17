@@ -5,7 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/features/occupancy/providers/occupancy_provider.dart';
-import 'package:monaco_mobile/features/occupancy/presentation/widgets/barber_status_tile.dart';
+import 'package:monaco_mobile/features/occupancy/presentation/widgets/barber_flow_tile.dart';
 
 class BranchDetailScreen extends ConsumerWidget {
   final String branchId;
@@ -15,8 +15,12 @@ class BranchDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final detail = ref.watch(branchDetailProvider(branchId));
-    // Escuchar actualizaciones en tiempo real para invalidar el detalle
+
+    // Escuchar actualizaciones en tiempo real de cola y asistencia
     ref.listen(branchQueueRealtimeProvider(branchId), (_, __) {
+      ref.invalidate(branchDetailProvider(branchId));
+    });
+    ref.listen(branchAttendanceRealtimeProvider(branchId), (_, __) {
       ref.invalidate(branchDetailProvider(branchId));
     });
 
@@ -26,7 +30,6 @@ class BranchDetailScreen extends ConsumerWidget {
         backgroundColor: MonacoColors.background,
         foregroundColor: MonacoColors.textPrimary,
         elevation: 0,
-        // Línea divisoria sutil en la parte inferior del AppBar
         shape: const Border(
           bottom: BorderSide(color: Colors.white10),
         ),
@@ -42,7 +45,7 @@ class BranchDetailScreen extends ConsumerWidget {
         ),
       ),
       body: detail.when(
-        data: (data) => _BranchDetailContent(data: data),
+        data: (data) => _LiveQueueContent(data: data),
         loading: () => _buildShimmer(),
         error: (e, _) => Center(
           child: Column(
@@ -59,8 +62,8 @@ class BranchDetailScreen extends ConsumerWidget {
               TextButton(
                 onPressed: () =>
                     ref.invalidate(branchDetailProvider(branchId)),
-                child:
-                    Text('Reintentar', style: TextStyle(color: MonacoColors.gold)),
+                child: Text('Reintentar',
+                    style: TextStyle(color: MonacoColors.gold)),
               ),
             ],
           ),
@@ -73,32 +76,67 @@ class BranchDetailScreen extends ConsumerWidget {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
-        children: List.generate(
-          4,
-          (_) => Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: Container(
-              height: 80,
-              decoration: BoxDecoration(
-                color: MonacoColors.surface,
-                borderRadius: BorderRadius.circular(14),
+        children: [
+          // Shimmer header
+          Container(
+            height: 60,
+            decoration: BoxDecoration(
+              color: MonacoColors.surface,
+              borderRadius: BorderRadius.circular(14),
+            ),
+          )
+              .animate(onPlay: (c) => c.repeat())
+              .shimmer(duration: 1200.ms, color: Colors.white10),
+          const SizedBox(height: 16),
+          // Shimmer stats
+          Row(
+            children: List.generate(
+              3,
+              (_) => Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Container(
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: MonacoColors.surface,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  )
+                      .animate(onPlay: (c) => c.repeat())
+                      .shimmer(duration: 1200.ms, color: Colors.white10),
+                ),
               ),
-            )
-                .animate(onPlay: (c) => c.repeat())
-                .shimmer(duration: 1200.ms, color: Colors.white10),
+            ),
           ),
-        ),
+          const SizedBox(height: 24),
+          // Shimmer tiles
+          ...List.generate(
+            3,
+            (_) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Container(
+                height: 100,
+                decoration: BoxDecoration(
+                  color: MonacoColors.surface,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              )
+                  .animate(onPlay: (c) => c.repeat())
+                  .shimmer(duration: 1200.ms, color: Colors.white10),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-// ── Contenido principal del detalle ────────────────────────────────────────
+// ── Contenido principal: Fila en vivo ──────────────────────────────────────
 
-class _BranchDetailContent extends StatelessWidget {
+class _LiveQueueContent extends StatelessWidget {
   final Map<String, dynamic> data;
 
-  const _BranchDetailContent({required this.data});
+  const _LiveQueueContent({required this.data});
 
   @override
   Widget build(BuildContext context) {
@@ -107,8 +145,7 @@ class _BranchDetailContent extends StatelessWidget {
     final inProgress = (data['in_progress'] ?? []) as List;
     final staff = (data['staff'] ?? []) as List;
     final availableCount = (data['available_staff_count'] ?? 0) as int;
-    final totalBarbers =
-        data['total_staff_count'] as int? ?? staff.length;
+    final totalBarbers = data['total_staff_count'] as int? ?? staff.length;
     final isOpen = data['is_open'] == true;
     final openTime = data['business_hours_open'] ?? '--:--';
     final closeTime = data['business_hours_close'] ?? '--:--';
@@ -116,143 +153,209 @@ class _BranchDetailContent extends StatelessWidget {
     final branchLng = (branch['longitude'] as num?)?.toDouble();
     final branchAddress = branch['address'] as String?;
 
-    return SingleChildScrollView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Indicador en vivo ──
-          _LiveIndicator(isOpen: isOpen)
-              .animate()
-              .fadeIn(duration: 400.ms),
-          const SizedBox(height: 20),
+    return RefreshIndicator(
+      color: MonacoColors.gold,
+      backgroundColor: MonacoColors.surface,
+      onRefresh: () async {
+        // El invalidate se hace desde el ConsumerWidget padre
+        await Future.delayed(const Duration(milliseconds: 300));
+      },
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Header: Estado en vivo + ETA global ──
+            _LiveHeader(
+              isOpen: isOpen,
+            ).animate().fadeIn(duration: 400.ms),
+            const SizedBox(height: 16),
 
-          // ── Tarjetas de resumen ──
-          _SummaryCard(
-            waitingCount: waiting.length,
-            inProgressCount: inProgress.length,
-            availableBarbers: availableCount,
-          ).animate().fadeIn(duration: 500.ms).slideY(
-                begin: 0.05,
-                end: 0,
-                duration: 500.ms,
-              ),
-          const SizedBox(height: 16),
-
-          // ── Tarjeta de ocupación ──
-          _OccupancyCard(
-            waitingCount: waiting.length,
-            availableBarbers: availableCount,
-            totalBarbers: totalBarbers,
-          )
-              .animate(delay: 100.ms)
-              .fadeIn(duration: 400.ms)
-              .slideY(begin: 0.04, end: 0, duration: 400.ms),
-          const SizedBox(height: 16),
-
-          // ── Horario ──
-          _ScheduleRow(openTime: openTime, closeTime: closeTime)
-              .animate(delay: 150.ms)
-              .fadeIn(duration: 400.ms),
-          const SizedBox(height: 12),
-
-          // ── Dirección + Cómo llegar ──
-          if (branchAddress != null || (branchLat != null && branchLng != null))
-            _DirectionsRow(
-              address: branchAddress,
-              latitude: branchLat,
-              longitude: branchLng,
+            // ── Resumen rápido: 3 métricas ──
+            _QuickStats(
+              waitingCount: waiting.length,
+              inProgressCount: inProgress.length,
+              availableBarbers: availableCount,
             )
-                .animate(delay: 200.ms)
-                .fadeIn(duration: 400.ms),
-          const SizedBox(height: 24),
+                .animate()
+                .fadeIn(duration: 500.ms)
+                .slideY(begin: 0.04, end: 0, duration: 400.ms),
 
-          // ── Encabezado de barberos ──
-          Row(
-            children: [
-              Text(
-                'Barberos',
-                style: TextStyle(
-                  color: MonacoColors.textPrimary,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                decoration: BoxDecoration(
-                  color: MonacoColors.surfaceVariant,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  '$totalBarbers',
+            // ── Sección: Dinámicos (solo clientes que eligieron menor espera) ──
+            if (waiting.any((e) => e['is_dynamic'] == true)) ...[
+              const SizedBox(height: 24),
+              _DynamicQueueSection(
+                waitingEntries: waiting
+                    .where((e) => e['is_dynamic'] == true)
+                    .map((e) => Map<String, dynamic>.from(e as Map))
+                    .toList(),
+              )
+                  .animate(delay: 80.ms)
+                  .fadeIn(duration: 400.ms)
+                  .slideY(begin: 0.03, end: 0, duration: 400.ms),
+            ],
+            const SizedBox(height: 24),
+
+            // ── Sección: Fila en vivo ──
+            Row(
+              children: [
+                const Text(
+                  'Fila en vivo',
                   style: TextStyle(
                     color: MonacoColors.textPrimary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          if (staff.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              child: Center(
-                child: Text(
-                  'Sin barberos registrados',
-                  style: TextStyle(color: MonacoColors.textSecondary),
+                const SizedBox(width: 10),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: MonacoColors.surfaceVariant,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '$totalBarbers',
+                    style: const TextStyle(
+                      color: MonacoColors.textPrimary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
+              ],
+            )
+                .animate(delay: 100.ms)
+                .fadeIn(duration: 400.ms),
+            const SizedBox(height: 14),
+
+            // ── Tiles de barberos (flow) ──
+            if (staff.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: Center(
+                  child: Text(
+                    'Sin barberos activos',
+                    style: TextStyle(color: MonacoColors.textSecondary),
+                  ),
+                ),
+              )
+            else
+              ...staff.asMap().entries.map((entry) {
+                final i = entry.key;
+                final s = Map<String, dynamic>.from(entry.value as Map);
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: BarberFlowTile(
+                    name: s['full_name'] ?? 'Barbero',
+                    status: s['status'] ?? 'disponible',
+                    avatarUrl: s['avatar_url'] as String?,
+                    queueAhead: (s['waiting_count'] as int?) ?? 0,
+                  )
+                      .animate(delay: (150 + i * 60).ms)
+                      .fadeIn(duration: 350.ms)
+                      .slideY(begin: 0.03, end: 0, duration: 350.ms),
+                );
+              }),
+
+            const SizedBox(height: 20),
+
+            // ── Sección: Información ──
+            const Text(
+              'Información',
+              style: TextStyle(
+                color: MonacoColors.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
               ),
             )
-          else
-            ...staff.asMap().entries.map((entry) {
-              final i = entry.key;
-              final s = Map<String, dynamic>.from(entry.value as Map);
-              final currentClient = s['current_client'] as Map<String, dynamic>?;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: BarberStatusTile(
-                  name: s['full_name'] ?? 'Barbero',
-                  status: s['status'] ?? 'disponible',
-                  avatarUrl: s['avatar_url'] as String?,
-                  currentClientName: currentClient?['client_name'],
-                  etaMinutes: s['eta_minutes'] as int?,
-                  queueAhead: (s['waiting_count'] as int?) ?? 0,
-                )
-                    .animate(delay: (200 + i * 60).ms)
-                    .fadeIn(duration: 350.ms)
-                    .slideX(begin: 0.04, end: 0, duration: 350.ms),
-              );
-            }),
+                .animate(delay: 300.ms)
+                .fadeIn(duration: 400.ms),
+            const SizedBox(height: 10),
 
-          const SizedBox(height: 32),
+            // Horario
+            _InfoRow(
+              icon: Icons.access_time_rounded,
+              text:
+                  'Horario: ${_formatTime(openTime)} - ${_formatTime(closeTime)}',
+            )
+                .animate(delay: 350.ms)
+                .fadeIn(duration: 400.ms),
+            const SizedBox(height: 8),
+
+            // Dirección
+            if (branchAddress != null)
+              _InfoRow(
+                icon: Icons.location_on_outlined,
+                text: branchAddress,
+              )
+                  .animate(delay: 400.ms)
+                  .fadeIn(duration: 400.ms),
+
+            // Botón "Cómo llegar"
+            if (branchLat != null && branchLng != null) ...[
+              const SizedBox(height: 16),
+              _DirectionsButton(
+                latitude: branchLat,
+                longitude: branchLng,
+              )
+                  .animate(delay: 450.ms)
+                  .fadeIn(duration: 400.ms),
+            ],
+
+            const SizedBox(height: 32),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatTime(String t) {
+    final parts = t.split(':');
+    if (parts.length >= 2) return '${parts[0]}:${parts[1]}';
+    return t;
+  }
+}
+
+// ── Header: Estado en vivo + ETA ───────────────────────────────────────────
+
+class _LiveHeader extends StatelessWidget {
+  final bool isOpen;
+
+  const _LiveHeader({
+    required this.isOpen,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: MonacoColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Row(
+        children: [
+          // Badge EN VIVO / CERRADO
+          _buildLiveBadge(),
+          const Spacer(),
+          // Sin indicadores de tiempo de espera
         ],
       ),
     );
   }
-}
 
-// ── Indicador en vivo ───────────────────────────────────────────────────────
-
-class _LiveIndicator extends StatelessWidget {
-  final bool isOpen;
-
-  const _LiveIndicator({required this.isOpen});
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildLiveBadge() {
     if (!isOpen) {
       return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
           color: Colors.grey.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -272,7 +375,7 @@ class _LiveIndicator extends StatelessWidget {
                 color: Colors.grey,
                 fontSize: 12,
                 fontWeight: FontWeight.w800,
-                letterSpacing: 1.2,
+                letterSpacing: 1.0,
               ),
             ),
           ],
@@ -281,10 +384,10 @@ class _LiveIndicator extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         color: const Color(0xFF22C55E).withOpacity(0.12),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -308,7 +411,7 @@ class _LiveIndicator extends StatelessWidget {
               color: Color(0xFF22C55E),
               fontSize: 12,
               fontWeight: FontWeight.w800,
-              letterSpacing: 1.2,
+              letterSpacing: 1.0,
             ),
           ),
         ],
@@ -317,14 +420,14 @@ class _LiveIndicator extends StatelessWidget {
   }
 }
 
-// ── Tarjetas de resumen ─────────────────────────────────────────────────────
+// ── Stats rápidos ──────────────────────────────────────────────────────────
 
-class _SummaryCard extends StatelessWidget {
+class _QuickStats extends StatelessWidget {
   final int waitingCount;
   final int inProgressCount;
   final int availableBarbers;
 
-  const _SummaryCard({
+  const _QuickStats({
     required this.waitingCount,
     required this.inProgressCount,
     required this.availableBarbers,
@@ -335,26 +438,23 @@ class _SummaryCard extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: _MiniStatCard(
-            icon: Icons.hourglass_top_rounded,
+          child: _StatPill(
             value: '$waitingCount',
-            label: 'En espera',
+            label: 'Esperando',
             color: const Color(0xFFF59E0B),
           ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 8),
         Expanded(
-          child: _MiniStatCard(
-            icon: Icons.content_cut_rounded,
+          child: _StatPill(
             value: '$inProgressCount',
-            label: 'En progreso',
+            label: 'Atendiendo',
             color: const Color(0xFF3B82F6),
           ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 8),
         Expanded(
-          child: _MiniStatCard(
-            icon: Icons.check_circle_outline_rounded,
+          child: _StatPill(
             value: '$availableBarbers',
             label: 'Disponibles',
             color: const Color(0xFF22C55E),
@@ -365,14 +465,12 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
-class _MiniStatCard extends StatelessWidget {
-  final IconData icon;
+class _StatPill extends StatelessWidget {
   final String value;
   final String label;
   final Color color;
 
-  const _MiniStatCard({
-    required this.icon,
+  const _StatPill({
     required this.value,
     required this.label,
     required this.color,
@@ -381,28 +479,26 @@ class _MiniStatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
       decoration: BoxDecoration(
         color: color.withOpacity(0.08),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withOpacity(0.15)),
       ),
       child: Column(
         children: [
-          Icon(icon, size: 20, color: color),
-          const SizedBox(height: 8),
           Text(
             value,
             style: TextStyle(
               color: color,
-              fontSize: 26,
+              fontSize: 24,
               fontWeight: FontWeight.w900,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           Text(
             label,
-            style: TextStyle(
+            style: const TextStyle(
               color: MonacoColors.textSecondary,
               fontSize: 11,
               fontWeight: FontWeight.w500,
@@ -415,233 +511,180 @@ class _MiniStatCard extends StatelessWidget {
   }
 }
 
-// ── Tarjeta de ocupación ────────────────────────────────────────────────────
+// ── Sección: Dinámicos (clientes esperando, sin nombres) ──────────────────
 
-class _OccupancyCard extends StatelessWidget {
-  final int waitingCount;
-  final int availableBarbers;
-  final int totalBarbers;
+class _DynamicQueueSection extends StatelessWidget {
+  final List<Map<String, dynamic>> waitingEntries;
 
-  const _OccupancyCard({
-    required this.waitingCount,
-    required this.availableBarbers,
-    required this.totalBarbers,
-  });
+  const _DynamicQueueSection({required this.waitingEntries});
 
-  String get _levelKey {
-    if (availableBarbers >= 1) return 'sin_espera';
-    if (waitingCount == 0) return 'baja';
-    if (totalBarbers == 0 || waitingCount < 2 * totalBarbers) return 'media';
-    return 'alta';
-  }
-
-  Color get _levelColor {
-    switch (_levelKey) {
-      case 'alta':
-        return MonacoColors.occupancyHigh;
-      case 'media':
-        return MonacoColors.occupancyMedium;
-      case 'sin_espera':
-      case 'baja':
-      default:
-        return MonacoColors.occupancyLow;
-    }
-  }
-
-  String get _levelLabel {
-    switch (_levelKey) {
-      case 'alta':
-        return 'ALTA';
-      case 'media':
-        return 'MEDIA';
-      case 'sin_espera':
-        return 'SIN ESPERA';
-      case 'baja':
-      default:
-        return 'BAJA';
-    }
-  }
-
-  // Ratio visual para la barra de progreso: llena al 100% cuando waiting = 2 por barbero
-  double get _ratio {
-    if (totalBarbers == 0) return 0.0;
-    return (waitingCount / (2.0 * totalBarbers)).clamp(0.0, 1.0);
-  }
-
-  String get _subtitle {
-    if (availableBarbers >= 1) {
-      return '$availableBarbers barbero${availableBarbers > 1 ? "s" : ""} disponible${availableBarbers > 1 ? "s" : ""}';
-    }
-    if (waitingCount == 0) return 'Todos atendiendo, sin cola';
-    return '$waitingCount en espera · $availableBarbers disponibles';
+  String _timeAgo(String? createdAt) {
+    if (createdAt == null) return '';
+    final created = DateTime.tryParse(createdAt);
+    if (created == null) return '';
+    final diff = DateTime.now().toUtc().difference(created);
+    if (diff.inMinutes < 1) return 'ahora';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} min';
+    return '${diff.inHours}h ${diff.inMinutes % 60}m';
   }
 
   @override
   Widget build(BuildContext context) {
-    final ratio = _ratio;
-    final color = _levelColor;
-    final label = _levelLabel;
+    const amber = Color(0xFFF59E0B);
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: MonacoColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: MonacoColors.divider.withOpacity(0.12)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Encabezado: título + badge de nivel
-          Row(
-            children: [
-              Icon(Icons.bar_chart_rounded,
-                  size: 18, color: MonacoColors.gold),
-              const SizedBox(width: 8),
-              Text(
-                'Ocupación',
-                style: TextStyle(
-                  color: MonacoColors.textPrimary,
-                  fontSize: 15,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Título de sección
+        Row(
+          children: [
+            const Text(
+              'Dinámicos',
+              style: TextStyle(
+                color: MonacoColors.textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+              decoration: BoxDecoration(
+                color: amber.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                '${waitingEntries.length}',
+                style: const TextStyle(
+                  color: amber,
+                  fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
 
-          // Barra de progreso con gradiente
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: SizedBox(
-              height: 8,
-              child: Stack(
+        // Lista de clientes en espera (anónimos)
+        Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: MonacoColors.surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: amber.withOpacity(0.1)),
+          ),
+          child: Column(
+            children: waitingEntries.asMap().entries.map((entry) {
+              final i = entry.key;
+              final q = entry.value;
+              final staffData = q['staff'] as Map<String, dynamic>?;
+              final barberName = staffData?['full_name'] as String?;
+              final createdAt = q['created_at'] as String?;
+              final isLast = i == waitingEntries.length - 1;
+
+              return Column(
                 children: [
-                  // Fondo
-                  Container(
-                    width: double.infinity,
-                    color: Colors.white10,
-                  ),
-                  // Relleno coloreado
-                  FractionallySizedBox(
-                    widthFactor: ratio,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            color.withOpacity(0.7),
-                            color,
-                          ],
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                    child: Row(
+                      children: [
+                        // Círculo con número de posición
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color: amber.withOpacity(0.12),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                                color: amber.withOpacity(0.3), width: 1.5),
+                          ),
+                          child: Center(
+                            child: Text(
+                              '#${i + 1}',
+                              style: const TextStyle(
+                                color: amber,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 12),
+
+                        // Tiempo de espera
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Turno ${i + 1}',
+                                style: const TextStyle(
+                                  color: MonacoColors.textPrimary,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Esperando hace ${_timeAgo(createdAt)}',
+                                style: const TextStyle(
+                                  color: MonacoColors.textSecondary,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w400,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // Barbero asignado
+                        if (barberName != null) ...[
+                          Icon(Icons.arrow_forward_rounded,
+                              size: 14, color: MonacoColors.textSubtle),
+                          const SizedBox(width: 6),
+                          Container(
+                            constraints: const BoxConstraints(maxWidth: 90),
+                            child: Text(
+                              barberName.split(' ').first,
+                              style: const TextStyle(
+                                color: MonacoColors.textSecondary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
+                  if (!isLast)
+                    Divider(
+                      height: 1,
+                      indent: 60,
+                      color: Colors.white.withOpacity(0.05),
+                    ),
                 ],
-              ),
-            ),
+              );
+            }).toList(),
           ),
-          const SizedBox(height: 10),
-
-          // Subtítulo debajo de la barra
-          Text(
-            _subtitle,
-            style: TextStyle(
-              color: MonacoColors.textSecondary,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
 
-// ── Horario ─────────────────────────────────────────────────────────────────
+// ── Info rows ──────────────────────────────────────────────────────────────
 
-class _ScheduleRow extends StatelessWidget {
-  final String openTime;
-  final String closeTime;
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String text;
 
-  const _ScheduleRow({required this.openTime, required this.closeTime});
-
-  /// Elimina los segundos de HH:MM:SS → HH:MM
-  String _formatTime(String t) {
-    final parts = t.split(':');
-    if (parts.length >= 2) return '${parts[0]}:${parts[1]}';
-    return t;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding:
-          const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: MonacoColors.surfaceVariant.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.access_time_rounded,
-              size: 16, color: MonacoColors.textSecondary),
-          const SizedBox(width: 10),
-          Text(
-            'Horario: ${_formatTime(openTime)} - ${_formatTime(closeTime)}',
-            style: TextStyle(
-              color: MonacoColors.textSecondary,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Dirección + Cómo llegar ───────────────────────────────────────────────
-
-class _DirectionsRow extends StatelessWidget {
-  final String? address;
-  final double? latitude;
-  final double? longitude;
-
-  const _DirectionsRow({
-    this.address,
-    this.latitude,
-    this.longitude,
-  });
-
-  Future<void> _openMaps() async {
-    if (latitude == null || longitude == null) return;
-    final url = Uri.parse(
-      'https://www.google.com/maps/dir/?api=1&destination=$latitude,$longitude',
-    );
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
-    }
-  }
+  const _InfoRow({required this.icon, required this.text});
 
   @override
   Widget build(BuildContext context) {
@@ -654,52 +697,66 @@ class _DirectionsRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.location_on_outlined,
-              size: 16, color: MonacoColors.textSecondary),
+          Icon(icon, size: 16, color: MonacoColors.textSecondary),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              address ?? 'Ubicación disponible',
-              style: TextStyle(
+              text,
+              style: const TextStyle(
                 color: MonacoColors.textSecondary,
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
           ),
-          if (latitude != null && longitude != null) ...[
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: _openMaps,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: MonacoColors.gold,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.directions_rounded,
-                        size: 14, color: Colors.black),
-                    SizedBox(width: 4),
-                    Text(
-                      'Cómo llegar',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
         ],
+      ),
+    );
+  }
+}
+
+class _DirectionsButton extends StatelessWidget {
+  final double latitude;
+  final double longitude;
+
+  const _DirectionsButton({required this.latitude, required this.longitude});
+
+  Future<void> _openMaps() async {
+    final url = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=$latitude,$longitude',
+    );
+    await launchUrl(url, mode: LaunchMode.externalApplication);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: Material(
+        color: MonacoColors.gold,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: _openMaps,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
+                Icon(Icons.directions_rounded, size: 18, color: Colors.black),
+                SizedBox(width: 8),
+                Text(
+                  'Cómo llegar',
+                  style: TextStyle(
+                    color: Colors.black,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

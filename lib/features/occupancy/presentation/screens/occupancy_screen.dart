@@ -174,7 +174,6 @@ class _BranchCard extends StatelessWidget {
     final inProgressCount = (data['in_progress_count'] ?? 0).toInt();
     final availableBarbers = (data['available_barbers'] ?? 0).toInt();
     final totalBarbers = (data['total_barbers'] ?? 0).toInt();
-    final eta = (data['eta_minutes'] ?? 0).toInt();
     final color = _levelColor(level);
 
     return GestureDetector(
@@ -269,8 +268,8 @@ class _BranchCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 16),
                 _StatChip(
-                  icon: Icons.schedule_rounded,
-                  label: eta > 0 ? '~$eta min' : 'Sin espera',
+                  icon: Icons.storefront_rounded,
+                  label: isOpen ? 'Abierto' : 'Cerrado',
                 ),
               ],
             ),

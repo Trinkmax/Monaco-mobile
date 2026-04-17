@@ -106,22 +106,8 @@ class BranchSelectionCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 12),
                       ],
-                      // Espera
+                      // Barberos disponibles
                       if (branch.isOpen) ...[
-                        Icon(Icons.schedule,
-                            size: 13, color: MonacoColors.textSecondary),
-                        const SizedBox(width: 4),
-                        Text(
-                          branch.waitingCount == 0
-                              ? 'Sin espera'
-                              : '~${branch.etaMinutes} min',
-                          style: const TextStyle(
-                            color: MonacoColors.textSecondary,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        // Barberos disponibles
                         Icon(Icons.content_cut,
                             size: 13, color: MonacoColors.textSecondary),
                         const SizedBox(width: 4),

@@ -12,6 +12,8 @@ import 'package:monaco_mobile/features/home/presentation/widgets/occupancy_mini_
 import 'package:monaco_mobile/features/points/providers/points_provider.dart';
 import 'package:monaco_mobile/features/reviews/providers/reviews_provider.dart';
 import 'package:monaco_mobile/features/occupancy/providers/occupancy_provider.dart';
+import 'package:monaco_mobile/features/convenios/providers/convenios_provider.dart';
+import 'package:monaco_mobile/features/convenios/presentation/widgets/convenio_card.dart';
 import 'package:monaco_mobile/core/branch/selected_branch_provider.dart';
 
 // ── Providers ──────────────────────────────────────────────────────────────
@@ -42,6 +44,7 @@ class HomeScreen extends ConsumerWidget {
     final reviews = ref.watch(pendingReviewsProvider);
     final branches = ref.watch(branchSignalsProvider);
     final billboard = ref.watch(billboardProvider);
+    final convenios = ref.watch(conveniosProvider);
     final selectedBranchName = ref.watch(selectedBranchNameProvider);
 
     final userName = auth.clientName ?? 'Cliente';
@@ -58,6 +61,7 @@ class HomeScreen extends ConsumerWidget {
             ref.invalidate(pendingReviewsProvider);
             ref.invalidate(branchSignalsProvider);
             ref.invalidate(billboardProvider);
+            ref.invalidate(conveniosProvider);
           },
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
@@ -184,7 +188,6 @@ class HomeScreen extends ConsumerWidget {
                             child: OccupancyMiniCard(
                               branchName: b['branch_name'] ?? 'Sucursal',
                               occupancyLevel: b['occupancy_level'] ?? 'baja',
-                              etaMinutes: (b['eta_minutes'] ?? 0).toInt(),
                               isOpen: (b['is_open'] ?? true) as bool,
                             ),
                           );
@@ -236,6 +239,113 @@ class HomeScreen extends ConsumerWidget {
                                 imageUrl: item['image_url'],
                                 onTap: () => _handleBillboardTap(
                                     context, item),
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+                    );
+                  },
+                  loading: () => const SizedBox.shrink(),
+                  error: (_, __) => const SizedBox.shrink(),
+                ),
+
+                // ── Convenios Carousel ──
+                convenios.when(
+                  data: (items) {
+                    if (items.isEmpty) return const SizedBox.shrink();
+                    final preview = items.take(5).toList();
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Convenios',
+                              style: TextStyle(
+                                color: MonacoColors.textPrimary,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (items.length > preview.length)
+                              GestureDetector(
+                                onTap: () => context.push('/convenios'),
+                                child: Text(
+                                  'Ver todos',
+                                  style: TextStyle(
+                                    color: MonacoColors.gold,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Beneficios exclusivos para vos',
+                          style: TextStyle(
+                            color: MonacoColors.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          height: 210,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: preview.length +
+                                (items.length > preview.length ? 1 : 0),
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(width: 12),
+                            itemBuilder: (context, i) {
+                              if (i < preview.length) {
+                                final b = preview[i];
+                                return ConvenioHomeCard(
+                                  benefit: b,
+                                  onTap: () =>
+                                      context.push('/convenio/${b['id']}'),
+                                );
+                              }
+                              return GestureDetector(
+                                onTap: () => context.push('/convenios'),
+                                child: Container(
+                                  width: 130,
+                                  decoration: BoxDecoration(
+                                    color: MonacoColors.surface,
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                        color: MonacoColors.border),
+                                  ),
+                                  child: Column(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.arrow_forward_rounded,
+                                          color: MonacoColors.gold, size: 28),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'Ver todos',
+                                        style: TextStyle(
+                                          color: MonacoColors.textPrimary,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '${items.length} en total',
+                                        style: TextStyle(
+                                          color: MonacoColors.textSecondary,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               );
                             },
                           ),

@@ -16,6 +16,9 @@ import '../../features/reviews/presentation/screens/reviews_screen.dart';
 import '../../features/reviews/presentation/screens/review_flow_screen.dart';
 import '../../features/billboard/presentation/screens/billboard_screen.dart';
 import '../../features/catalog/presentation/screens/catalog_screen.dart';
+import '../../features/convenios/presentation/screens/convenios_list_screen.dart';
+import '../../features/convenios/presentation/screens/convenio_detail_screen.dart';
+import '../../features/convenios/presentation/screens/my_redemptions_screen.dart';
 import '../../features/profile/presentation/screens/profile_screen.dart';
 import '../../features/profile/presentation/screens/pin_setup_screen.dart';
 import '../../features/branch_selection/presentation/screens/branch_selection_screen.dart';
@@ -127,6 +130,19 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/billboard',
         builder: (_, __) => const BillboardScreen(),
+      ),
+      GoRoute(
+        path: '/convenios',
+        builder: (_, __) => const ConveniosListScreen(),
+      ),
+      GoRoute(
+        path: '/convenio/:id',
+        builder: (_, state) =>
+            ConvenioDetailScreen(id: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/mis-canjes',
+        builder: (_, __) => const MyRedemptionsScreen(),
       ),
       GoRoute(
         path: '/pin-setup',

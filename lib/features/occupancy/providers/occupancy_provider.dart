@@ -295,6 +295,19 @@ Map<String, num> _buildBarberAvgMinutes(
   return result;
 }
 
+// ── Attendance Realtime (para detectar clock_in/out en tiempo real) ────────
+
+final branchAttendanceRealtimeProvider =
+    StreamProvider.family<List<Map<String, dynamic>>, String>(
+        (ref, branchId) {
+  final supabase = ref.read(supabaseClientProvider);
+  return supabase
+      .from('attendance_logs')
+      .stream(primaryKey: ['id'])
+      .eq('branch_id', branchId)
+      .map((rows) => rows.map((e) => Map<String, dynamic>.from(e)).toList());
+});
+
 // ── Branch Realtime Stream (for detail page) ───────────────────────────────
 
 final branchQueueRealtimeProvider =

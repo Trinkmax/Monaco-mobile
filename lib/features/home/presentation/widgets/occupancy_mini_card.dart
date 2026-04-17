@@ -6,14 +6,12 @@ import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 class OccupancyMiniCard extends StatelessWidget {
   final String branchName;
   final String occupancyLevel; // sin_espera | baja | media | alta
-  final int etaMinutes;
   final bool isOpen;
 
   const OccupancyMiniCard({
     super.key,
     required this.branchName,
     required this.occupancyLevel,
-    required this.etaMinutes,
     this.isOpen = true,
   });
 
@@ -106,26 +104,6 @@ class OccupancyMiniCard extends StatelessWidget {
           ),
 
           const Spacer(),
-
-          // ETA
-          Row(
-            children: [
-              Icon(
-                Icons.schedule_rounded,
-                size: 13,
-                color: MonacoColors.textSecondary,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                etaMinutes > 0 && isOpen ? '~$etaMinutes min' : (isOpen ? 'Sin espera' : 'Cerrado'),
-                style: TextStyle(
-                  color: MonacoColors.textSecondary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
         ],
       ),
     )
