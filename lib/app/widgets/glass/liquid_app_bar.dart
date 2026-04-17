@@ -135,6 +135,11 @@ class LiquidAppBarScaffold extends StatefulWidget {
   final Widget? bottomNavigationBar;
   final bool extendBody;
 
+  /// Si `extendBodyBehindAppBar` es true, el body arranca en y=0 y el primer
+  /// elemento queda oculto detrás del app bar — solo activá si tu scrollable
+  /// agrega `top: kToolbarHeight + systemTop` a su padding.
+  final bool extendBodyBehindAppBar;
+
   const LiquidAppBarScaffold({
     super.key,
     required this.title,
@@ -148,6 +153,7 @@ class LiquidAppBarScaffold extends StatefulWidget {
     this.background,
     this.bottomNavigationBar,
     this.extendBody = true,
+    this.extendBodyBehindAppBar = false,
   });
 
   @override
@@ -169,7 +175,7 @@ class _LiquidAppBarScaffoldState extends State<LiquidAppBarScaffold> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: widget.backgroundColor,
-      extendBodyBehindAppBar: true,
+      extendBodyBehindAppBar: widget.extendBodyBehindAppBar,
       extendBody: widget.extendBody,
       appBar: LiquidAppBar(
         title: widget.title,

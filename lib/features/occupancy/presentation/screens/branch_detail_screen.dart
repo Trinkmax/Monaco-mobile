@@ -30,7 +30,6 @@ class BranchDetailScreen extends ConsumerWidget {
     return LiquidAppBarScaffold(
       title: title,
       showBackButton: true,
-      background: const LiquidBackdrop(child: SizedBox.expand()),
       body: detail.when(
         data: (data) => _LiveQueueContent(data: data),
         loading: () => _buildShimmer(),
@@ -821,8 +820,7 @@ class _InProgressCard extends StatelessWidget {
     return LiquidGlass(
       padding: const EdgeInsets.all(12),
       borderRadius: 18,
-      tint: green,
-      tintOpacity: 0.05,
+      tintOpacity: 0.07,
       pressable: false,
       showVignette: false,
       child: Row(

@@ -24,7 +24,6 @@ class _RewardsScreenState extends ConsumerState<RewardsScreen> {
     return LiquidAppBarScaffold(
       title: 'Mis Premios',
       centerTitle: true,
-      background: const LiquidBackdrop(child: SizedBox.expand()),
       body: Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
         child: Column(
@@ -198,8 +197,7 @@ class _RewardCard extends StatelessWidget {
     return LiquidGlass(
       padding: const EdgeInsets.all(16),
       borderRadius: 20,
-      tint: accent,
-      tintOpacity: isAvailable ? 0.10 : 0.04,
+      tintOpacity: isAvailable ? 0.09 : 0.04,
       pressable: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

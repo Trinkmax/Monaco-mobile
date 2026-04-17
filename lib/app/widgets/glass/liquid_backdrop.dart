@@ -2,20 +2,19 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import 'liquid_tokens.dart';
-
-/// Fondo con orbes de color que se desplazan lentamente — le da al blur algo
-/// detrás para que el glass "respire" y se note el material.
+/// Canvas oscuro sobre el que apoyan las láminas glass.
 ///
-/// Orbes por defecto: verde Monaco + azul profundo + violeta.
+/// Por defecto: solo un fondo negro neutro sin brillos. Si querés darle vida
+/// con orbes de color, pasá `orbColors: [...]` explícitamente — cada color
+/// genera un orbe que se desplaza suavemente (un orbe por color, hasta 3).
 class LiquidBackdrop extends StatefulWidget {
   final Widget child;
 
-  /// Opcional — colores custom para los 3 orbes. Null usa la paleta Monaco.
+  /// Opcional — colores de los orbes. Si es null o está vacío, no se renderiza
+  /// ningún orbe (solo fondo negro limpio).
   final List<Color>? orbColors;
 
-  /// Intensidad del tint (0..1). Default 1.0. Bajalo si el glass de arriba
-  /// compite demasiado.
+  /// Intensidad del tint de los orbes cuando hay (0..1).
   final double intensity;
 
   const LiquidBackdrop({
@@ -31,31 +30,50 @@ class LiquidBackdrop extends StatefulWidget {
 
 class _LiquidBackdropState extends State<LiquidBackdrop>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
+  AnimationController? _ctrl;
 
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(
+    if (_hasOrbs) _startAnimation();
+  }
+
+  bool get _hasOrbs =>
+      widget.orbColors != null && widget.orbColors!.isNotEmpty;
+
+  void _startAnimation() {
+    _ctrl ??= AnimationController(
       vsync: this,
       duration: const Duration(seconds: 24),
     )..repeat();
   }
 
   @override
+  void didUpdateWidget(LiquidBackdrop old) {
+    super.didUpdateWidget(old);
+    if (_hasOrbs && _ctrl == null) {
+      _startAnimation();
+    }
+  }
+
+  @override
   void dispose() {
-    _ctrl.dispose();
+    _ctrl?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final palette = widget.orbColors ??
-        const [
-          LiquidTokens.monacoGreen,
-          LiquidTokens.orbBlue,
-          LiquidTokens.orbViolet,
-        ];
+    if (!_hasOrbs) {
+      return Stack(
+        children: [
+          const Positioned.fill(child: ColoredBox(color: Colors.black)),
+          widget.child,
+        ],
+      );
+    }
+
+    final palette = widget.orbColors!;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -64,39 +82,25 @@ class _LiquidBackdropState extends State<LiquidBackdrop>
             ? constraints.maxHeight
             : MediaQuery.sizeOf(context).height;
         return AnimatedBuilder(
-          animation: _ctrl,
+          animation: _ctrl!,
           builder: (context, _) {
-            final t = _ctrl.value;
+            final t = _ctrl!.value;
             return Stack(
               children: [
                 const Positioned.fill(child: ColoredBox(color: Colors.black)),
-                _orb(
-                  palette: palette,
-                  index: 0,
-                  phase: t,
-                  baseX: 0.78, baseY: 0.08,
-                  ampX: 0.08, ampY: 0.06,
-                  size: 420,
-                  w: w, h: h,
-                ),
-                _orb(
-                  palette: palette,
-                  index: 1,
-                  phase: (t + 0.34) % 1,
-                  baseX: -0.12, baseY: 0.42,
-                  ampX: 0.10, ampY: 0.08,
-                  size: 380,
-                  w: w, h: h,
-                ),
-                _orb(
-                  palette: palette,
-                  index: 2,
-                  phase: (t + 0.66) % 1,
-                  baseX: 0.70, baseY: 0.92,
-                  ampX: 0.12, ampY: 0.06,
-                  size: 340,
-                  w: w, h: h,
-                ),
+                for (var i = 0; i < palette.length && i < 3; i++)
+                  _orb(
+                    palette: palette,
+                    index: i,
+                    phase: (t + i * 0.33) % 1,
+                    baseX: [0.78, -0.12, 0.70][i],
+                    baseY: [0.08, 0.42, 0.92][i],
+                    ampX: [0.08, 0.10, 0.12][i],
+                    ampY: [0.06, 0.08, 0.06][i],
+                    size: [420.0, 380.0, 340.0][i],
+                    w: w,
+                    h: h,
+                  ),
                 widget.child,
               ],
             );
@@ -135,8 +139,8 @@ class _LiquidBackdropState extends State<LiquidBackdrop>
               shape: BoxShape.circle,
               gradient: RadialGradient(
                 colors: [
-                  color.withOpacity(0.32 * widget.intensity),
-                  color.withOpacity(0.10 * widget.intensity),
+                  color.withOpacity(0.28 * widget.intensity),
+                  color.withOpacity(0.09 * widget.intensity),
                   Colors.transparent,
                 ],
                 stops: const [0.0, 0.45, 1.0],

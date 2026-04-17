@@ -5,8 +5,8 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 
-/// Tarjeta hero de puntos del cliente. Liquid glass con tint verde Monaco
-/// sutil, contador animado y chip "pts".
+/// Tarjeta hero de puntos del cliente — lámina glass neutra (gris) con
+/// contador animado y pill "pts".
 class PointsCard extends StatefulWidget {
   final int totalBalance;
   final int totalEarned;
@@ -70,18 +70,13 @@ class _PointsCardState extends State<PointsCard>
       onTap: widget.onTap,
       borderRadius: 26,
       padding: const EdgeInsets.all(22),
-      tint: LiquidTokens.monacoGreen,
-      tintOpacity: 0.07,
+      tintOpacity: 0.09,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Fila superior — ícono + label + "Ver detalle"
           Row(
             children: [
-              _MiniBadge(
-                icon: Icons.auto_awesome_rounded,
-                tint: LiquidTokens.monacoGreen,
-              ),
+              _NeutralBadge(icon: Icons.auto_awesome_rounded),
               const SizedBox(width: 10),
               const Text(
                 'Tus Puntos',
@@ -115,8 +110,6 @@ class _PointsCardState extends State<PointsCard>
             ],
           ),
           const SizedBox(height: 18),
-
-          // Balance
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -147,20 +140,20 @@ class _PointsCardState extends State<PointsCard>
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [
-                        LiquidTokens.monacoGreen.withOpacity(0.22),
-                        LiquidTokens.monacoGreen.withOpacity(0.10),
+                        Colors.white.withOpacity(0.18),
+                        Colors.white.withOpacity(0.08),
                       ],
                     ),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: LiquidTokens.monacoGreen.withOpacity(0.38),
+                      color: Colors.white.withOpacity(0.22),
                       width: 0.8,
                     ),
                   ),
-                  child: const Text(
+                  child: Text(
                     'pts',
                     style: TextStyle(
-                      color: LiquidTokens.monacoGreen,
+                      color: Colors.white.withOpacity(0.85),
                       fontSize: 13,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.5,
@@ -171,13 +164,12 @@ class _PointsCardState extends State<PointsCard>
             ],
           ),
           const SizedBox(height: 10),
-
           Row(
             children: [
               Icon(
                 Icons.trending_up_rounded,
                 size: 13,
-                color: LiquidTokens.monacoGreen.withOpacity(0.75),
+                color: Colors.white.withOpacity(0.55),
               ),
               const SizedBox(width: 5),
               Text(
@@ -199,11 +191,9 @@ class _PointsCardState extends State<PointsCard>
   }
 }
 
-class _MiniBadge extends StatelessWidget {
+class _NeutralBadge extends StatelessWidget {
   final IconData icon;
-  final Color tint;
-
-  const _MiniBadge({required this.icon, required this.tint});
+  const _NeutralBadge({required this.icon});
 
   @override
   Widget build(BuildContext context) {
@@ -215,21 +205,14 @@ class _MiniBadge extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            tint.withOpacity(0.26),
-            tint.withOpacity(0.12),
+            Colors.white.withOpacity(0.22),
+            Colors.white.withOpacity(0.08),
           ],
         ),
         borderRadius: BorderRadius.circular(11),
-        border: Border.all(color: tint.withOpacity(0.38), width: 0.8),
-        boxShadow: [
-          BoxShadow(
-            color: tint.withOpacity(0.22),
-            blurRadius: 10,
-            spreadRadius: -2,
-          ),
-        ],
+        border: Border.all(color: Colors.white.withOpacity(0.22), width: 0.8),
       ),
-      child: Icon(icon, color: tint, size: 17),
+      child: Icon(icon, color: Colors.white, size: 17),
     );
   }
 }

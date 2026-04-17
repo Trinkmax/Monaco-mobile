@@ -72,7 +72,7 @@ class LiquidListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = iconColor ?? LiquidTokens.monacoGreen;
+    final color = iconColor ?? Colors.white;
     final row = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       child: Row(

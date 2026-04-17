@@ -78,10 +78,9 @@ class ProfileScreen extends ConsumerWidget {
 
     return LiquidAppBarScaffold(
       title: 'Mi Perfil',
-      background: const LiquidBackdrop(child: SizedBox.expand()),
       body: asyncProfile.when(
         loading: () => const Center(
-          child: CircularProgressIndicator(color: LiquidTokens.monacoGreen),
+          child: CircularProgressIndicator(color: Colors.white),
         ),
         error: (e, _) => _ErrorState(
           error: e,
@@ -133,8 +132,7 @@ class _ProfileBody extends ConsumerWidget {
         LiquidGlass(
           padding: const EdgeInsets.all(18),
           borderRadius: 24,
-          tint: LiquidTokens.monacoGreen,
-          tintOpacity: 0.08,
+          tintOpacity: 0.09,
           pressable: false,
           child: Row(
             children: [
@@ -180,7 +178,6 @@ class _ProfileBody extends ConsumerWidget {
           children: [
             LiquidSwitchTile(
               icon: Icons.fingerprint_rounded,
-              iconColor: LiquidTokens.monacoGreen,
               title: 'Biometría',
               subtitle: 'Desbloquear con huella o Face ID',
               value: biometricEnabled,
@@ -189,7 +186,6 @@ class _ProfileBody extends ConsumerWidget {
             ),
             LiquidListTile(
               icon: Icons.pin_outlined,
-              iconColor: LiquidTokens.monacoGreen,
               title: 'Configurar PIN',
               onTap: () => context.push('/pin-setup'),
             ),
@@ -205,7 +201,6 @@ class _ProfileBody extends ConsumerWidget {
           children: [
             LiquidSwitchTile(
               icon: Icons.notifications_outlined,
-              iconColor: LiquidTokens.monacoGreen,
               title: 'Notificaciones push',
               value: pushEnabled,
               onChanged: (val) =>
@@ -223,19 +218,16 @@ class _ProfileBody extends ConsumerWidget {
           children: [
             LiquidListTile(
               icon: Icons.calendar_month_outlined,
-              iconColor: LiquidTokens.monacoGreen,
               title: 'Mis visitas',
               onTap: () {},
             ),
             LiquidListTile(
               icon: Icons.stars_rounded,
-              iconColor: LiquidTokens.monacoGreen,
               title: 'Transacciones de puntos',
               onTap: () => context.push('/points'),
             ),
             LiquidListTile(
               icon: Icons.local_offer_outlined,
-              iconColor: LiquidTokens.monacoGreen,
               title: 'Mis canjes',
               subtitle: 'Códigos activados y canjeados',
               onTap: () => context.push('/mis-canjes'),
@@ -406,19 +398,20 @@ class _AvatarCircle extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            LiquidTokens.monacoGreen.withOpacity(0.28),
-            LiquidTokens.monacoGreen.withOpacity(0.12),
+            Colors.white.withOpacity(0.22),
+            Colors.white.withOpacity(0.08),
           ],
         ),
         border: Border.all(
-          color: LiquidTokens.monacoGreen.withOpacity(0.5),
-          width: 1.5,
+          color: Colors.white.withOpacity(0.28),
+          width: 1.2,
         ),
         boxShadow: [
           BoxShadow(
-            color: LiquidTokens.monacoGreen.withOpacity(0.38),
-            blurRadius: 20,
-            spreadRadius: -4,
+            color: Colors.black.withOpacity(0.32),
+            blurRadius: 14,
+            spreadRadius: -2,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -426,7 +419,7 @@ class _AvatarCircle extends StatelessWidget {
         child: Text(
           initial,
           style: const TextStyle(
-            color: LiquidTokens.monacoGreen,
+            color: Colors.white,
             fontSize: 30,
             fontWeight: FontWeight.w900,
           ),
@@ -479,15 +472,13 @@ class _ErrorState extends StatelessWidget {
                 shape: BoxShape.circle,
                 gradient: LinearGradient(
                   colors: [
-                    LiquidTokens.monacoGreen.withOpacity(0.2),
-                    LiquidTokens.monacoGreen.withOpacity(0.06),
+                    Colors.white.withOpacity(0.18),
+                    Colors.white.withOpacity(0.05),
                   ],
                 ),
-                border: Border.all(
-                  color: LiquidTokens.monacoGreen.withOpacity(0.32),
-                ),
+                border: Border.all(color: Colors.white.withOpacity(0.22)),
               ),
-              child: Icon(icon, color: LiquidTokens.monacoGreen, size: 34),
+              child: Icon(icon, color: Colors.white, size: 34),
             ),
             const SizedBox(height: 20),
             Text(

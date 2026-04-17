@@ -16,7 +16,6 @@ class OccupancyScreen extends ConsumerWidget {
 
     return LiquidAppBarScaffold(
       title: 'Sucursales',
-      background: const LiquidBackdrop(child: SizedBox.expand()),
       body: RefreshIndicator(
         color: Colors.white,
         backgroundColor: MonacoColors.surface,
