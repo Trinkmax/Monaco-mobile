@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
+import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 import 'package:monaco_mobile/features/convenios/presentation/widgets/redemption_status_chip.dart';
 import 'package:monaco_mobile/features/convenios/providers/my_redemptions_provider.dart';
 
@@ -24,7 +25,7 @@ String? _redemptionStatusFor(
   return row?['status']?.toString();
 }
 
-/// Card horizontal para carrusel del home.
+/// Card horizontal para carrusel del home — lámina glass con imagen arriba.
 class ConvenioHomeCard extends ConsumerWidget {
   final Map<String, dynamic> benefit;
   final VoidCallback onTap;
@@ -46,20 +47,18 @@ class ConvenioHomeCard extends ConsumerWidget {
     final redemptionStatus = _redemptionStatusFor(benefit, ref);
     final validUntil = _parseValidUntil(benefit);
 
-    return GestureDetector(
+    return LiquidGlass(
       onTap: onTap,
-      child: Container(
-        width: 260,
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          color: MonacoColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: MonacoColors.border),
-        ),
+      width: 260,
+      padding: EdgeInsets.zero,
+      borderRadius: 22,
+      tintOpacity: 0.06,
+      showVignette: false,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(22),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Image
             SizedBox(
               height: 120,
               width: double.infinity,
@@ -70,9 +69,9 @@ class ConvenioHomeCard extends ConsumerWidget {
                     CachedNetworkImage(
                       imageUrl: imageUrl,
                       fit: BoxFit.cover,
-                      placeholder: (_, __) =>
+                      placeholder: (_, _) =>
                           Container(color: MonacoColors.surfaceVariant),
-                      errorWidget: (_, __, ___) => Container(
+                      errorWidget: (_, _, _) => Container(
                         color: MonacoColors.surfaceVariant,
                         child: const Icon(Icons.image_not_supported_outlined,
                             color: MonacoColors.foregroundSubtle, size: 28),
@@ -84,30 +83,66 @@ class ConvenioHomeCard extends ConsumerWidget {
                       child: const Icon(Icons.local_offer_outlined,
                           color: MonacoColors.foregroundSubtle, size: 32),
                     ),
+                  // Hairline ámbar-crema arriba para legibilidad del discount
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 46,
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.black.withOpacity(0.35),
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                   if (discount != null && discount.isNotEmpty)
                     Positioned(
-                      top: 8,
-                      left: 8,
+                      top: 10,
+                      left: 10,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: MonacoColors.primary,
-                          borderRadius: BorderRadius.circular(8),
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              LiquidTokens.monacoGreen,
+                              LiquidTokens.monacoGreenDeep,
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(999),
+                          boxShadow: [
+                            BoxShadow(
+                              color: LiquidTokens.monacoGreen.withOpacity(0.45),
+                              blurRadius: 12,
+                              spreadRadius: -2,
+                            ),
+                          ],
                         ),
                         child: Text(
                           discount,
                           style: const TextStyle(
-                            color: MonacoColors.primaryForeground,
+                            color: Colors.white,
                             fontWeight: FontWeight.w800,
                             fontSize: 12,
+                            letterSpacing: 0.1,
                           ),
                         ),
                       ),
                     ),
                   Positioned(
-                    top: 8,
-                    right: 8,
+                    top: 10,
+                    right: 10,
                     child: RedemptionStatusChip(
                       redemptionStatus: redemptionStatus,
                       validUntil: validUntil,
@@ -116,9 +151,8 @@ class ConvenioHomeCard extends ConsumerWidget {
                 ],
               ),
             ),
-            // Texto
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -139,9 +173,10 @@ class ConvenioHomeCard extends ConsumerWidget {
                       partnerName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: MonacoColors.textSecondary,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.55),
                         fontSize: 12,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],

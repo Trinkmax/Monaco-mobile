@@ -1,25 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:intl/intl.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
-import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
+import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 import 'package:monaco_mobile/core/auth/auth_provider.dart';
-import 'package:monaco_mobile/features/home/presentation/widgets/points_card.dart';
+import 'package:monaco_mobile/core/branch/selected_branch_provider.dart';
+import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
+import 'package:monaco_mobile/features/convenios/presentation/widgets/convenio_card.dart';
+import 'package:monaco_mobile/features/convenios/providers/convenios_provider.dart';
 import 'package:monaco_mobile/features/home/presentation/widgets/occupancy_mini_card.dart';
+import 'package:monaco_mobile/features/home/presentation/widgets/points_card.dart';
+import 'package:monaco_mobile/features/occupancy/providers/occupancy_provider.dart';
 import 'package:monaco_mobile/features/points/providers/points_provider.dart';
 import 'package:monaco_mobile/features/reviews/providers/reviews_provider.dart';
-import 'package:monaco_mobile/features/occupancy/providers/occupancy_provider.dart';
-import 'package:monaco_mobile/features/convenios/providers/convenios_provider.dart';
-import 'package:monaco_mobile/features/convenios/presentation/widgets/convenio_card.dart';
-import 'package:monaco_mobile/core/branch/selected_branch_provider.dart';
 
 // ── Providers ──────────────────────────────────────────────────────────────
-// globalPointsProvider  → imported from points_provider.dart
-// pendingReviewsProvider → imported from reviews_provider.dart
-// branchSignalsProvider  → imported from occupancy_provider.dart
 
 final billboardProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
@@ -52,345 +50,245 @@ class HomeScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: MonacoColors.background,
-      body: SafeArea(
-        child: RefreshIndicator(
-          color: MonacoColors.gold,
-          backgroundColor: MonacoColors.surface,
-          onRefresh: () async {
-            ref.invalidate(globalPointsProvider);
-            ref.invalidate(pendingReviewsProvider);
-            ref.invalidate(branchSignalsProvider);
-            ref.invalidate(billboardProvider);
-            ref.invalidate(conveniosProvider);
-          },
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ── Header ──
-                _Header(name: userName, date: today),
-                const SizedBox(height: 12),
+      extendBody: true,
+      body: LiquidBackdrop(
+        child: SafeArea(
+          bottom: false,
+          child: RefreshIndicator(
+            color: Colors.white,
+            backgroundColor: MonacoColors.surface,
+            onRefresh: () async {
+              ref.invalidate(globalPointsProvider);
+              ref.invalidate(pendingReviewsProvider);
+              ref.invalidate(branchSignalsProvider);
+              ref.invalidate(billboardProvider);
+              ref.invalidate(conveniosProvider);
+            },
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ── Header ──
+                  _Header(name: userName, date: today),
+                  const SizedBox(height: 14),
 
-                // ── Org + Sucursal seleccionada ──
-                if (auth.selectedOrgName != null || selectedBranchName != null)
-                  GestureDetector(
-                    onTap: () {
-                      ref.read(authProvider.notifier).clearSelectedOrg();
-                      context.go('/select-org');
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: MonacoColors.surface,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                            color: MonacoColors.border),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.storefront,
-                              size: 16, color: MonacoColors.gold),
-                          const SizedBox(width: 6),
-                          Flexible(
-                            child: Text(
-                              [
-                                if (auth.selectedOrgName != null) auth.selectedOrgName!,
-                                if (selectedBranchName != null) selectedBranchName,
-                              ].join(' · '),
-                              style: const TextStyle(
-                                color: MonacoColors.textPrimary,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          const Text(
-                            'Cambiar',
-                            style: TextStyle(
-                              color: MonacoColors.foregroundSubtle,
-                              fontSize: 12,
-                            ),
-                          ),
-                          const SizedBox(width: 2),
-                          const Icon(Icons.chevron_right,
-                              size: 14, color: MonacoColors.foregroundSubtle),
-                        ],
-                      ),
+                  // ── Org + Sucursal ──
+                  if (auth.selectedOrgName != null ||
+                      selectedBranchName != null)
+                    _OrgPill(
+                      label: [
+                        if (auth.selectedOrgName != null) auth.selectedOrgName!,
+                        if (selectedBranchName != null) selectedBranchName,
+                      ].join(' · '),
+                      onTap: () {
+                        ref.read(authProvider.notifier).clearSelectedOrg();
+                        context.go('/select-org');
+                      },
+                    ).animate().fadeIn(delay: 250.ms, duration: 400.ms),
+                  const SizedBox(height: 22),
+
+                  // ── Points Card ──
+                  points.when(
+                    data: (data) => PointsCard(
+                      totalBalance: (data['total_balance'] ?? 0).toInt(),
+                      totalEarned: (data['total_earned'] ?? 0).toInt(),
+                      onTap: () => context.push('/points'),
                     ),
-                  ).animate().fadeIn(delay: 300.ms, duration: 400.ms),
-                const SizedBox(height: 20),
-
-                // ── Points Card ──
-                points.when(
-                  data: (data) => PointsCard(
-                    totalBalance: (data['total_balance'] ?? 0).toInt(),
-                    totalEarned: (data['total_earned'] ?? 0).toInt(),
-                    onTap: () => context.push('/points'),
+                    loading: () => _shimmerCard(height: 150),
+                    error: (_, _) => const SizedBox.shrink(),
                   ),
-                  loading: () => _shimmerCard(height: 140),
-                  error: (_, __) => const SizedBox.shrink(),
-                ),
-                const SizedBox(height: 20),
+                  const SizedBox(height: 22),
 
-                // ── Pending Reviews Banner ──
-                reviews.when(
-                  data: (list) {
-                    if (list.isEmpty) return const SizedBox.shrink();
-                    return _ReviewBanner(
-                      count: list.length,
-                      onTap: () => context.push('/reviews'),
-                    );
-                  },
-                  loading: () => const SizedBox.shrink(),
-                  error: (_, __) => const SizedBox.shrink(),
-                ),
-                if (reviews.valueOrNull != null &&
-                    reviews.valueOrNull!.isNotEmpty)
-                  const SizedBox(height: 20),
-
-                // ── Branches Quick View ──
-                Text(
-                  'Sucursales',
-                  style: TextStyle(
-                    color: MonacoColors.textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 120,
-                  child: branches.when(
+                  // ── Review Banner ──
+                  reviews.when(
                     data: (list) {
-                      if (list.isEmpty) {
-                        return Center(
-                          child: Text(
-                            'Sin sucursales disponibles',
-                            style: TextStyle(color: MonacoColors.textSecondary),
+                      if (list.isEmpty) return const SizedBox.shrink();
+                      return Column(
+                        children: [
+                          _ReviewBanner(
+                            count: list.length,
+                            onTap: () => context.push('/reviews'),
                           ),
-                        );
-                      }
-                      return ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: list.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 12),
-                        itemBuilder: (context, i) {
-                          final b = list[i];
-                          return GestureDetector(
-                            onTap: () =>
-                                context.push('/branch/${b['branch_id']}'),
-                            child: OccupancyMiniCard(
+                          const SizedBox(height: 22),
+                        ],
+                      );
+                    },
+                    loading: () => const SizedBox.shrink(),
+                    error: (_, _) => const SizedBox.shrink(),
+                  ),
+
+                  // ── Sucursales ──
+                  _SectionTitle(
+                    title: 'Sucursales',
+                    subtitle: 'Estado en vivo',
+                    onAction: () => context.push('/occupancy'),
+                    actionLabel: 'Ver todas',
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 128,
+                    child: branches.when(
+                      data: (list) {
+                        if (list.isEmpty) {
+                          return Center(
+                            child: Text(
+                              'Sin sucursales disponibles',
+                              style: TextStyle(
+                                color: MonacoColors.textSecondary,
+                              ),
+                            ),
+                          );
+                        }
+                        return ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: list.length,
+                          separatorBuilder: (_, _) => const SizedBox(width: 10),
+                          itemBuilder: (context, i) {
+                            final b = list[i];
+                            return OccupancyMiniCard(
                               branchName: b['branch_name'] ?? 'Sucursal',
                               occupancyLevel: b['occupancy_level'] ?? 'baja',
                               isOpen: (b['is_open'] ?? true) as bool,
+                              onTap: () =>
+                                  context.push('/branch/${b['branch_id']}'),
+                            ).liquidEnter(index: i, stagger: 70);
+                          },
+                        );
+                      },
+                      loading: () => ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: 3,
+                        separatorBuilder: (_, _) => const SizedBox(width: 10),
+                        itemBuilder: (_, _) =>
+                            _shimmerCard(width: 160, height: 128),
+                      ),
+                      error: (_, _) => const SizedBox.shrink(),
+                    ),
+                  ),
+                  const SizedBox(height: 26),
+
+                  // ── Billboard ──
+                  billboard.when(
+                    data: (items) {
+                      if (items.isEmpty) return const SizedBox.shrink();
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _SectionTitle(
+                            title: 'Cartelera',
+                            subtitle: 'Novedades de la barbería',
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            height: 180,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: items.length,
+                              separatorBuilder: (_, _) =>
+                                  const SizedBox(width: 12),
+                              itemBuilder: (context, i) {
+                                final item = items[i];
+                                return _BillboardCard(
+                                  title: item['title'] ?? '',
+                                  subtitle: item['subtitle'] ?? '',
+                                  imageUrl: item['image_url'],
+                                  onTap: () =>
+                                      _handleBillboardTap(context, item),
+                                ).liquidEnter(index: i, stagger: 70);
+                              },
                             ),
-                          );
-                        },
+                          ),
+                          const SizedBox(height: 26),
+                        ],
                       );
                     },
-                    loading: () => ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: 3,
-                      separatorBuilder: (_, __) => const SizedBox(width: 12),
-                      itemBuilder: (_, __) => _shimmerCard(
-                        width: 140,
-                        height: 120,
-                      ),
-                    ),
-                    error: (_, __) => const SizedBox.shrink(),
+                    loading: () => const SizedBox.shrink(),
+                    error: (_, _) => const SizedBox.shrink(),
                   ),
-                ),
-                const SizedBox(height: 24),
 
-                // ── Billboard Carousel ──
-                billboard.when(
-                  data: (items) {
-                    if (items.isEmpty) return const SizedBox.shrink();
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Cartelera',
-                          style: TextStyle(
-                            color: MonacoColors.textPrimary,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
+                  // ── Convenios ──
+                  convenios.when(
+                    data: (items) {
+                      if (items.isEmpty) return const SizedBox.shrink();
+                      final preview = items.take(5).toList();
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _SectionTitle(
+                            title: 'Convenios',
+                            subtitle: 'Beneficios exclusivos para vos',
+                            onAction: items.length > preview.length
+                                ? () => context.push('/convenios')
+                                : null,
+                            actionLabel: 'Ver todos',
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          height: 180,
-                          child: ListView.separated(
-                            scrollDirection: Axis.horizontal,
-                            itemCount: items.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(width: 12),
-                            itemBuilder: (context, i) {
-                              final item = items[i];
-                              return _BillboardCard(
-                                title: item['title'] ?? '',
-                                subtitle: item['subtitle'] ?? '',
-                                imageUrl: item['image_url'],
-                                onTap: () => _handleBillboardTap(
-                                    context, item),
-                              );
-                            },
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                      ],
-                    );
-                  },
-                  loading: () => const SizedBox.shrink(),
-                  error: (_, __) => const SizedBox.shrink(),
-                ),
-
-                // ── Convenios Carousel ──
-                convenios.when(
-                  data: (items) {
-                    if (items.isEmpty) return const SizedBox.shrink();
-                    final preview = items.take(5).toList();
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Convenios',
-                              style: TextStyle(
-                                color: MonacoColors.textPrimary,
-                                fontSize: 18,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            if (items.length > preview.length)
-                              GestureDetector(
-                                onTap: () => context.push('/convenios'),
-                                child: Text(
-                                  'Ver todos',
-                                  style: TextStyle(
-                                    color: MonacoColors.gold,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Beneficios exclusivos para vos',
-                          style: TextStyle(
-                            color: MonacoColors.textSecondary,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          height: 210,
-                          child: ListView.separated(
-                            scrollDirection: Axis.horizontal,
-                            itemCount: preview.length +
-                                (items.length > preview.length ? 1 : 0),
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(width: 12),
-                            itemBuilder: (context, i) {
-                              if (i < preview.length) {
-                                final b = preview[i];
-                                return ConvenioHomeCard(
-                                  benefit: b,
-                                  onTap: () =>
-                                      context.push('/convenio/${b['id']}'),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            height: 210,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: preview.length +
+                                  (items.length > preview.length ? 1 : 0),
+                              separatorBuilder: (_, _) =>
+                                  const SizedBox(width: 12),
+                              itemBuilder: (context, i) {
+                                if (i < preview.length) {
+                                  final b = preview[i];
+                                  return ConvenioHomeCard(
+                                    benefit: b,
+                                    onTap: () =>
+                                        context.push('/convenio/${b['id']}'),
+                                  ).liquidEnter(index: i, stagger: 70);
+                                }
+                                return _ViewAllConveniosCard(
+                                  total: items.length,
+                                  onTap: () => context.push('/convenios'),
                                 );
-                              }
-                              return GestureDetector(
-                                onTap: () => context.push('/convenios'),
-                                child: Container(
-                                  width: 130,
-                                  decoration: BoxDecoration(
-                                    color: MonacoColors.surface,
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(
-                                        color: MonacoColors.border),
-                                  ),
-                                  child: Column(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.center,
-                                    children: [
-                                      Icon(Icons.arrow_forward_rounded,
-                                          color: MonacoColors.gold, size: 28),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        'Ver todos',
-                                        style: TextStyle(
-                                          color: MonacoColors.textPrimary,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        '${items.length} en total',
-                                        style: TextStyle(
-                                          color: MonacoColors.textSecondary,
-                                          fontSize: 11,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
+                              },
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 24),
-                      ],
-                    );
-                  },
-                  loading: () => const SizedBox.shrink(),
-                  error: (_, __) => const SizedBox.shrink(),
-                ),
-
-                // ── Quick Actions ──
-                Text(
-                  'Accesos rápidos',
-                  style: TextStyle(
-                    color: MonacoColors.textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
+                          const SizedBox(height: 26),
+                        ],
+                      );
+                    },
+                    loading: () => const SizedBox.shrink(),
+                    error: (_, _) => const SizedBox.shrink(),
                   ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _QuickAction(
-                      icon: Icons.menu_book_rounded,
-                      label: 'Catálogo',
-                      onTap: () => context.push('/catalog'),
-                    ),
-                    const SizedBox(width: 12),
-                    _QuickAction(
-                      icon: Icons.emoji_events_rounded,
-                      label: 'Mis Premios',
-                      onTap: () => context.push('/rewards'),
-                    ),
-                    const SizedBox(width: 12),
-                    _QuickAction(
-                      icon: Icons.history_rounded,
-                      label: 'Historial',
-                      onTap: () => context.push('/points'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 32),
-              ],
+
+                  // ── Quick Actions ──
+                  const _SectionTitle(title: 'Accesos rápidos'),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _QuickAction(
+                          icon: Icons.menu_book_rounded,
+                          label: 'Catálogo',
+                          onTap: () => context.push('/catalog'),
+                        ).liquidEnter(index: 0, stagger: 70),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _QuickAction(
+                          icon: Icons.card_giftcard_rounded,
+                          label: 'Mis Premios',
+                          onTap: () => context.push('/rewards'),
+                        ).liquidEnter(index: 1, stagger: 70),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _QuickAction(
+                          icon: Icons.history_rounded,
+                          label: 'Historial',
+                          onTap: () => context.push('/points'),
+                        ).liquidEnter(index: 2, stagger: 70),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -407,7 +305,6 @@ class HomeScreen extends ConsumerWidget {
         context.push(linkValue);
         break;
       case 'url':
-        // Could launch URL externally
         break;
       case 'branch':
         context.push('/branch/$linkValue');
@@ -416,7 +313,9 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-// ── Header Widget ──────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// HEADER
+// ═══════════════════════════════════════════════════════════════════════════
 
 class _Header extends StatelessWidget {
   final String name;
@@ -431,10 +330,12 @@ class _Header extends StatelessWidget {
       children: [
         Text(
           'Hola, $name',
-          style: TextStyle(
+          style: const TextStyle(
             color: MonacoColors.textPrimary,
-            fontSize: 28,
+            fontSize: 30,
             fontWeight: FontWeight.w800,
+            letterSpacing: -0.6,
+            height: 1.1,
           ),
         )
             .animate()
@@ -444,9 +345,9 @@ class _Header extends StatelessWidget {
         Text(
           date,
           style: TextStyle(
-            color: MonacoColors.textSecondary,
-            fontSize: 14,
-            fontWeight: FontWeight.w400,
+            color: Colors.white.withOpacity(0.55),
+            fontSize: 13.5,
+            fontWeight: FontWeight.w500,
           ),
         ).animate().fadeIn(delay: 200.ms, duration: 400.ms),
       ],
@@ -454,7 +355,158 @@ class _Header extends StatelessWidget {
   }
 }
 
-// ── Review Banner ──────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// ORG PILL — glass pill con nombre de sucursal + chip "Cambiar"
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _OrgPill extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _OrgPill({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: LiquidPill(
+        padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
+        onTap: onTap,
+        borderRadius: 16,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.storefront_rounded,
+                size: 15, color: Colors.white),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: MonacoColors.textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.1,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Cambiar',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.75),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 14,
+                    color: Colors.white.withOpacity(0.75),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SECTION TITLE
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _SectionTitle extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final VoidCallback? onAction;
+  final String? actionLabel;
+
+  const _SectionTitle({
+    required this.title,
+    this.subtitle,
+    this.onAction,
+    this.actionLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  color: MonacoColors.textPrimary,
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.3,
+                ),
+              ),
+              if (subtitle != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  subtitle!,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.5),
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (onAction != null && actionLabel != null)
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onAction,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  actionLabel!,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.85),
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  size: 10,
+                  color: Colors.white.withOpacity(0.85),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REVIEW BANNER — glass pill con tint amber
+// ═══════════════════════════════════════════════════════════════════════════
 
 class _ReviewBanner extends StatelessWidget {
   final int count;
@@ -464,67 +516,80 @@ class _ReviewBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    const amber = Color(0xFFF5A623);
+    return LiquidGlass(
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: MonacoColors.gold.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: MonacoColors.gold.withOpacity(0.3)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: MonacoColors.gold,
-                borderRadius: BorderRadius.circular(8),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      tint: amber,
+      tintOpacity: 0.12,
+      borderRadius: 18,
+      showVignette: false,
+      scalePressed: 0.97,
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  amber.withOpacity(0.28),
+                  amber.withOpacity(0.14),
+                ],
               ),
-              child: Center(
-                child: Text(
-                  '$count',
-                  style: const TextStyle(
-                    color: Colors.black,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(color: amber.withOpacity(0.42), width: 0.8),
             ),
-            const SizedBox(width: 12),
-            Expanded(
+            child: Center(
               child: Text(
-                'Tenés reseñas pendientes',
+                '$count',
                 style: TextStyle(
-                  color: MonacoColors.textPrimary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
+                  color: amber.withOpacity(0.98),
+                  fontWeight: FontWeight.w900,
+                  fontSize: 15,
                 ),
               ),
             ),
-            Text(
-              'Dejá tu opinión',
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              'Tenés reseñas pendientes',
               style: TextStyle(
-                color: MonacoColors.gold,
-                fontSize: 13,
+                color: MonacoColors.textPrimary,
+                fontSize: 13.5,
                 fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(width: 4),
-            Icon(Icons.arrow_forward_ios, size: 12, color: MonacoColors.gold),
-          ],
-        ),
+          ),
+          Text(
+            'Dejá tu opinión',
+            style: TextStyle(
+              color: amber.withOpacity(0.98),
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Icon(
+            Icons.arrow_forward_ios_rounded,
+            size: 11,
+            color: amber.withOpacity(0.98),
+          ),
+        ],
       ),
     )
         .animate()
         .fadeIn(duration: 400.ms)
-        .slideY(begin: 0.1, end: 0, duration: 400.ms);
+        .slideY(begin: 0.08, end: 0, duration: 400.ms);
   }
 }
 
-// ── Billboard Card ─────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// BILLBOARD CARD — glass con imagen de fondo y overlay refractado
+// ═══════════════════════════════════════════════════════════════════════════
 
 class _BillboardCard extends StatelessWidget {
   final String title;
@@ -541,48 +606,88 @@ class _BillboardCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return LiquidGlass(
       onTap: onTap,
-      child: Container(
-        width: 260,
-        decoration: BoxDecoration(
-          color: MonacoColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          image: imageUrl != null
-              ? DecorationImage(
-                  image: NetworkImage(imageUrl!),
-                  fit: BoxFit.cover,
-                  colorFilter: ColorFilter.mode(
-                    Colors.black.withOpacity(0.45),
-                    BlendMode.darken,
-                  ),
-                )
-              : null,
-        ),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.end,
+      width: 260,
+      padding: EdgeInsets.zero,
+      borderRadius: 22,
+      tintOpacity: 0.06,
+      showVignette: false,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(22),
+        child: Stack(
+          fit: StackFit.expand,
           children: [
-            Text(
-              title,
-              style: TextStyle(
-                color: MonacoColors.textPrimary,
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
+            if (imageUrl != null)
+              Positioned.fill(
+                child: Image.network(
+                  imageUrl!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => const ColoredBox(
+                    color: MonacoColors.surfaceVariant,
+                  ),
+                ),
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+            // Tint negro inferior para legibilidad del texto
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Colors.black.withOpacity(0.65),
+                    ],
+                    stops: const [0.4, 1.0],
+                  ),
+                ),
+              ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: TextStyle(
-                color: MonacoColors.textSecondary,
-                fontSize: 13,
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.2,
+                      shadows: [
+                        Shadow(
+                          color: Colors.black54,
+                          blurRadius: 4,
+                          offset: Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.85),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                      shadows: const [
+                        Shadow(
+                          color: Colors.black45,
+                          blurRadius: 3,
+                          offset: Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
@@ -591,7 +696,79 @@ class _BillboardCard extends StatelessWidget {
   }
 }
 
-// ── Quick Action ───────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// "VER TODOS" — glass con ícono central
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _ViewAllConveniosCard extends StatelessWidget {
+  final int total;
+  final VoidCallback onTap;
+
+  const _ViewAllConveniosCard({required this.total, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return LiquidGlass(
+      onTap: onTap,
+      width: 140,
+      padding: const EdgeInsets.all(14),
+      borderRadius: 20,
+      tintOpacity: 0.07,
+      showVignette: false,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white.withOpacity(0.18),
+                  Colors.white.withOpacity(0.06),
+                ],
+              ),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.white.withOpacity(0.22),
+                width: 0.8,
+              ),
+            ),
+            child: const Icon(
+              Icons.arrow_forward_rounded,
+              color: Colors.white,
+              size: 22,
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Ver todos',
+            style: TextStyle(
+              color: MonacoColors.textPrimary,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '$total en total',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.5),
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// QUICK ACTION — glass compacto con ícono y label
+// ═══════════════════════════════════════════════════════════════════════════
 
 class _QuickAction extends StatelessWidget {
   final IconData icon;
@@ -606,53 +783,64 @@ class _QuickAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 20),
-          decoration: BoxDecoration(
-            color: MonacoColors.surface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: MonacoColors.divider.withOpacity(0.15),
-            ),
-          ),
-          child: Column(
-            children: [
-              Icon(icon, color: MonacoColors.gold, size: 28),
-              const SizedBox(height: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  color: MonacoColors.textPrimary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-                textAlign: TextAlign.center,
+    return LiquidGlass(
+      onTap: onTap,
+      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 10),
+      borderRadius: 20,
+      tintOpacity: 0.07,
+      showVignette: false,
+      child: Column(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white.withOpacity(0.18),
+                  Colors.white.withOpacity(0.06),
+                ],
               ),
-            ],
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(
+                color: Colors.white.withOpacity(0.22),
+                width: 0.8,
+              ),
+            ),
+            child: Icon(icon, color: Colors.white, size: 20),
           ),
-        ),
+          const SizedBox(height: 10),
+          Text(
+            label,
+            style: const TextStyle(
+              color: MonacoColors.textPrimary,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
-    )
-        .animate()
-        .fadeIn(duration: 400.ms, delay: 100.ms)
-        .scale(begin: const Offset(0.95, 0.95), end: const Offset(1, 1));
+    );
   }
 }
 
-// ── Shimmer Helper ─────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// SHIMMER HELPER
+// ═══════════════════════════════════════════════════════════════════════════
 
 Widget _shimmerCard({double? width, double height = 140}) {
   return Container(
     width: width,
     height: height,
     decoration: BoxDecoration(
-      color: MonacoColors.surface,
-      borderRadius: BorderRadius.circular(16),
+      color: Colors.white.withOpacity(0.04),
+      borderRadius: BorderRadius.circular(22),
+      border: Border.all(color: Colors.white.withOpacity(0.06)),
     ),
   )
       .animate(onPlay: (c) => c.repeat())
-      .shimmer(duration: 1200.ms, color: Colors.white10);
+      .shimmer(duration: 1400.ms, color: Colors.white10);
 }
