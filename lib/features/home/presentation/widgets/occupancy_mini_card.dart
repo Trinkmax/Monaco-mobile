@@ -10,6 +10,11 @@ class OccupancyMiniCard extends StatelessWidget {
   final String branchName;
   final String occupancyLevel; // sin_espera | baja | media | alta
   final bool isOpen;
+
+  /// Cantidad total de barberos activos en el turno. Si es 0 la sucursal se
+  /// considera "cerrada" aunque `isOpen` sea true (ej. fuera de turno).
+  final int totalBarbers;
+
   final VoidCallback? onTap;
 
   const OccupancyMiniCard({
@@ -17,11 +22,14 @@ class OccupancyMiniCard extends StatelessWidget {
     required this.branchName,
     required this.occupancyLevel,
     this.isOpen = true,
+    this.totalBarbers = 1,
     this.onTap,
   });
 
+  bool get _isEffectivelyClosed => !isOpen || totalBarbers == 0;
+
   Color get _levelColor {
-    if (!isOpen) return const Color(0xFF6B6B6B);
+    if (_isEffectivelyClosed) return const Color(0xFF6B6B6B);
     switch (occupancyLevel.toLowerCase()) {
       case 'alta':
         return const Color(0xFFEF4444);
@@ -36,7 +44,7 @@ class OccupancyMiniCard extends StatelessWidget {
   }
 
   String get _levelLabel {
-    if (!isOpen) return 'Cerrado';
+    if (_isEffectivelyClosed) return 'Cerrado';
     switch (occupancyLevel.toLowerCase()) {
       case 'alta':
         return 'Alta demanda';
@@ -51,7 +59,7 @@ class OccupancyMiniCard extends StatelessWidget {
   }
 
   int get _filledSegments {
-    if (!isOpen) return 0;
+    if (_isEffectivelyClosed) return 0;
     switch (occupancyLevel.toLowerCase()) {
       case 'alta':
         return 4;
@@ -83,7 +91,7 @@ class OccupancyMiniCard extends StatelessWidget {
           LiquidStatusPill(
             label: _levelLabel,
             color: color,
-            pulse: isOpen,
+            pulse: !_isEffectivelyClosed,
             compact: true,
           ),
           const SizedBox(height: 12),

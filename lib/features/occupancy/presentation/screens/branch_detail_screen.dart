@@ -171,7 +171,7 @@ class _LiveQueueContent extends StatelessWidget {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 140),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _OccupancyHero(
               occupancy: occupancy,
@@ -228,7 +228,9 @@ class _LiveQueueContent extends StatelessWidget {
               ).liquidEnter(index: 6 + inProgress.length),
             ],
 
-            if (inProgress.isEmpty && waiting.isEmpty && isOpen) ...[
+            if (inProgress.isEmpty &&
+                waiting.isEmpty &&
+                occupancy.level != _OccupancyLevel.closed) ...[
               const SizedBox(height: 24),
               _EmptyState(totalBarbers: totalBarbers).liquidEnter(index: 4),
             ],

@@ -151,6 +151,8 @@ class HomeScreen extends ConsumerWidget {
                               branchName: b['branch_name'] ?? 'Sucursal',
                               occupancyLevel: b['occupancy_level'] ?? 'baja',
                               isOpen: (b['is_open'] ?? true) as bool,
+                              totalBarbers:
+                                  (b['total_barbers'] ?? 0).toInt(),
                               onTap: () =>
                                   context.push('/branch/${b['branch_id']}'),
                             ).liquidEnter(index: i, stagger: 70);

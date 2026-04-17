@@ -59,8 +59,8 @@ class _BranchCard extends StatelessWidget {
 
   const _BranchCard({required this.data, required this.onTap});
 
-  Color _levelColor(String level, bool isOpen) {
-    if (!isOpen) return const Color(0xFF6B6B6B);
+  Color _levelColor(String level, bool effectivelyClosed) {
+    if (effectivelyClosed) return const Color(0xFF6B6B6B);
     switch (level.toLowerCase()) {
       case 'alta':
         return const Color(0xFFEF4444);
@@ -74,8 +74,8 @@ class _BranchCard extends StatelessWidget {
     }
   }
 
-  String _levelLabel(String level, bool isOpen) {
-    if (!isOpen) return 'Cerrado';
+  String _levelLabel(String level, bool effectivelyClosed) {
+    if (effectivelyClosed) return 'Cerrado';
     switch (level.toLowerCase()) {
       case 'alta':
         return 'Alta demanda';
@@ -99,7 +99,8 @@ class _BranchCard extends StatelessWidget {
     final availableBarbers = (data['available_barbers'] ?? 0).toInt();
     final totalBarbers = (data['total_barbers'] ?? 0).toInt();
 
-    final color = _levelColor(level, isOpen);
+    final effectivelyClosed = !isOpen || totalBarbers == 0;
+    final color = _levelColor(level, effectivelyClosed);
 
     return LiquidGlass(
       onTap: onTap,
@@ -123,7 +124,7 @@ class _BranchCard extends StatelessWidget {
                   ),
                 ),
               ),
-              _OpenClosedPill(isOpen: isOpen),
+              _OpenClosedPill(isOpen: !effectivelyClosed),
               const SizedBox(width: 10),
               Icon(
                 Icons.arrow_forward_ios_rounded,
@@ -136,9 +137,9 @@ class _BranchCard extends StatelessWidget {
 
           // Badge de ocupación — LED + label sobre glass
           LiquidStatusPill(
-            label: _levelLabel(level, isOpen),
+            label: _levelLabel(level, effectivelyClosed),
             color: color,
-            pulse: isOpen,
+            pulse: !effectivelyClosed,
           ),
           const SizedBox(height: 16),
 
