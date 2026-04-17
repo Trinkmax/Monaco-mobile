@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
+import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 import 'package:monaco_mobile/core/auth/auth_provider.dart';
 import 'package:monaco_mobile/core/auth/secure_storage.dart';
 import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
@@ -50,7 +51,7 @@ class _BiometricNotifier extends StateNotifier<bool> {
 }
 
 // ---------------------------------------------------------------------------
-// Push notifications toggle (local state)
+// Push notifications toggle (local)
 // ---------------------------------------------------------------------------
 final pushNotificationsProvider = StateProvider<bool>((ref) => true);
 
@@ -75,22 +76,12 @@ class ProfileScreen extends ConsumerWidget {
     final pushEnabled = ref.watch(pushNotificationsProvider);
     final asyncVersion = ref.watch(appVersionProvider);
 
-    return Scaffold(
-      backgroundColor: MonacoColors.background,
-      appBar: AppBar(
-        title: const Text('Mi Perfil',
-            style: TextStyle(fontWeight: FontWeight.w700)),
-        backgroundColor: MonacoColors.surface,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new),
-          onPressed: () => context.pop(),
-        ),
-      ),
+    return LiquidAppBarScaffold(
+      title: 'Mi Perfil',
+      background: const LiquidBackdrop(child: SizedBox.expand()),
       body: asyncProfile.when(
         loading: () => const Center(
-          child: CircularProgressIndicator(color: MonacoColors.gold),
+          child: CircularProgressIndicator(color: LiquidTokens.monacoGreen),
         ),
         error: (e, _) => _ErrorState(
           error: e,
@@ -136,244 +127,310 @@ class _ProfileBody extends ConsumerWidget {
 
     return ListView(
       physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 140),
       children: [
         // ---- Avatar card ----
-        _sectionCard(
+        LiquidGlass(
+          padding: const EdgeInsets.all(18),
+          borderRadius: 24,
+          tint: LiquidTokens.monacoGreen,
+          tintOpacity: 0.08,
+          pressable: false,
           child: Row(
             children: [
-              CircleAvatar(
-                radius: 34,
-                backgroundColor: MonacoColors.gold.withOpacity(0.2),
-                child: Text(
-                  _initial(),
-                  style: TextStyle(
-                    color: MonacoColors.gold,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
+              _AvatarCircle(initial: _initial()),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(fullName,
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700)),
+                    Text(
+                      fullName,
+                      style: const TextStyle(
+                        color: MonacoColors.textPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
                     if (phone.isNotEmpty) ...[
                       const SizedBox(height: 4),
-                      Text(phone,
-                          style: const TextStyle(
-                              color: Colors.white54, fontSize: 14)),
+                      Text(
+                        phone,
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.55),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
                     ],
                   ],
                 ),
               ),
-              IconButton(
-                icon: Icon(Icons.edit_outlined,
-                    color: Colors.white.withOpacity(0.25)),
-                onPressed: null, // disabled for now
-              ),
             ],
           ),
-        ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.05),
+        ).liquidEnter(index: 0),
 
-        const SizedBox(height: 24),
+        const SizedBox(height: 26),
 
         // ---- Seguridad ----
-        _sectionTitle('Seguridad'),
-        const SizedBox(height: 8),
-        _sectionCard(
-          child: Column(
-            children: [
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                activeColor: MonacoColors.gold,
-                title: const Text('Biometria',
-                    style: TextStyle(color: Colors.white, fontSize: 15)),
-                subtitle: const Text('Desbloquear con huella o Face ID',
-                    style: TextStyle(color: Colors.white38, fontSize: 12)),
-                secondary:
-                    const Icon(Icons.fingerprint, color: MonacoColors.gold),
-                value: biometricEnabled,
-                onChanged: (val) =>
-                    ref.read(biometricEnabledProvider.notifier).toggle(val),
-              ),
-              Divider(color: Colors.white.withOpacity(0.06), height: 1),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading:
-                    const Icon(Icons.pin_outlined, color: MonacoColors.gold),
-                title: const Text('Configurar PIN',
-                    style: TextStyle(color: Colors.white, fontSize: 15)),
-                trailing: const Icon(Icons.chevron_right,
-                    color: Colors.white24, size: 20),
-                onTap: () => context.push('/pin-setup'),
-              ),
-            ],
-          ),
-        ).animate().fadeIn(delay: 100.ms, duration: 400.ms).slideY(begin: 0.05),
+        _SectionTitle('Seguridad').liquidEnter(index: 1),
+        const SizedBox(height: 10),
+        LiquidSectionCard(
+          children: [
+            LiquidSwitchTile(
+              icon: Icons.fingerprint_rounded,
+              iconColor: LiquidTokens.monacoGreen,
+              title: 'Biometría',
+              subtitle: 'Desbloquear con huella o Face ID',
+              value: biometricEnabled,
+              onChanged: (val) =>
+                  ref.read(biometricEnabledProvider.notifier).toggle(val),
+            ),
+            LiquidListTile(
+              icon: Icons.pin_outlined,
+              iconColor: LiquidTokens.monacoGreen,
+              title: 'Configurar PIN',
+              onTap: () => context.push('/pin-setup'),
+            ),
+          ],
+        ).liquidEnter(index: 2),
 
-        const SizedBox(height: 24),
+        const SizedBox(height: 26),
 
         // ---- Preferencias ----
-        _sectionTitle('Preferencias'),
-        const SizedBox(height: 8),
-        _sectionCard(
-          child: SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            activeColor: MonacoColors.gold,
-            title: const Text('Notificaciones push',
-                style: TextStyle(color: Colors.white, fontSize: 15)),
-            secondary: const Icon(Icons.notifications_outlined,
-                color: MonacoColors.gold),
-            value: pushEnabled,
-            onChanged: (val) =>
-                ref.read(pushNotificationsProvider.notifier).state = val,
-          ),
-        ).animate().fadeIn(delay: 200.ms, duration: 400.ms).slideY(begin: 0.05),
+        _SectionTitle('Preferencias').liquidEnter(index: 3),
+        const SizedBox(height: 10),
+        LiquidSectionCard(
+          children: [
+            LiquidSwitchTile(
+              icon: Icons.notifications_outlined,
+              iconColor: LiquidTokens.monacoGreen,
+              title: 'Notificaciones push',
+              value: pushEnabled,
+              onChanged: (val) =>
+                  ref.read(pushNotificationsProvider.notifier).state = val,
+            ),
+          ],
+        ).liquidEnter(index: 4),
 
-        const SizedBox(height: 24),
+        const SizedBox(height: 26),
 
         // ---- Historial ----
-        _sectionTitle('Historial'),
-        const SizedBox(height: 8),
-        _sectionCard(
-          child: Column(
-            children: [
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.calendar_month_outlined,
-                    color: MonacoColors.gold),
-                title: const Text('Mis visitas',
-                    style: TextStyle(color: Colors.white, fontSize: 15)),
-                trailing: const Icon(Icons.chevron_right,
-                    color: Colors.white24, size: 20),
-                onTap: () {}, // future
-              ),
-              Divider(color: Colors.white.withOpacity(0.06), height: 1),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.stars_rounded,
-                    color: MonacoColors.gold),
-                title: const Text('Transacciones de puntos',
-                    style: TextStyle(color: Colors.white, fontSize: 15)),
-                trailing: const Icon(Icons.chevron_right,
-                    color: Colors.white24, size: 20),
-                onTap: () => context.push('/points'),
-              ),
-              Divider(color: Colors.white.withOpacity(0.06), height: 1),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.local_offer_outlined,
-                    color: MonacoColors.gold),
-                title: const Text('Mis canjes',
-                    style: TextStyle(color: Colors.white, fontSize: 15)),
-                subtitle: const Text('Códigos activados y canjeados',
-                    style: TextStyle(color: Colors.white38, fontSize: 12)),
-                trailing: const Icon(Icons.chevron_right,
-                    color: Colors.white24, size: 20),
-                onTap: () => context.push('/mis-canjes'),
-              ),
-            ],
-          ),
-        ).animate().fadeIn(delay: 300.ms, duration: 400.ms).slideY(begin: 0.05),
+        _SectionTitle('Historial').liquidEnter(index: 5),
+        const SizedBox(height: 10),
+        LiquidSectionCard(
+          children: [
+            LiquidListTile(
+              icon: Icons.calendar_month_outlined,
+              iconColor: LiquidTokens.monacoGreen,
+              title: 'Mis visitas',
+              onTap: () {},
+            ),
+            LiquidListTile(
+              icon: Icons.stars_rounded,
+              iconColor: LiquidTokens.monacoGreen,
+              title: 'Transacciones de puntos',
+              onTap: () => context.push('/points'),
+            ),
+            LiquidListTile(
+              icon: Icons.local_offer_outlined,
+              iconColor: LiquidTokens.monacoGreen,
+              title: 'Mis canjes',
+              subtitle: 'Códigos activados y canjeados',
+              onTap: () => context.push('/mis-canjes'),
+            ),
+          ],
+        ).liquidEnter(index: 6),
 
         const SizedBox(height: 32),
 
-        // ---- Cerrar sesion ----
-        SizedBox(
-          width: double.infinity,
-          height: 52,
-          child: OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.redAccent,
-              side: const BorderSide(color: Colors.redAccent, width: 1.2),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14)),
-            ),
-            icon: const Icon(Icons.logout, size: 20),
-            label: const Text('Cerrar sesion',
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-            onPressed: () => _confirmLogout(context, ref),
+        // ---- Cerrar sesión ----
+        LiquidPill(
+          onTap: () => _confirmLogout(context, ref),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          tint: Colors.redAccent,
+          tintOpacity: 0.12,
+          borderRadius: 18,
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.logout_rounded, size: 20, color: Colors.redAccent),
+              SizedBox(width: 10),
+              Text(
+                'Cerrar sesión',
+                style: TextStyle(
+                  color: Colors.redAccent,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.1,
+                ),
+              ),
+            ],
           ),
-        ).animate().fadeIn(delay: 400.ms, duration: 400.ms),
+        ).liquidEnter(index: 7),
 
-        const SizedBox(height: 24),
+        const SizedBox(height: 22),
 
-        // ---- Version ----
         Center(
           child: Text(
-            'Version $version',
-            style: const TextStyle(color: Colors.white24, fontSize: 12),
+            'Versión $version',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.3),
+              fontSize: 12,
+            ),
           ),
         ),
-        const SizedBox(height: 16),
       ],
-    );
-  }
-
-  // ---- Helpers ----
-  Widget _sectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4),
-      child: Text(title,
-          style: TextStyle(
-              color: MonacoColors.gold,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.8)),
-    );
-  }
-
-  Widget _sectionCard({required Widget child}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: MonacoColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
-      ),
-      child: child,
     );
   }
 
   void _confirmLogout(BuildContext context, WidgetRef ref) {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: MonacoColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Cerrar sesion',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-        content: const Text('¿Estas seguro de que queres cerrar sesion?',
-            style: TextStyle(color: Colors.white70)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancelar',
-                style: TextStyle(color: Colors.white54)),
+      barrierColor: Colors.black.withOpacity(0.6),
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 40),
+        child: LiquidGlass(
+          padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+          borderRadius: 24,
+          pressable: false,
+          tintOpacity: 0.10,
+          blur: LiquidTokens.blurHeavy,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Cerrar sesión',
+                style: TextStyle(
+                  color: MonacoColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 18,
+                  letterSpacing: -0.3,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '¿Estás seguro de que querés cerrar sesión?',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.7),
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 22),
+              Row(
+                children: [
+                  Expanded(
+                    child: LiquidPill(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      onTap: () => Navigator.of(ctx).pop(),
+                      child: const Center(
+                        child: Text(
+                          'Cancelar',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: LiquidButton(
+                      primary: false,
+                      tint: Colors.redAccent,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      onPressed: () async {
+                        Navigator.of(ctx).pop();
+                        await ref.read(authProvider.notifier).logout();
+                        if (context.mounted) context.go('/welcome');
+                      },
+                      child: const Text(
+                        'Cerrar sesión',
+                        style: TextStyle(
+                          color: Colors.redAccent,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-            ),
-            onPressed: () async {
-              Navigator.of(ctx).pop();
-              await ref.read(authProvider.notifier).logout();
-              if (context.mounted) context.go('/welcome');
-            },
-            child: const Text('Cerrar sesion',
-                style: TextStyle(fontWeight: FontWeight.w700)),
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  final String text;
+  const _SectionTitle(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 6),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: Colors.white.withOpacity(0.5),
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.0,
+        ),
+      ),
+    );
+  }
+}
+
+class _AvatarCircle extends StatelessWidget {
+  final String initial;
+  const _AvatarCircle({required this.initial});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 72,
+      height: 72,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            LiquidTokens.monacoGreen.withOpacity(0.28),
+            LiquidTokens.monacoGreen.withOpacity(0.12),
+          ],
+        ),
+        border: Border.all(
+          color: LiquidTokens.monacoGreen.withOpacity(0.5),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: LiquidTokens.monacoGreen.withOpacity(0.38),
+            blurRadius: 20,
+            spreadRadius: -4,
           ),
         ],
+      ),
+      child: Center(
+        child: Text(
+          initial,
+          style: const TextStyle(
+            color: LiquidTokens.monacoGreen,
+            fontSize: 30,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
       ),
     );
   }
@@ -404,10 +461,10 @@ class _ErrorState extends StatelessWidget {
   Widget build(BuildContext context) {
     final offline = _isNetworkError;
     final icon = offline ? Icons.wifi_off_rounded : Icons.error_outline_rounded;
-    final title = offline ? 'Sin conexion' : 'Algo salio mal';
+    final title = offline ? 'Sin conexión' : 'Algo salió mal';
     final message = offline
-        ? 'No pudimos conectarnos con el servidor. Revisa tu conexion a internet e intenta nuevamente.'
-        : 'No pudimos cargar tu perfil. Intenta nuevamente en unos segundos.';
+        ? 'No pudimos conectarnos con el servidor. Revisá tu conexión a internet e intentá nuevamente.'
+        : 'No pudimos cargar tu perfil. Intentá nuevamente en unos segundos.';
 
     return Center(
       child: Padding(
@@ -416,49 +473,63 @@ class _ErrorState extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 72,
-              height: 72,
+              width: 80,
+              height: 80,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: MonacoColors.gold.withOpacity(0.12),
+                gradient: LinearGradient(
+                  colors: [
+                    LiquidTokens.monacoGreen.withOpacity(0.2),
+                    LiquidTokens.monacoGreen.withOpacity(0.06),
+                  ],
+                ),
+                border: Border.all(
+                  color: LiquidTokens.monacoGreen.withOpacity(0.32),
+                ),
               ),
-              child: Icon(icon, color: MonacoColors.gold, size: 34),
+              child: Icon(icon, color: LiquidTokens.monacoGreen, size: 34),
             ),
             const SizedBox(height: 20),
             Text(
               title,
               style: const TextStyle(
-                color: Colors.white,
+                color: MonacoColors.textPrimary,
                 fontSize: 18,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w800,
               ),
             ),
             const SizedBox(height: 8),
             Text(
               message,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white54, fontSize: 14),
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.55),
+                fontSize: 14,
+              ),
             ),
-            const SizedBox(height: 24),
-            SizedBox(
-              height: 48,
-              child: ElevatedButton.icon(
-                onPressed: onRetry,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: MonacoColors.gold,
-                  foregroundColor: Colors.black,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
-                  padding: const EdgeInsets.symmetric(horizontal: 28),
-                ),
-                icon: const Icon(Icons.refresh_rounded, size: 20),
-                label: const Text('Reintentar',
-                    style: TextStyle(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 22),
+            LiquidButton(
+              onPressed: onRetry,
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.refresh_rounded, size: 18, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text(
+                    'Reintentar',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
         ),
       ),
-    );
+    ).animate().fadeIn(duration: 400.ms);
   }
 }
