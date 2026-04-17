@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../app/widgets/glass/liquid.dart';
 import '../auth/auth_provider.dart';
 import '../../features/onboarding/presentation/screens/splash_screen.dart';
 import '../../features/onboarding/presentation/screens/welcome_screen.dart';
@@ -176,10 +177,34 @@ final routerProvider = Provider<GoRouter>((ref) {
   );
 });
 
-/// Main shell with bottom navigation
+/// Shell principal — dock flotante estilo iOS 26, con backgroundColor
+/// transparente y `extendBody` para que el contenido pase por detrás.
 class MainShell extends StatelessWidget {
   final Widget child;
   const MainShell({super.key, required this.child});
+
+  static const _items = [
+    LiquidDockItem(
+      icon: Icons.home_outlined,
+      selectedIcon: Icons.home_rounded,
+      label: 'Inicio',
+    ),
+    LiquidDockItem(
+      icon: Icons.storefront_outlined,
+      selectedIcon: Icons.storefront_rounded,
+      label: 'Sucursales',
+    ),
+    LiquidDockItem(
+      icon: Icons.card_giftcard_outlined,
+      selectedIcon: Icons.card_giftcard_rounded,
+      label: 'Premios',
+    ),
+    LiquidDockItem(
+      icon: Icons.person_outline_rounded,
+      selectedIcon: Icons.person_rounded,
+      label: 'Perfil',
+    ),
+  ];
 
   static int _indexFromLocation(String location) {
     if (location.startsWith('/home')) return 0;
@@ -195,30 +220,24 @@ class MainShell extends StatelessWidget {
     final currentIndex = _indexFromLocation(location);
 
     return Scaffold(
+      extendBody: true,
+      backgroundColor: Colors.transparent,
       body: child,
-      bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          border: Border(top: BorderSide(color: Color(0x1FFFFFFF), width: 0.5)),
-        ),
-        child: NavigationBar(
-          selectedIndex: currentIndex,
-          onDestinationSelected: (index) {
-            switch (index) {
-              case 0: context.go('/home');
-              case 1: context.go('/occupancy');
-              case 2: context.go('/rewards');
-              case 3: context.go('/profile');
-            }
-          },
-          backgroundColor: const Color(0xFF242424),
-          indicatorColor: const Color(0x26FFFFFF),
-          destinations: const [
-            NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Inicio'),
-            NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: 'Sucursales'),
-            NavigationDestination(icon: Icon(Icons.card_giftcard_outlined), selectedIcon: Icon(Icons.card_giftcard), label: 'Premios'),
-            NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Perfil'),
-          ],
-        ),
+      bottomNavigationBar: LiquidDock(
+        items: _items,
+        currentIndex: currentIndex,
+        onSelect: (index) {
+          switch (index) {
+            case 0:
+              context.go('/home');
+            case 1:
+              context.go('/occupancy');
+            case 2:
+              context.go('/rewards');
+            case 3:
+              context.go('/profile');
+          }
+        },
       ),
     );
   }
