@@ -11,9 +11,6 @@ class AppConstants {
     defaultValue: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd6c2ZvcXB4dm53bXZuZ2ZvcXFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3NDYyOTIsImV4cCI6MjA4ODMyMjI5Mn0.fLbuqdckbBmJ4RRbLwEBAZAl4W_6cP__nElpodSVdqY',
   );
 
-  // Organization (Monaco default — la app es multi-tenant)
-  static const String defaultOrgId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-
   // Auth
   static const int pinMinLength = 4;
   static const int pinMaxLength = 6;

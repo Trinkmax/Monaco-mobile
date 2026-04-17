@@ -157,17 +157,33 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = const AuthState(status: AuthStatus.unauthenticated);
   }
 
-  Future<void> login({required String phone, String? name}) async {
-    final result = await _authService.loginWithPhone(phone: phone, name: name);
+  Future<void> login({
+    required String phone,
+    required String orgId,
+    required String orgName,
+    String? name,
+  }) async {
+    final result = await _authService.loginWithPhone(
+      phone: phone,
+      orgId: orgId,
+      name: name,
+    );
 
     if (result.success) {
       // Read the name that auth_service saved (fetched from DB)
       final savedName = await SecureStorageService.getClientName();
+      // Persistir la organización elegida (coincide con app_metadata.organization_id del JWT)
+      await SecureStorageService.saveSelectedOrg(
+        orgId: orgId,
+        orgName: orgName,
+      );
       state = AuthState(
         status: AuthStatus.authenticated,
         clientId: result.clientId,
         clientName: savedName ?? name ?? phone,
         isNewClient: result.isNewClient,
+        selectedOrgId: orgId,
+        selectedOrgName: orgName,
       );
     } else {
       state = state.copyWith(

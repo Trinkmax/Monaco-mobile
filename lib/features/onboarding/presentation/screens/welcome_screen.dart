@@ -59,7 +59,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
     setState(() => _currentPage = index);
   }
 
-  void _goToLogin() => context.go('/login');
+  void _goToLogin() => context.go('/select-org');
 
   void _nextPage() {
     if (_currentPage < _slides.length - 1) {

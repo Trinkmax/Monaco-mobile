@@ -38,8 +38,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     });
 
     try {
+      final preAuth = ref.read(authProvider);
+      final orgId = preAuth.selectedOrgId;
+      final orgName = preAuth.selectedOrgName;
+      if (orgId == null || orgName == null) {
+        // Salvaguarda: nunca deberíamos llegar acá por el router, pero si pasa
+        // volvemos a la selección de org (no tiene sentido loguear sin org).
+        if (mounted) context.go('/select-org');
+        return;
+      }
+
       await ref.read(authProvider.notifier).login(
             phone: _phoneController.text.trim(),
+            orgId: orgId,
+            orgName: orgName,
             name: _isRegistering ? _nameController.text.trim() : null,
           );
 

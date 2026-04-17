@@ -154,8 +154,15 @@ class OrgSelectionScreen extends ConsumerWidget {
     );
   }
 
-  void _selectOrg(BuildContext context, WidgetRef ref, org) {
-    ref.read(authProvider.notifier).setSelectedOrg(org.id, org.name);
-    context.go('/home');
+  Future<void> _selectOrg(BuildContext context, WidgetRef ref, org) async {
+    await ref.read(authProvider.notifier).setSelectedOrg(org.id, org.name);
+    if (!context.mounted) return;
+    final status = ref.read(authProvider).status;
+    // Si todavía no está autenticado, recién ahora va al login con la org correcta.
+    if (status == AuthStatus.authenticated) {
+      context.go('/home');
+    } else {
+      context.go('/login');
+    }
   }
 }

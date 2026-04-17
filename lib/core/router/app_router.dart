@@ -27,13 +27,31 @@ import '../../features/org_selection/presentation/screens/org_selection_screen.d
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellNavigatorKey = GlobalKey<NavigatorState>();
 
+/// ChangeNotifier que hace refresh del router cuando cambia el auth state,
+/// sin recrear el GoRouter en cada cambio (evita resetear a initialLocation).
+class _AuthRouterRefresh extends ChangeNotifier {
+  _AuthRouterRefresh(Ref ref) {
+    _sub = ref.listen<AuthState>(authProvider, (_, __) => notifyListeners());
+  }
+  late final ProviderSubscription<AuthState> _sub;
+
+  @override
+  void dispose() {
+    _sub.close();
+    super.dispose();
+  }
+}
+
 final routerProvider = Provider<GoRouter>((ref) {
-  final authState = ref.watch(authProvider);
+  final refresh = _AuthRouterRefresh(ref);
+  ref.onDispose(refresh.dispose);
 
   return GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: '/splash',
+    refreshListenable: refresh,
     redirect: (context, state) {
+      final authState = ref.read(authProvider);
       final path = state.matchedLocation;
       final isAuth = authState.status == AuthStatus.authenticated;
       final needsBio = authState.status == AuthStatus.needsBiometric;
@@ -50,12 +68,18 @@ final routerProvider = Provider<GoRouter>((ref) {
       // Needs biometric verification
       if (needsBio && path != '/biometric') return '/biometric';
 
-      // Not authenticated, redirect to welcome/login
-      if (isUnauthenticated && !path.startsWith('/welcome') && !path.startsWith('/login')) {
-        return '/welcome';
+      // Flujo no autenticado: welcome → select-org → login
+      if (isUnauthenticated) {
+        final allowed = path.startsWith('/welcome') ||
+            path.startsWith('/login') ||
+            path == '/select-org';
+        if (!allowed) return '/welcome';
+        // No permitir login sin haber elegido org antes (evita mismatch con app_metadata)
+        if (path.startsWith('/login') && !hasOrg) return '/select-org';
+        return null;
       }
 
-      // Authenticated pero sin org seleccionada → selección de org
+      // Authenticated pero sin org seleccionada (sesión vieja) → selección de org
       if (isAuth && !hasOrg && path != '/select-org') {
         return '/select-org';
       }

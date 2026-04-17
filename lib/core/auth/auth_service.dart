@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../utils/constants.dart';
 import 'secure_storage.dart';
 
 class AuthResult {
@@ -27,6 +26,7 @@ class AuthService {
   /// Login/Register via phone number using the client-auth edge function
   Future<AuthResult> loginWithPhone({
     required String phone,
+    required String orgId,
     String? name,
   }) async {
     try {
@@ -39,7 +39,7 @@ class AuthService {
           'phone': phone,
           'device_id': deviceId,
           'device_secret': deviceSecret,
-          'org_id': AppConstants.defaultOrgId,
+          'org_id': orgId,
           if (name != null) 'name': name,
         },
       );

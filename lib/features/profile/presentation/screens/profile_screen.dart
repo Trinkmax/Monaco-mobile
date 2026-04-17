@@ -92,9 +92,9 @@ class ProfileScreen extends ConsumerWidget {
         loading: () => const Center(
           child: CircularProgressIndicator(color: MonacoColors.gold),
         ),
-        error: (e, _) => Center(
-          child:
-              Text('Error: $e', style: const TextStyle(color: Colors.white70)),
+        error: (e, _) => _ErrorState(
+          error: e,
+          onRetry: () => ref.invalidate(clientProfileProvider),
         ),
         data: (profile) => _ProfileBody(
           profile: profile,
@@ -374,6 +374,90 @@ class _ProfileBody extends ConsumerWidget {
                 style: TextStyle(fontWeight: FontWeight.w700)),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Error state
+// ---------------------------------------------------------------------------
+class _ErrorState extends StatelessWidget {
+  const _ErrorState({required this.error, required this.onRetry});
+
+  final Object error;
+  final VoidCallback onRetry;
+
+  bool get _isNetworkError {
+    final s = error.toString().toLowerCase();
+    return s.contains('socketexception') ||
+        s.contains('failed host lookup') ||
+        s.contains('no address associated') ||
+        s.contains('authretryablefetchexception') ||
+        s.contains('clientexception') ||
+        s.contains('connection') ||
+        s.contains('network is unreachable') ||
+        s.contains('timeout');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final offline = _isNetworkError;
+    final icon = offline ? Icons.wifi_off_rounded : Icons.error_outline_rounded;
+    final title = offline ? 'Sin conexion' : 'Algo salio mal';
+    final message = offline
+        ? 'No pudimos conectarnos con el servidor. Revisa tu conexion a internet e intenta nuevamente.'
+        : 'No pudimos cargar tu perfil. Intenta nuevamente en unos segundos.';
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: MonacoColors.gold.withOpacity(0.12),
+              ),
+              child: Icon(icon, color: MonacoColors.gold, size: 34),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white54, fontSize: 14),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              height: 48,
+              child: ElevatedButton.icon(
+                onPressed: onRetry,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: MonacoColors.gold,
+                  foregroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                  padding: const EdgeInsets.symmetric(horizontal: 28),
+                ),
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+                label: const Text('Reintentar',
+                    style: TextStyle(fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
