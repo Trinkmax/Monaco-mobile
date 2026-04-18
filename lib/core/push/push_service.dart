@@ -20,33 +20,39 @@ class PushService {
   static bool _initialized = false;
 
   /// Initialize FCM: request permissions, get token, save to Supabase.
+  ///
+  /// Safe para llamar aunque Firebase no esté configurado: devuelve sin hacer
+  /// nada. Apple pide permiso de notificaciones solo cuando el usuario elige
+  /// activarlas (ver NotificationsPermissionScreen), no en el primer launch.
   static Future<void> init(WidgetRef? ref) async {
     if (_initialized) return;
+    if (Firebase.apps.isEmpty) return;
     _initialized = true;
 
-    // Register background handler
-    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    try {
+      FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-    // Request permissions (iOS)
-    final settings = await _messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-      provisional: false,
-    );
+      final settings = await _messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+        provisional: false,
+      );
 
-    if (settings.authorizationStatus == AuthorizationStatus.denied) {
-      return;
+      if (settings.authorizationStatus == AuthorizationStatus.denied ||
+          settings.authorizationStatus == AuthorizationStatus.notDetermined) {
+        return;
+      }
+
+      final token = await _messaging.getToken();
+      if (token != null) {
+        await _saveToken(token);
+      }
+
+      _messaging.onTokenRefresh.listen(_saveToken);
+    } catch (_) {
+      // Firebase mal configurado o APNs no disponible en simulador — ignorar.
     }
-
-    // Get FCM token
-    final token = await _messaging.getToken();
-    if (token != null) {
-      await _saveToken(token);
-    }
-
-    // Listen for token refresh
-    _messaging.onTokenRefresh.listen(_saveToken);
   }
 
   /// Save (upsert) the device token to Supabase `client_device_tokens`.
@@ -96,6 +102,48 @@ class PushService {
     final token = await _messaging.getToken();
     if (token != null) {
       await _saveToken(token);
+    }
+  }
+
+  /// Estado actual del permiso de notificaciones en el sistema.
+  /// Devuelve `null` si Firebase no está configurado.
+  static Future<AuthorizationStatus?> currentAuthorizationStatus() async {
+    if (Firebase.apps.isEmpty) return null;
+    try {
+      final settings = await _messaging.getNotificationSettings();
+      return settings.authorizationStatus;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Dispara el prompt nativo de iOS. Llamar SOLO después de haber mostrado
+  /// un pre-prompt contextual explicando por qué pedimos el permiso
+  /// (Apple Guideline 4.5.4). Devuelve el status resultante.
+  static Future<AuthorizationStatus?> requestPermissionExplicitly() async {
+    if (Firebase.apps.isEmpty) return null;
+    try {
+      FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+      final settings = await _messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+        provisional: false,
+      );
+      if (settings.authorizationStatus == AuthorizationStatus.authorized ||
+          settings.authorizationStatus == AuthorizationStatus.provisional) {
+        final token = await _messaging.getToken();
+        if (token != null) {
+          await _saveToken(token);
+        }
+        _messaging.onTokenRefresh.listen(_saveToken);
+        _initialized = true;
+      }
+      return settings.authorizationStatus;
+    } catch (e) {
+      // ignore: avoid_print
+      print('[push] requestPermission error: $e');
+      return null;
     }
   }
 }

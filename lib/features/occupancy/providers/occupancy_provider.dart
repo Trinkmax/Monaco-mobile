@@ -1,13 +1,23 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:monaco_mobile/core/auth/auth_provider.dart';
 import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
 
 // ── Branch Signals (one-shot) ──────────────────────────────────────────────
 
+/// Sucursales de la org actualmente seleccionada por el cliente
+/// (puede ser distinta a la org del JWT — el cliente puede explorar otras
+/// barberías). Usa el RPC paramétrico para no depender de `get_user_org_id()`.
 final branchSignalsProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
+  final orgId = ref.watch(authProvider).selectedOrgId;
+  if (orgId == null) return [];
+
   final supabase = ref.read(supabaseClientProvider);
-  final res = await supabase.rpc('get_client_branch_signals');
+  final res = await supabase.rpc(
+    'get_org_branch_signals',
+    params: {'p_org_id': orgId},
+  );
   if (res is List) {
     return res.map((e) => Map<String, dynamic>.from(e)).toList();
   }
@@ -34,84 +44,37 @@ final branchDetailProvider =
     FutureProvider.family<Map<String, dynamic>, String>((ref, branchId) async {
   final supabase = ref.read(supabaseClientProvider);
 
-  // Fetch branch info, queue, staff, visits (for ETA), and settings in parallel
-  final results = await Future.wait([
-    // 0: branch info
-    supabase
-        .from('branches')
-        .select()
-        .eq('id', branchId)
-        .maybeSingle(),
-    // 1: active queue entries
-    supabase
-        .from('queue_entries')
-        .select('*, staff:barber_id(id, full_name, avatar_url)')
-        .eq('branch_id', branchId)
-        .inFilter('status', ['waiting', 'in_progress'])
-        .order('created_at'),
-    // 2: barbers (only role=barber, activos y visibles)
-    supabase
-        .from('staff')
-        .select()
-        .eq('branch_id', branchId)
-        .eq('role', 'barber')
-        .eq('is_active', true)
-        .eq('hidden_from_checkin', false)
-        .order('full_name'),
-    // 3: branch open status
-    supabase.rpc('get_branch_open_status', params: {'p_branch_id': branchId}),
-    // 4: last 200 completed visits for avg wait time calculation
-    supabase
-        .from('visits')
-        .select('barber_id, started_at, completed_at')
-        .eq('branch_id', branchId)
-        .not('started_at', 'is', null)
-        .not('completed_at', 'is', null)
-        .order('completed_at', ascending: false)
-        .limit(200),
-    // 5: app_settings for business hours and shift end margin
-    supabase
-        .from('app_settings')
-        .select('business_hours_open, business_hours_close, shift_end_margin_minutes')
-        .limit(1)
-        .maybeSingle(),
-    // 6: attendance_logs de hoy para filtrar barberos con clock_out
-    supabase
-        .from('attendance_logs')
-        .select('staff_id, action_type')
-        .eq('branch_id', branchId)
-        .gte('recorded_at', _todayStartIso())
-        .order('recorded_at', ascending: false),
-    // 7: horarios de staff de hoy para calcular fin de turno
-    supabase
-        .from('staff_schedules')
-        .select('staff_id, start_time, end_time')
-        .eq('day_of_week', DateTime.now().weekday % 7)
-        .eq('is_active', true),
-  ]);
+  // Un solo RPC SECURITY DEFINER trae todos los datos públicos de la sucursal,
+  // sin importar que sea de la org del cliente o no (modelo "browse libre").
+  final res = await supabase.rpc(
+    'get_branch_public_detail',
+    params: {'p_branch_id': branchId},
+  );
+  final data = res is Map ? Map<String, dynamic>.from(res) : <String, dynamic>{};
 
-  final branch =
-      results[0] != null ? Map<String, dynamic>.from(results[0] as Map) : {};
-  final queueEntries = (results[1] as List?)
+  final branch = data['branch'] is Map
+      ? Map<String, dynamic>.from(data['branch'] as Map)
+      : <String, dynamic>{};
+  final queueEntries = (data['queue_entries'] as List?)
           ?.map((e) => Map<String, dynamic>.from(e))
           .toList() ??
       [];
-  final staffList = (results[2] as List?)
+  final staffList = (data['staff'] as List?)
           ?.map((e) => Map<String, dynamic>.from(e))
           .toList() ??
       [];
-  final openStatus = results[3];
-  final visitsList = (results[4] as List?)
+  final visitsList = (data['visits_recent'] as List?)
           ?.map((e) => Map<String, dynamic>.from(e))
           .toList() ??
       [];
-  final appSettings =
-      results[5] != null ? Map<String, dynamic>.from(results[5] as Map) : {};
-  final attendanceLogs = (results[6] as List?)
+  final appSettings = data['app_settings'] is Map
+      ? Map<String, dynamic>.from(data['app_settings'] as Map)
+      : <String, dynamic>{};
+  final attendanceLogs = (data['attendance_logs_today'] as List?)
           ?.map((e) => Map<String, dynamic>.from(e))
           .toList() ??
       [];
-  final schedulesList = (results[7] as List?)
+  final schedulesList = (data['staff_schedules'] as List?)
           ?.map((e) => Map<String, dynamic>.from(e))
           .toList() ??
       [];
@@ -174,15 +137,7 @@ final branchDetailProvider =
     };
   }).where((s) => s['status'] != 'fin_turno').toList();
 
-  // get_branch_open_status returns TABLE → List with one row
-  bool isOpen = false;
-  if (openStatus is List && openStatus.isNotEmpty) {
-    isOpen = openStatus.first['is_open'] == true;
-  } else if (openStatus is Map) {
-    isOpen = openStatus['is_open'] == true;
-  } else if (openStatus is bool) {
-    isOpen = openStatus;
-  }
+  final bool isOpen = (data['is_open'] ?? false) as bool;
 
   // Global ETA: min ETA across available barbers, or fallback for unassigned
   int globalEta = 0;
@@ -208,8 +163,12 @@ final branchDetailProvider =
     'total_staff_count': staffWithStatus.length,
     'is_open': isOpen,
     'eta_minutes': globalEta,
-    'business_hours_open': appSettings['business_hours_open'] ?? '--:--',
-    'business_hours_close': appSettings['business_hours_close'] ?? '--:--',
+    'business_hours_open': branch['business_hours_open'] ??
+        appSettings['business_hours_open'] ??
+        '--:--',
+    'business_hours_close': branch['business_hours_close'] ??
+        appSettings['business_hours_close'] ??
+        '--:--',
   };
 });
 
@@ -260,13 +219,6 @@ bool _isBarberBlockedByShiftEnd(
   }
 
   return true;
-}
-
-/// Retorna el inicio del día actual en UTC (para filtrar attendance_logs de hoy)
-String _todayStartIso() {
-  final now = DateTime.now();
-  final todayLocal = DateTime(now.year, now.month, now.day);
-  return todayLocal.toUtc().toIso8601String();
 }
 
 /// Builds per-barber average service time from recent visits (mirrors barber-utils.ts)

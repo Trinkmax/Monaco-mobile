@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,17 +14,42 @@ class SplashScreen extends ConsumerStatefulWidget {
 }
 
 class _SplashScreenState extends ConsumerState<SplashScreen> {
+  // Tiempo mínimo que queremos mostrar el splash (para que no parpadee
+  // si el auth resuelve al instante).
+  static const _minDisplay = Duration(milliseconds: 1200);
+  // Fallback si el auth se cuelga — evita splash eterno.
+  static const _safetyTimeout = Duration(seconds: 6);
+
+  bool _minDisplayElapsed = false;
+  bool _navigated = false;
+  Timer? _safetyTimer;
+
   @override
   void initState() {
     super.initState();
-    _navigateAfterDelay();
+
+    Future.delayed(_minDisplay, () {
+      if (!mounted) return;
+      _minDisplayElapsed = true;
+      _maybeNavigate();
+    });
+
+    _safetyTimer = Timer(_safetyTimeout, () {
+      if (!mounted || _navigated) return;
+      debugPrint('[splash] safety timeout — forcing /welcome');
+      _navigated = true;
+      context.go('/welcome');
+    });
   }
 
-  Future<void> _navigateAfterDelay() async {
-    await Future.delayed(const Duration(seconds: 2));
-    if (!mounted) return;
+  void _maybeNavigate() {
+    if (!mounted || _navigated || !_minDisplayElapsed) return;
 
     final authState = ref.read(authProvider);
+    if (authState.status == AuthStatus.initial) return;
+
+    _navigated = true;
+    _safetyTimer?.cancel();
 
     switch (authState.status) {
       case AuthStatus.authenticated:
@@ -37,7 +63,19 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   }
 
   @override
+  void dispose() {
+    _safetyTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // Escuchar cambios del auth para navegar apenas deje de ser initial
+    // (por si el mínimo de display ya pasó).
+    ref.listen<AuthState>(authProvider, (_, next) {
+      if (next.status != AuthStatus.initial) _maybeNavigate();
+    });
+
     return Scaffold(
       backgroundColor: MonacoColors.background,
       body: Center(

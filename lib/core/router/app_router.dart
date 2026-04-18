@@ -22,6 +22,7 @@ import '../../features/convenios/presentation/screens/convenio_detail_screen.dar
 import '../../features/convenios/presentation/screens/my_redemptions_screen.dart';
 import '../../features/profile/presentation/screens/profile_screen.dart';
 import '../../features/profile/presentation/screens/pin_setup_screen.dart';
+import '../../features/visits/presentation/screens/visits_screen.dart';
 import '../../features/branch_selection/presentation/screens/branch_selection_screen.dart';
 import '../../features/org_selection/presentation/screens/org_selection_screen.dart';
 
@@ -172,6 +173,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/pin-setup',
         builder: (_, __) => const PinSetupScreen(),
+      ),
+      GoRoute(
+        path: '/visits',
+        builder: (_, __) => const VisitsScreen(),
       ),
     ],
   );

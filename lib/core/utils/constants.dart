@@ -25,4 +25,10 @@ class AppConstants {
 
   // Cache
   static const Duration cacheDuration = Duration(minutes: 5);
+
+  // URLs legales (actualizar con los dominios definitivos antes de release)
+  static const String privacyPolicyUrl = 'https://barberos.app/privacy';
+  static const String termsOfServiceUrl = 'https://barberos.app/terms';
+  static const String supportEmail = 'soporte@barberos.app';
+  static const String supportWhatsapp = 'https://wa.me/5491100000000';
 }
