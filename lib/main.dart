@@ -40,11 +40,22 @@ Future<void> main() async {
       systemNavigationBarIconBrightness: Brightness.light,
     ));
 
-    // Firebase — no es fatal si falla: la app arranca sin push.
+    // Firebase — si los options son placeholders (flutterfire configure no corrió),
+    // saltamos la init porque Firebase tira NSException nativo que NO puede
+    // capturarse con try/catch de Dart (hace crash el proceso).
     try {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
+      final opts = DefaultFirebaseOptions.currentPlatform;
+      final isPlaceholder = opts.apiKey.startsWith('PLACEHOLDER') ||
+          opts.appId.startsWith('PLACEHOLDER') ||
+          opts.projectId.startsWith('PLACEHOLDER');
+      if (isPlaceholder) {
+        debugPrint(
+          '[main] Firebase skip: firebase_options.dart tiene placeholders. '
+          'Ejecutá `flutterfire configure` para habilitar push notifications.',
+        );
+      } else {
+        await Firebase.initializeApp(options: opts);
+      }
     } catch (e, stack) {
       debugPrint('[main] Firebase.initializeApp falló: $e\n$stack');
     }

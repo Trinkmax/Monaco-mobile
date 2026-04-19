@@ -181,8 +181,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   void _handleSignedOut() {
-    // Limpia storage en background; el estado UI va inmediato.
-    unawaited(_clearLocalSession());
+    // No volver a llamar a signOut() — ya estamos signedOut (este handler fue
+    // disparado por el propio evento). Llamarlo crea un loop infinito que
+    // satura memoria y mata el proceso. Solo limpiamos el storage local.
+    unawaited(SecureStorageService.clearSession());
     state = const AuthState(status: AuthStatus.unauthenticated);
   }
 

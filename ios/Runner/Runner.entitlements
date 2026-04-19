@@ -1,8 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Runner.entitlements — DEBUG configuration.
+
+  Intencionalmente vacío: el Personal Team (Apple ID gratuito) NO soporta la
+  capability "Push Notifications". Si agregamos aps-environment acá, `flutter run`
+  falla con "Personal development teams do not support Push Notifications".
+
+  Cuando tengas el Apple Developer Program pago ($99/año), podés cambiarlo a:
+    <key>aps-environment</key>
+    <string>development</string>
+
+  Las builds de Release/Profile usan RunnerRelease.entitlements (con push) —
+  esas requieren sí o sí el programa pago, pero son las que subís a App Store.
+-->
 <plist version="1.0">
 <dict>
-	<key>aps-environment</key>
-	<string>development</string>
 </dict>
 </plist>
