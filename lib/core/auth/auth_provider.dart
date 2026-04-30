@@ -28,6 +28,14 @@ class AuthState {
   final String? selectedBranchId;
   final String? selectedBranchName;
 
+  /// Modo de operación de la sucursal seleccionada (`walk_in` / `appointments`
+  /// / `hybrid`). Se usa para mostrar/ocultar UI de turnos vs cola walk-in.
+  final String? selectedBranchOperationMode;
+
+  /// Slug público de la sucursal — necesario para armar el link a la web de
+  /// reservas (`/turnos/{slug}`).
+  final String? selectedBranchSlug;
+
   const AuthState({
     this.status = AuthStatus.initial,
     this.clientId,
@@ -38,10 +46,25 @@ class AuthState {
     this.selectedOrgName,
     this.selectedBranchId,
     this.selectedBranchName,
+    this.selectedBranchOperationMode,
+    this.selectedBranchSlug,
   });
 
   bool get hasOrg => selectedOrgId != null;
   bool get hasBranch => selectedBranchId != null;
+
+  /// La sucursal seleccionada acepta reservas online (modo `appointments` o
+  /// `hybrid`). Útil para mostrar el flujo de "Mis turnos" + FAB Reservar.
+  bool get acceptsAppointments =>
+      selectedBranchOperationMode == 'appointments' ||
+      selectedBranchOperationMode == 'hybrid';
+
+  /// La sucursal seleccionada acepta walk-ins (modo `walk_in` o `hybrid`).
+  /// En modo `appointments` puro se oculta la cola/occupancy.
+  bool get acceptsWalkIn =>
+      selectedBranchOperationMode == null ||
+      selectedBranchOperationMode == 'walk_in' ||
+      selectedBranchOperationMode == 'hybrid';
 
   AuthState copyWith({
     AuthStatus? status,
@@ -53,6 +76,8 @@ class AuthState {
     String? selectedOrgName,
     String? selectedBranchId,
     String? selectedBranchName,
+    String? selectedBranchOperationMode,
+    String? selectedBranchSlug,
   }) {
     return AuthState(
       status: status ?? this.status,
@@ -64,6 +89,9 @@ class AuthState {
       selectedOrgName: selectedOrgName ?? this.selectedOrgName,
       selectedBranchId: selectedBranchId ?? this.selectedBranchId,
       selectedBranchName: selectedBranchName ?? this.selectedBranchName,
+      selectedBranchOperationMode:
+          selectedBranchOperationMode ?? this.selectedBranchOperationMode,
+      selectedBranchSlug: selectedBranchSlug ?? this.selectedBranchSlug,
     );
   }
 }
@@ -146,6 +174,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final orgName = await SecureStorageService.getSelectedOrgName();
       final branchId = await SecureStorageService.getSelectedBranchId();
       final branchName = await SecureStorageService.getSelectedBranchName();
+      final branchOpMode =
+          await SecureStorageService.getSelectedBranchOperationMode();
+      final branchSlug = await SecureStorageService.getSelectedBranchSlug();
 
       final bioEnabled = await SecureStorageService.isBiometricEnabled();
       state = AuthState(
@@ -157,6 +188,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
         selectedOrgName: orgName,
         selectedBranchId: branchId,
         selectedBranchName: branchName,
+        selectedBranchOperationMode: branchOpMode,
+        selectedBranchSlug: branchSlug,
       );
     } catch (e, st) {
       debugPrint('[auth] _init error: $e\n$st');
@@ -321,15 +354,26 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
-  /// Guarda la sucursal seleccionada por el cliente.
-  Future<void> setSelectedBranch(String branchId, String branchName) async {
+  /// Guarda la sucursal seleccionada por el cliente. Persistimos también el
+  /// `operationMode` y el `slug` para que la UI (home, /appointments,
+  /// booking webview) pueda decidir qué mostrar offline.
+  Future<void> setSelectedBranch(
+    String branchId,
+    String branchName, {
+    String? operationMode,
+    String? slug,
+  }) async {
     await SecureStorageService.saveSelectedBranch(
       branchId: branchId,
       branchName: branchName,
+      operationMode: operationMode,
+      slug: slug,
     );
     state = state.copyWith(
       selectedBranchId: branchId,
       selectedBranchName: branchName,
+      selectedBranchOperationMode: operationMode,
+      selectedBranchSlug: slug,
     );
   }
 

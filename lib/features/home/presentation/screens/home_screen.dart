@@ -120,56 +120,60 @@ class HomeScreen extends ConsumerWidget {
                   ),
 
                   // ── Sucursales ──
-                  _SectionTitle(
-                    title: 'Sucursales',
-                    subtitle: 'Estado en vivo',
-                    onAction: () => context.push('/occupancy'),
-                    actionLabel: 'Ver todas',
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: 128,
-                    child: branches.when(
-                      data: (list) {
-                        if (list.isEmpty) {
-                          return Center(
-                            child: Text(
-                              'Sin sucursales disponibles',
-                              style: TextStyle(
-                                color: MonacoColors.textSecondary,
-                              ),
-                            ),
-                          );
-                        }
-                        return ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: list.length,
-                          separatorBuilder: (_, _) => const SizedBox(width: 10),
-                          itemBuilder: (context, i) {
-                            final b = list[i];
-                            return OccupancyMiniCard(
-                              branchName: b['branch_name'] ?? 'Sucursal',
-                              occupancyLevel: b['occupancy_level'] ?? 'baja',
-                              isOpen: (b['is_open'] ?? true) as bool,
-                              totalBarbers:
-                                  (b['total_barbers'] ?? 0).toInt(),
-                              onTap: () =>
-                                  context.push('/branch/${b['branch_id']}'),
-                            ).liquidEnter(index: i, stagger: 70);
-                          },
-                        );
-                      },
-                      loading: () => ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: 3,
-                        separatorBuilder: (_, _) => const SizedBox(width: 10),
-                        itemBuilder: (_, _) =>
-                            _shimmerCard(width: 160, height: 128),
-                      ),
-                      error: (_, _) => const SizedBox.shrink(),
+                  // Solo mostramos la cola/occupancy si la sucursal acepta
+                  // walk-ins. En modo `appointments` puro se oculta.
+                  if (auth.acceptsWalkIn) ...[
+                    _SectionTitle(
+                      title: 'Sucursales',
+                      subtitle: 'Estado en vivo',
+                      onAction: () => context.push('/occupancy'),
+                      actionLabel: 'Ver todas',
                     ),
-                  ),
-                  const SizedBox(height: 26),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 128,
+                      child: branches.when(
+                        data: (list) {
+                          if (list.isEmpty) {
+                            return Center(
+                              child: Text(
+                                'Sin sucursales disponibles',
+                                style: TextStyle(
+                                  color: MonacoColors.textSecondary,
+                                ),
+                              ),
+                            );
+                          }
+                          return ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: list.length,
+                            separatorBuilder: (_, _) => const SizedBox(width: 10),
+                            itemBuilder: (context, i) {
+                              final b = list[i];
+                              return OccupancyMiniCard(
+                                branchName: b['branch_name'] ?? 'Sucursal',
+                                occupancyLevel: b['occupancy_level'] ?? 'baja',
+                                isOpen: (b['is_open'] ?? true) as bool,
+                                totalBarbers:
+                                    (b['total_barbers'] ?? 0).toInt(),
+                                onTap: () =>
+                                    context.push('/branch/${b['branch_id']}'),
+                              ).liquidEnter(index: i, stagger: 70);
+                            },
+                          );
+                        },
+                        loading: () => ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: 3,
+                          separatorBuilder: (_, _) => const SizedBox(width: 10),
+                          itemBuilder: (_, _) =>
+                              _shimmerCard(width: 160, height: 128),
+                        ),
+                        error: (_, _) => const SizedBox.shrink(),
+                      ),
+                    ),
+                    const SizedBox(height: 26),
+                  ],
 
                   // ── Billboard ──
                   billboard.when(
@@ -260,35 +264,67 @@ class HomeScreen extends ConsumerWidget {
                   ),
 
                   // ── Quick Actions ──
+                  // En modo appointments / hybrid, mostramos "Mis turnos"
+                  // como acceso primario y el resto como secundario.
                   const _SectionTitle(title: 'Accesos rápidos'),
                   const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _QuickAction(
-                          icon: Icons.menu_book_rounded,
-                          label: 'Catálogo',
-                          onTap: () => context.push('/catalog'),
-                        ).liquidEnter(index: 0, stagger: 70),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _QuickAction(
-                          icon: Icons.card_giftcard_rounded,
-                          label: 'Mis Premios',
-                          onTap: () => context.push('/rewards'),
-                        ).liquidEnter(index: 1, stagger: 70),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _QuickAction(
-                          icon: Icons.history_rounded,
-                          label: 'Historial',
-                          onTap: () => context.push('/points'),
-                        ).liquidEnter(index: 2, stagger: 70),
-                      ),
-                    ],
-                  ),
+                  if (auth.acceptsAppointments) ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _QuickAction(
+                            icon: Icons.event_available_rounded,
+                            label: 'Mis turnos',
+                            onTap: () => context.push('/appointments'),
+                          ).liquidEnter(index: 0, stagger: 70),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _QuickAction(
+                            icon: Icons.menu_book_rounded,
+                            label: 'Catálogo',
+                            onTap: () => context.push('/catalog'),
+                          ).liquidEnter(index: 1, stagger: 70),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _QuickAction(
+                            icon: Icons.card_giftcard_rounded,
+                            label: 'Mis Premios',
+                            onTap: () => context.push('/rewards'),
+                          ).liquidEnter(index: 2, stagger: 70),
+                        ),
+                      ],
+                    ),
+                  ] else ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _QuickAction(
+                            icon: Icons.menu_book_rounded,
+                            label: 'Catálogo',
+                            onTap: () => context.push('/catalog'),
+                          ).liquidEnter(index: 0, stagger: 70),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _QuickAction(
+                            icon: Icons.card_giftcard_rounded,
+                            label: 'Mis Premios',
+                            onTap: () => context.push('/rewards'),
+                          ).liquidEnter(index: 1, stagger: 70),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _QuickAction(
+                            icon: Icons.history_rounded,
+                            label: 'Historial',
+                            onTap: () => context.push('/points'),
+                          ).liquidEnter(index: 2, stagger: 70),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),

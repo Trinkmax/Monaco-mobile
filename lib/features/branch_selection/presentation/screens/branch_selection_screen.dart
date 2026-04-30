@@ -89,7 +89,14 @@ class BranchSelectionScreen extends ConsumerWidget {
                     // Si hay una sola sucursal, auto-seleccionar
                     if (list.length == 1) {
                       WidgetsBinding.instance.addPostFrameCallback((_) {
-                        _selectBranch(context, ref, list.first.id, list.first.name);
+                        _selectBranch(
+                          context,
+                          ref,
+                          list.first.id,
+                          list.first.name,
+                          operationMode: list.first.operationMode,
+                          slug: list.first.slug,
+                        );
                       });
                     }
 
@@ -112,6 +119,8 @@ class BranchSelectionScreen extends ConsumerWidget {
                               ref,
                               branch.id,
                               branch.name,
+                              operationMode: branch.operationMode,
+                              slug: branch.slug,
                             ),
                           )
                               .animate()
@@ -190,9 +199,16 @@ class BranchSelectionScreen extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     String branchId,
-    String branchName,
-  ) {
-    ref.read(authProvider.notifier).setSelectedBranch(branchId, branchName);
+    String branchName, {
+    String? operationMode,
+    String? slug,
+  }) {
+    ref.read(authProvider.notifier).setSelectedBranch(
+          branchId,
+          branchName,
+          operationMode: operationMode,
+          slug: slug,
+        );
     context.go('/home');
   }
 }

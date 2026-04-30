@@ -25,6 +25,8 @@ import '../../features/profile/presentation/screens/pin_setup_screen.dart';
 import '../../features/visits/presentation/screens/visits_screen.dart';
 import '../../features/branch_selection/presentation/screens/branch_selection_screen.dart';
 import '../../features/org_selection/presentation/screens/org_selection_screen.dart';
+import '../../features/appointments/presentation/my_appointments_screen.dart';
+import '../../features/appointments/presentation/booking_webview_screen.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellNavigatorKey = GlobalKey<NavigatorState>();
@@ -177,6 +179,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/visits',
         builder: (_, __) => const VisitsScreen(),
+      ),
+      GoRoute(
+        path: '/appointments',
+        builder: (_, __) => const MyAppointmentsScreen(),
+      ),
+      GoRoute(
+        path: '/appointments/book',
+        builder: (_, __) => const BookingWebViewScreen(),
       ),
     ],
   );

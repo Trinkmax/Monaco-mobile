@@ -20,6 +20,9 @@ class SecureStorageService {
   static const _keySelectedOrgName = 'selected_org_name';
   static const _keySelectedBranchId = 'selected_branch_id';
   static const _keySelectedBranchName = 'selected_branch_name';
+  static const _keySelectedBranchOperationMode =
+      'selected_branch_operation_mode';
+  static const _keySelectedBranchSlug = 'selected_branch_slug';
 
   // Device Secret
   static Future<String> getOrCreateDeviceSecret() async {
@@ -107,6 +110,8 @@ class SecureStorageService {
       _storage.delete(key: _keySelectedOrgName),
       _storage.delete(key: _keySelectedBranchId),
       _storage.delete(key: _keySelectedBranchName),
+      _storage.delete(key: _keySelectedBranchOperationMode),
+      _storage.delete(key: _keySelectedBranchSlug),
     ]);
   }
 
@@ -114,22 +119,42 @@ class SecureStorageService {
   static Future<void> saveSelectedBranch({
     required String branchId,
     required String branchName,
+    String? operationMode,
+    String? slug,
   }) async {
-    await Future.wait([
+    final ops = <Future<void>>[
       _storage.write(key: _keySelectedBranchId, value: branchId),
       _storage.write(key: _keySelectedBranchName, value: branchName),
-    ]);
+    ];
+    if (operationMode != null) {
+      ops.add(_storage.write(
+          key: _keySelectedBranchOperationMode, value: operationMode));
+    } else {
+      ops.add(_storage.delete(key: _keySelectedBranchOperationMode));
+    }
+    if (slug != null) {
+      ops.add(_storage.write(key: _keySelectedBranchSlug, value: slug));
+    } else {
+      ops.add(_storage.delete(key: _keySelectedBranchSlug));
+    }
+    await Future.wait(ops);
   }
 
   static Future<String?> getSelectedBranchId() =>
       _storage.read(key: _keySelectedBranchId);
   static Future<String?> getSelectedBranchName() =>
       _storage.read(key: _keySelectedBranchName);
+  static Future<String?> getSelectedBranchOperationMode() =>
+      _storage.read(key: _keySelectedBranchOperationMode);
+  static Future<String?> getSelectedBranchSlug() =>
+      _storage.read(key: _keySelectedBranchSlug);
 
   static Future<void> clearSelectedBranch() async {
     await Future.wait([
       _storage.delete(key: _keySelectedBranchId),
       _storage.delete(key: _keySelectedBranchName),
+      _storage.delete(key: _keySelectedBranchOperationMode),
+      _storage.delete(key: _keySelectedBranchSlug),
     ]);
   }
 
@@ -148,6 +173,8 @@ class SecureStorageService {
       _storage.delete(key: _keySelectedOrgName),
       _storage.delete(key: _keySelectedBranchId),
       _storage.delete(key: _keySelectedBranchName),
+      _storage.delete(key: _keySelectedBranchOperationMode),
+      _storage.delete(key: _keySelectedBranchSlug),
     ]);
   }
 }

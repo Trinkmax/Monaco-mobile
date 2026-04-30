@@ -2,11 +2,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:monaco_mobile/core/auth/auth_provider.dart';
 import 'package:monaco_mobile/core/location/location_provider.dart';
-import 'package:monaco_mobile/core/location/location_service.dart';
 import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
 import '../models/branch_with_distance.dart';
 
 /// Sucursales de la org seleccionada, con señales y distancia, ordenadas por cercanía.
+///
+/// El RPC `get_org_branch_signals` no expone `operation_mode` ni `slug`, así
+/// que hacemos una query parallel a `branches` filtrada por id-list para
+/// hidratar esos campos. Si la query falla por algún motivo (RLS, etc.), las
+/// sucursales quedan con default `walk_in` y `slug` null — la app sigue
+/// funcionando, solo que oculta el flujo de turnos.
 final nearbyBranchesProvider =
     FutureProvider<List<BranchWithDistance>>((ref) async {
   final authState = ref.watch(authProvider);
@@ -57,6 +62,35 @@ final nearbyBranchesProvider =
       availableBarbers: (b['available_barbers'] ?? 0) as int,
     );
   }).toList();
+
+  // ── Enriquecer con operation_mode + slug desde `branches` ───────────────
+  // El RPC no los expone. Hacemos una query parallel filtered por id-list.
+  if (branches.isNotEmpty) {
+    try {
+      final ids = branches.map((b) => b.id).toList();
+      final extras = await client
+          .from('branches')
+          .select('id, operation_mode, slug')
+          .inFilter('id', ids);
+
+      final byId = <String, Map<String, dynamic>>{};
+      for (final row in (extras as List)) {
+        final m = Map<String, dynamic>.from(row as Map);
+        byId[m['id'] as String] = m;
+      }
+
+      for (var i = 0; i < branches.length; i++) {
+        final extra = byId[branches[i].id];
+        if (extra == null) continue;
+        branches[i] = branches[i].copyWith(
+          operationMode: (extra['operation_mode'] as String?) ?? 'walk_in',
+          slug: extra['slug'] as String?,
+        );
+      }
+    } catch (_) {
+      // Si falla, dejamos los defaults — no rompemos la lista.
+    }
+  }
 
   // Ordenar: con distancia primero (por cercanía), sin distancia al final
   branches.sort((a, b) {
