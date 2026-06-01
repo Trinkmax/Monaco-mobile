@@ -262,12 +262,26 @@ final branchAttendanceRealtimeProvider =
 
 // ── Branch Realtime Stream (for detail page) ───────────────────────────────
 
+/// FIX #9 (auditoría jun-2026): antes streameaba `queue_entries` CRUDO, lo que
+/// obligaba a mantener la policy RLS abierta `queue_entries_public_read`
+/// (cualquier usuario autenticado leía la cola —filas crudas— de CUALQUIER org).
+///
+/// El único consumidor (`branch_detail_screen.dart`) usa este provider sólo como
+/// "ping" para reinvalidar `branchDetailProvider` (que trae los datos por el RPC
+/// SECURITY DEFINER `get_branch_public_detail`) — nunca lee las filas del stream.
+/// Por eso ahora streameamos `branch_signals`: agregado PII-free (sin client_id),
+/// ya publicado en realtime y refrescado por trigger en CADA cambio de cola
+/// (`trg_branch_signals_on_queue`) y de asistencia. Mismo comportamiento de
+/// "algo cambió → refrescá", sin exponer la cola cruda cross-org.
+///
+/// Esto habilita dropear `queue_entries_public_read` (migración 140) una vez que
+/// este release tenga adopción suficiente.
 final branchQueueRealtimeProvider =
     StreamProvider.family<List<Map<String, dynamic>>, String>(
         (ref, branchId) {
   final supabase = ref.read(supabaseClientProvider);
   return supabase
-      .from('queue_entries')
+      .from('branch_signals')
       .stream(primaryKey: ['id'])
       .eq('branch_id', branchId)
       .map((rows) => rows.map((e) => Map<String, dynamic>.from(e)).toList());
