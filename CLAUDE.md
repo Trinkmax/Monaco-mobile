@@ -38,7 +38,18 @@ QA_SHOTS_DIR=build/qa-shots flutter drive --driver=test_driver/integration_test.
 
 Ojo con el QA drive: si las capturas salen todas iguales (la pantalla de lanzamiento con la M),
 el simulador quedó con una instancia vieja de la app: `xcrun simctl shutdown/boot` del simulador
-y volver a correr. El teléfono de QA crea un cliente real en prod: borrarlo al terminar
+y volver a correr. Desde que `client-auth` es v2 (OTP), `QA_PHONE` necesita el secret
+`AUTH_TEST_PHONES` en Supabase. Para mirar SÓLO el dock sin login ni red:
+`integration_test/dock_shot_test.dart` (mismo driver; capturas `dock_0*.png`).
+
+**Dock = Liquid Glass real** (`liquid_glass_renderer`, shaders, sólo Impeller): barra + burbuja
+arrastrable en `lib/app/widgets/glass/liquid_dock.dart`; `LiquidGlassWarmup` en el splash
+precarga los shaders (sin eso el dock aparece sin vidrio los primeros frames).
+
+**`path_provider_foundation` queda fijado `<2.5.0`** (pubspec): la 2.5+ usa "native assets"
+(`objective_c.framework`) que Flutter 3.38 deja firmado ad-hoc y el iPhone rechaza al instalar
+("invalid signature" en `Frameworks/objective_c.framework`). Si aparece ese error después de tocar
+dependencias: `flutter clean` (el framework viejo queda en `build/native_assets/`) y rebuild. El teléfono de QA crea un cliente real en prod: borrarlo al terminar
 (`delete_client_account` + `auth.users`).
 
 `pubspec.yaml`, `lib/main.dart`, `lib/app/app.dart`, `lib/core/router/app_router.dart`,

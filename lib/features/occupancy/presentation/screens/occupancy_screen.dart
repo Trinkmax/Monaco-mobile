@@ -122,9 +122,6 @@ class _BranchCard extends StatelessWidget {
     final name = data['branch_name']?.toString() ?? 'Sucursal';
     final level = (data['occupancy_level'] ?? 'baja').toString();
     final isOpen = (data['is_open'] ?? true) as bool;
-    final waitingCount = (data['waiting_count'] as num? ?? 0).toInt();
-    final inProgressCount = (data['in_progress_count'] as num? ?? 0).toInt();
-    final availableBarbers = (data['available_barbers'] as num? ?? 0).toInt();
     final totalBarbers = (data['total_barbers'] as num? ?? 0).toInt();
 
     final effectivelyClosed = !isOpen || totalBarbers == 0;
@@ -165,44 +162,13 @@ class _BranchCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
 
-          // Badge de ocupación — LED + label sobre glass
+          // Badge de ocupación — LED + label sobre glass. Los contadores
+          // (esperando / en curso / barberos) se sacaron a pedido del dueño
+          // (22/ago/2026): la espera es el dato; el resto era ruido.
           LiquidStatusPill(
             label: _levelLabel(level, effectivelyClosed),
             color: color,
             pulse: !effectivelyClosed,
-          ),
-          const SizedBox(height: 16),
-
-          // Stats
-          Row(
-            children: [
-              Expanded(
-                child: _StatTile(
-                  icon: Icons.hourglass_top_rounded,
-                  label: '$waitingCount',
-                  caption: 'esperando',
-                  color: MonacoColors.warning,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _StatTile(
-                  icon: Icons.content_cut_rounded,
-                  label: '$inProgressCount',
-                  caption: 'en curso',
-                  color: MonacoColors.info,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _StatTile(
-                  icon: Icons.person_rounded,
-                  label: '$availableBarbers/$totalBarbers',
-                  caption: 'barberos',
-                  color: MonacoColors.monacoGreen,
-                ),
-              ),
-            ],
           ),
         ],
       ),
@@ -221,63 +187,6 @@ class _OpenClosedPill extends StatelessWidget {
       color: isOpen ? MonacoColors.monacoGreen : MonacoColors.occupancyClosed,
       pulse: isOpen,
       compact: true,
-    );
-  }
-}
-
-class _StatTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String caption;
-  final Color color;
-
-  const _StatTile({
-    required this.icon,
-    required this.label,
-    required this.caption,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            color.withValues(alpha: 0.14),
-            color.withValues(alpha: 0.04),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.22), width: 0.8),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: 15, color: color),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-          const SizedBox(height: 1),
-          Text(
-            caption,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.45),
-              fontSize: 10.5,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

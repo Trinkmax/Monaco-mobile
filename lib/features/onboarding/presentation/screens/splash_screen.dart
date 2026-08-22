@@ -109,6 +109,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
         child: SafeArea(
           child: Stack(
             children: [
+              // Precarga de los shaders del dock (ver LiquidGlassWarmup).
+              const Positioned(left: 0, top: 0, child: LiquidGlassWarmup()),
+
               // ── Marca centrada ──
               Center(
                 child: Column(

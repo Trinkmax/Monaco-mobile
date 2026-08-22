@@ -50,6 +50,15 @@ dependencies:
   share_plus: ^10.1.2
 
   cupertino_icons: ^1.0.8
+  audioplayers: ^6.7.1
+  liquid_glass_renderer: ^0.2.0-dev.4
+
+  # path_provider_foundation 2.5+ pasó a "native assets" (paquete objective_c):
+  # genera un objective_c.framework firmado AD-HOC que iOS rechaza al instalar
+  # en un iPhone con firma de desarrollo ("invalid signature"). Se fija la 2.4.x
+  # hasta que Flutter firme esos frameworks como el resto (no cambia nada
+  # funcional: path_provider sólo lo usa supabase/shared_preferences).
+  path_provider_foundation: ">=2.4.0 <2.5.0"
 
 dev_dependencies:
   flutter_test:
@@ -66,6 +75,7 @@ flutter:
   assets:
     - assets/images/
     - assets/brand/
+    - assets/sounds/
 
   fonts:
     - family: Poppins

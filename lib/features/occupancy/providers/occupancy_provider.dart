@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:monaco_mobile/core/utils/constants.dart';
 import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
+import 'package:monaco_mobile/features/branch_selection/providers/branch_selection_provider.dart';
 
 // ── Branch Signals (one-shot) ──────────────────────────────────────────────
 
@@ -17,10 +18,30 @@ final branchSignalsProvider =
     'get_org_branch_signals',
     params: {'p_org_id': orgId},
   );
-  if (res is List) {
-    return res.map((e) => Map<String, dynamic>.from(e)).toList();
+  if (res is! List) return [];
+  final rows = res.map((e) => Map<String, dynamic>.from(e)).toList();
+
+  // La sucursal Test (`slug = 'test'`) existe sólo para probar: se esconde
+  // salvo en modo prueba (7 toques sobre la versión en Perfil), igual que en
+  // el selector y en el turnero. El RPC no devuelve el slug, así que se
+  // resuelve con una consulta chica a `branches`; si falla, no se esconde
+  // nada (mejor ver una sucursal de más que perder la pantalla).
+  final testMode = await ref.watch(testModeProvider.future);
+  if (testMode || rows.isEmpty) return rows;
+  try {
+    final ids = rows.map((r) => r['branch_id'] as String).toList();
+    final extras = await supabase
+        .from('branches')
+        .select('id, slug')
+        .inFilter('id', ids);
+    final ocultas = <String>{
+      for (final row in (extras as List))
+        if ((row as Map)['slug'] == AppConstants.testBranchSlug) row['id'] as String,
+    };
+    return rows.where((r) => !ocultas.contains(r['branch_id'])).toList();
+  } catch (_) {
+    return rows;
   }
-  return [];
 });
 
 // ── Branch Signals Realtime ────────────────────────────────────────────────

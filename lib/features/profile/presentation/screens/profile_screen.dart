@@ -333,7 +333,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   icon: Icons.chat_rounded,
                   iconColor: MonacoColors.monacoGreen,
                   title: 'Soporte por WhatsApp',
-                  subtitle: 'Te respondemos en horario de atención',
+                  subtitle: '${AppConstants.supportPhoneDisplay} · en horario de atención',
                   onTap: () => _openUrl(AppConstants.supportWhatsappUrl),
                 ),
                 LiquidListTile(

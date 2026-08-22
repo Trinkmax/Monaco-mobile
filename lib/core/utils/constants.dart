@@ -57,9 +57,12 @@ class AppConstants {
   static const String termsOfServiceUrl = '$apiBaseUrl/terminos';
   static const String supportEmail = 'studios.sys.work@gmail.com';
 
-  /// WhatsApp de atención de Monaco (el mismo que publica el sitio
-  /// monaco-barber-studio). Se arma como link `wa.me`.
-  static const String supportWhatsappUrl = 'https://wa.me/543517691830';
+  /// WhatsApp de atención de Monaco: +54 9 3517 69-1830 (confirmado por el
+  /// dueño el 22/ago/2026). Para `wa.me` un móvil argentino va SIEMPRE con el
+  /// `9` después del 54 — sin él, WhatsApp abre un chat con un número que no
+  /// existe.
+  static const String supportPhoneDisplay = '+54 9 3517 69-1830';
+  static const String supportWhatsappUrl = 'https://wa.me/5493517691830';
   static const String instagramUrl = 'https://www.instagram.com/monaco.barberia';
 
   // ── Push ───────────────────────────────────────────────────────────────

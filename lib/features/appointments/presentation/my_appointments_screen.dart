@@ -59,7 +59,14 @@ class _MyAppointmentsScreenState extends ConsumerState<MyAppointmentsScreen> {
   Widget build(BuildContext context) {
     final upcoming = ref.watch(upcomingAppointmentsProvider);
     final past = ref.watch(pastAppointmentsProvider);
+    // Dentro del shell, `padding.bottom` ya incluye el alto del dock (Scaffold
+    // con `extendBody`): el FAB se apoya 14 px por encima de él.
     final bottomInset = MediaQuery.paddingOf(context).bottom;
+    // El vacío de "Próximos" ya tiene el botón grande "Reservar turno": dos
+    // CTAs iguales en la misma pantalla es ruido. El FAB aparece cuando hay
+    // lista (próximos o historial) y el botón grande ya no está.
+    final mostrarFab = (_tab == 0 ? upcoming : past)
+        .maybeWhen(data: (l) => l.isNotEmpty, orElse: () => false);
 
     return Scaffold(
       backgroundColor: MonacoColors.background,
@@ -115,9 +122,10 @@ class _MyAppointmentsScreenState extends ConsumerState<MyAppointmentsScreen> {
                   ),
                 ],
               ),
+              if (mostrarFab)
               Positioned(
                 right: 20,
-                bottom: 92 + bottomInset,
+                bottom: bottomInset + 14,
                 child: LiquidButton(
                   onPressed: () => context.push('/turnos/reservar'),
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),

@@ -3,6 +3,8 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:monaco_mobile/core/utils/constants.dart';
+
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 import 'package:monaco_mobile/features/occupancy/providers/occupancy_provider.dart';
@@ -61,18 +63,6 @@ class _LoadingState extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 48),
       children: [
         const LiquidSkeleton(height: 190, radius: 26),
-        const SizedBox(height: 14),
-        Row(
-          children: List.generate(
-            3,
-            (i) => Expanded(
-              child: Padding(
-                padding: EdgeInsets.only(right: i < 2 ? 10 : 0),
-                child: const LiquidSkeleton(height: 86, radius: 18),
-              ),
-            ),
-          ),
-        ),
         const SizedBox(height: 24),
         ...List.generate(
           3,
@@ -140,13 +130,9 @@ class _LiveQueueContent extends StatelessWidget {
               activeBarbers: totalBarbers,
             ).liquidEnter(index: 0),
 
-            const SizedBox(height: 14),
-
-            _QuickStats(
-              waitingCount: waiting.length,
-              inProgressCount: inProgress.length,
-              availableBarbers: availableCount,
-            ).liquidEnter(index: 1),
+            // Los contadores "Esperando / Atendiendo / Libres" se sacaron a
+            // pedido del dueño (22/ago/2026): el nivel de espera de arriba es
+            // el dato que le sirve al cliente; el resto era ruido.
 
             if (availableBarbers.isNotEmpty) ...[
               const SizedBox(height: 20),
@@ -201,6 +187,15 @@ class _LiveQueueContent extends StatelessWidget {
                 icon: Icons.location_on_outlined,
                 text: branchAddress,
               ).liquidEnter(index: 12),
+            const SizedBox(height: 8),
+            _InfoRow(
+              icon: Icons.chat_rounded,
+              text: 'WhatsApp: ${AppConstants.supportPhoneDisplay}',
+              onTap: () => launchUrl(
+                Uri.parse(AppConstants.supportWhatsappUrl),
+                mode: LaunchMode.externalApplication,
+              ),
+            ).liquidEnter(index: 12),
 
             if (branchLat != null && branchLng != null) ...[
               const SizedBox(height: 18),
@@ -424,113 +419,6 @@ class _OccupancyHero extends StatelessWidget {
           ),
         );
       }),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// QUICK STATS
-// ═══════════════════════════════════════════════════════════════════════════
-
-class _QuickStats extends StatelessWidget {
-  final int waitingCount;
-  final int inProgressCount;
-  final int availableBarbers;
-
-  const _QuickStats({
-    required this.waitingCount,
-    required this.inProgressCount,
-    required this.availableBarbers,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _StatPill(
-            value: '$waitingCount',
-            label: 'Esperando',
-            icon: Icons.hourglass_top_rounded,
-            color: MonacoColors.warning,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _StatPill(
-            value: '$inProgressCount',
-            label: 'Atendiendo',
-            icon: Icons.content_cut_rounded,
-            color: MonacoColors.info,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _StatPill(
-            value: '$availableBarbers',
-            label: 'Libres',
-            icon: Icons.check_circle_outline_rounded,
-            color: LiquidTokens.monacoGreen,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _StatPill extends StatelessWidget {
-  final String value;
-  final String label;
-  final IconData icon;
-  final Color color;
-
-  const _StatPill({
-    required this.value,
-    required this.label,
-    required this.icon,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return LiquidGlass(
-      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
-      borderRadius: 18,
-      tint: color,
-      tintOpacity: 0.08,
-      pressable: false,
-      child: Column(
-        children: [
-          Icon(icon, size: 16, color: color),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: TextStyle(
-              color: color,
-              fontSize: 22,
-              fontWeight: FontWeight.w900,
-              height: 1.0,
-              fontFeatures: const [FontFeature.tabularFigures()],
-              shadows: [
-                Shadow(
-                  color: color.withValues(alpha: 0.45),
-                  blurRadius: 12,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            label,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.6),
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
     );
   }
 }
@@ -831,37 +719,43 @@ class _EmptyState extends StatelessWidget {
       tint: green,
       tintOpacity: 0.06,
       pressable: false,
+      // `stretch`: sin esto la columna se encogía al ancho del subtítulo y
+      // todo el bloque quedaba pegado a la izquierda de la tarjeta.
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  green.withValues(alpha: 0.30),
-                  green.withValues(alpha: 0.14),
+          Center(
+            child: Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    green.withValues(alpha: 0.30),
+                    green.withValues(alpha: 0.14),
+                  ],
+                ),
+                shape: BoxShape.circle,
+                border: Border.all(color: green.withValues(alpha: 0.38)),
+                boxShadow: [
+                  BoxShadow(
+                    color: green.withValues(alpha: 0.32),
+                    blurRadius: 18,
+                    spreadRadius: -3,
+                  ),
                 ],
               ),
-              shape: BoxShape.circle,
-              border: Border.all(color: green.withValues(alpha: 0.38)),
-              boxShadow: [
-                BoxShadow(
-                  color: green.withValues(alpha: 0.32),
-                  blurRadius: 18,
-                  spreadRadius: -3,
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.check_rounded,
-              size: 28,
-              color: green,
+              child: const Icon(
+                Icons.check_rounded,
+                size: 28,
+                color: green,
+              ),
             ),
           ),
           const SizedBox(height: 14),
           const Text(
             'La sala está libre',
+            textAlign: TextAlign.center,
             style: TextStyle(
               color: MonacoColors.textPrimary,
               fontSize: 16,
@@ -893,32 +787,47 @@ class _EmptyState extends StatelessWidget {
 class _InfoRow extends StatelessWidget {
   final IconData icon;
   final String text;
+  /// Con `onTap` la fila es un enlace (WhatsApp, llamar) y muestra la flecha.
+  final VoidCallback? onTap;
 
-  const _InfoRow({required this.icon, required this.text});
+  const _InfoRow({required this.icon, required this.text, this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return LiquidGlass(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       borderRadius: 14,
-      pressable: false,
+      pressable: onTap != null,
+      onTap: onTap,
       showVignette: false,
       tintOpacity: 0.05,
       blur: LiquidTokens.blurSubtle,
       child: Row(
         children: [
-          Icon(icon, size: 16, color: Colors.white.withValues(alpha: 0.65)),
+          Icon(
+            icon,
+            size: 16,
+            color: onTap != null
+                ? LiquidTokens.monacoGreen
+                : Colors.white.withValues(alpha: 0.65),
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               text,
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.75),
+                color: Colors.white.withValues(alpha: onTap != null ? 0.9 : 0.75),
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
               ),
             ),
           ),
+          if (onTap != null)
+            Icon(
+              Icons.arrow_outward_rounded,
+              size: 15,
+              color: Colors.white.withValues(alpha: 0.45),
+            ),
         ],
       ),
     );

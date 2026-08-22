@@ -3,6 +3,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/utils/feedback_confirmacion.dart';
+
 /// Velo verde a pantalla completa que confirma la reserva: un círculo que
 /// crece con `Transform.scale` desde donde estaba el botón, dos anillos que
 /// pulsan, el tilde que se dibuja y "¡Turno confirmado!". Se desvanece solo
@@ -71,6 +73,17 @@ class _ConfirmacionVerdeState extends State<ConfirmacionVerde>
       }
     });
     _ctrl.forward();
+
+    // Sonido "ta-da" + háptica media justo cuando el círculo ya cubrió y el
+    // anillo empieza a dibujarse (380 ms); remate háptico suave al terminar el
+    // tilde (980 ms). Es el mismo gesto que hacen las apps de pedidos: el
+    // sonido acompaña al tilde, no al botón.
+    Future<void>.delayed(const Duration(milliseconds: 380), () {
+      if (mounted) FeedbackConfirmacion.reproducir();
+    });
+    Future<void>.delayed(const Duration(milliseconds: 980), () {
+      if (mounted) FeedbackConfirmacion.remate();
+    });
   }
 
   @override
