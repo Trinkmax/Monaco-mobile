@@ -1,259 +1,328 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 
 import '../../data/appointment_model.dart';
+import '../../data/fechas.dart';
+import 'appointment_countdown.dart';
 import 'appointment_status_chip.dart';
+import 'turno_links.dart';
 
-/// Tarjeta de turno — muestra todos los datos relevantes y dos acciones:
-///  - "Cómo llegar" (si la sucursal tiene lat/lng o address)
-///  - "Cancelar" (si [Appointment.canCancel])
+/// Tarjeta de turno. `hero` = la versión destacada del próximo turno (hora
+/// grande + cuenta regresiva viva); si no, la compacta de la lista. Tocar la
+/// tarjeta abre el detalle (`onTap`).
 class AppointmentCard extends StatelessWidget {
   final Appointment appointment;
-  final bool isNext;
+  final bool hero;
+  final VoidCallback? onTap;
   final VoidCallback? onCancel;
 
   const AppointmentCard({
     super.key,
     required this.appointment,
-    this.isNext = false,
+    this.hero = false,
+    this.onTap,
     this.onCancel,
   });
 
-  static final _currency = NumberFormat.currency(
-    locale: 'es_AR',
-    symbol: r'$',
-    decimalDigits: 0,
-  );
+  @override
+  Widget build(BuildContext context) {
+    return hero ? _Hero(a: appointment, onTap: onTap, onCancel: onCancel) : _Compacta(a: appointment, onTap: onTap);
+  }
+}
+
+class _Hero extends StatelessWidget {
+  final Appointment a;
+  final VoidCallback? onTap;
+  final VoidCallback? onCancel;
+  const _Hero({required this.a, required this.onTap, required this.onCancel});
 
   @override
   Widget build(BuildContext context) {
-    final a = appointment;
+    final accent = a.status.isAtShop ? AppointmentStatusChip.colorFor(a.status) : MonacoColors.monacoGreen;
     final price = a.totalPrice;
-
     return LiquidGlass(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
-      borderRadius: 22,
-      tintOpacity: 0.07,
-      pressable: false,
-      showVignette: false,
+      onTap: onTap,
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+      borderRadius: 26,
+      tint: accent,
+      tintOpacity: 0.11,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Header pill row ──────────────────────────────────────────────
           Row(
             children: [
-              if (isNext)
-                const _NextPill()
-              else
-                AppointmentStatusChip(status: a.status),
+              Text(
+                a.status.isAtShop ? a.status.label.toUpperCase() : 'PRÓXIMO TURNO',
+                style: TextStyle(
+                  color: accent.withValues(alpha: 0.95),
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1,
+                ),
+              ),
               const Spacer(),
-              if (price != null)
+              AppointmentCountdown(appointment: a, pill: true),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                a.horaLabel,
+                style: const TextStyle(
+                  color: MonacoColors.textPrimary,
+                  fontSize: 44,
+                  fontWeight: FontWeight.w900,
+                  height: 1,
+                  letterSpacing: -1.6,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    a.etiquetaDia(),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: MonacoColors.textPrimary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.3,
+                      height: 1.15,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              LiquidAvatar(imageUrl: a.barberAvatarUrl, name: a.barberName ?? '', size: 40, tint: accent),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      a.servicesLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: MonacoColors.textPrimary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.1,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      [
+                        if (a.barberName != null && a.barberName!.trim().isNotEmpty) 'con ${a.barberName}',
+                        if (a.branchName != null) a.branchName!,
+                      ].join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.6),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (price != null) ...[
+                const SizedBox(width: 8),
                 Text(
-                  _currency.format(price),
+                  Fechas.moneda(price),
                   style: const TextStyle(
                     color: MonacoColors.textPrimary,
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
                     letterSpacing: -0.2,
+                    fontFeatures: [FontFeature.tabularFigures()],
                   ),
                 ),
+              ],
             ],
           ),
-          const SizedBox(height: 12),
-
-          // ── Date + Time ─────────────────────────────────────────────────
-          Text(
-            a.formattedDate,
-            style: const TextStyle(
-              color: MonacoColors.textPrimary,
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.3,
-            ),
-          ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 14),
           Row(
             children: [
-              Icon(
-                Icons.access_time_rounded,
-                size: 14,
-                color: Colors.white.withOpacity(0.6),
-              ),
-              const SizedBox(width: 5),
-              Text(
-                '${a.formattedTime}  ·  ${a.durationMinutes} min',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.7),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
+              if (a.canOpenMaps)
+                Expanded(
+                  child: _ActionPill(
+                    icon: Icons.near_me_rounded,
+                    label: 'Cómo llegar',
+                    onTap: () => abrirComoLlegar(
+                      context,
+                      latitude: a.branchLatitude,
+                      longitude: a.branchLongitude,
+                      address: a.branchAddress,
+                    ),
+                  ),
+                ),
+              if (a.canOpenMaps) const SizedBox(width: 10),
+              Expanded(
+                child: _ActionPill(
+                  icon: Icons.chevron_right_rounded,
+                  label: 'Ver detalle',
+                  onTap: onTap,
+                  primary: true,
                 ),
               ),
+              if (onCancel != null) ...[
+                const SizedBox(width: 10),
+                _ActionPill(
+                  icon: Icons.close_rounded,
+                  label: 'Cancelar',
+                  destructive: true,
+                  onTap: onCancel,
+                  compact: true,
+                ),
+              ],
             ],
           ),
-          const SizedBox(height: 10),
+        ],
+      ),
+    );
+  }
+}
 
-          // ── Service + Barber + Branch ────────────────────────────────────
-          _InfoRow(
-            icon: Icons.content_cut_rounded,
-            label: a.servicesLabel,
-          ),
-          if (a.barberName != null && a.barberName!.trim().isNotEmpty) ...[
-            const SizedBox(height: 6),
-            _InfoRow(
-              icon: Icons.person_outline_rounded,
-              label: 'con ${a.barberName}',
-            ),
-          ],
-          if (a.branchName != null && a.branchName!.trim().isNotEmpty) ...[
-            const SizedBox(height: 6),
-            _InfoRow(
-              icon: Icons.place_outlined,
-              label: a.branchName!,
-            ),
-          ],
-          if (a.notes != null && a.notes!.trim().isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.white.withOpacity(0.07)),
-              ),
-              child: Text(
-                a.notes!,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.75),
-                  fontSize: 12.5,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ),
-          ],
+class _Compacta extends StatelessWidget {
+  final Appointment a;
+  final VoidCallback? onTap;
+  const _Compacta({required this.a, required this.onTap});
 
-          // ── Actions ──────────────────────────────────────────────────────
-          if (_hasAnyAction(a)) ...[
-            const SizedBox(height: 14),
-            Row(
+  @override
+  Widget build(BuildContext context) {
+    final apagado = !a.status.isActive;
+    final price = a.totalPrice;
+    return LiquidGlass(
+      onTap: onTap,
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      borderRadius: 22,
+      tintOpacity: apagado ? 0.05 : 0.08,
+      showVignette: false,
+      child: Row(
+        children: [
+          Container(
+            width: 58,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              color: Colors.white.withValues(alpha: apagado ? 0.04 : 0.08),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.12), width: 0.8),
+            ),
+            child: Column(
               children: [
-                if (_canOpenMaps(a)) ...[
-                  Expanded(
-                    child: _ActionPill(
-                      icon: Icons.map_outlined,
-                      label: 'Cómo llegar',
-                      onTap: () => _openMaps(a),
-                    ),
+                Text(
+                  Fechas.diasAbrevMayus[a.dayOfWeek],
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.55),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.5,
                   ),
-                  if (a.canCancel) const SizedBox(width: 10),
-                ],
-                if (a.canCancel)
-                  Expanded(
-                    child: _ActionPill(
-                      icon: Icons.close_rounded,
-                      label: 'Cancelar',
-                      destructive: true,
-                      onTap: onCancel,
-                    ),
+                ),
+                Text(
+                  Fechas.parseDate(a.dateStr).day.toString(),
+                  style: TextStyle(
+                    color: apagado ? Colors.white.withValues(alpha: 0.6) : MonacoColors.textPrimary,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                    height: 1.1,
+                    letterSpacing: -0.6,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
+                ),
+                Text(
+                  Fechas.meses[Fechas.parseDate(a.dateStr).month - 1].substring(0, 3),
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.55),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ],
             ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  bool _hasAnyAction(Appointment a) => _canOpenMaps(a) || a.canCancel;
-
-  bool _canOpenMaps(Appointment a) {
-    final hasLatLng = a.branchLatitude != null && a.branchLongitude != null;
-    final hasAddress =
-        a.branchAddress != null && a.branchAddress!.trim().isNotEmpty;
-    return hasLatLng || hasAddress;
-  }
-
-  Future<void> _openMaps(Appointment a) async {
-    Uri? uri;
-    if (a.branchLatitude != null && a.branchLongitude != null) {
-      uri = Uri.parse(
-          'https://www.google.com/maps/search/?api=1&query=${a.branchLatitude},${a.branchLongitude}');
-    } else if (a.branchAddress != null) {
-      uri = Uri.parse(
-          'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(a.branchAddress!)}');
-    }
-    if (uri == null) return;
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
-}
-
-// ─── Helpers privados ─────────────────────────────────────────────────────────
-
-class _NextPill extends StatelessWidget {
-  const _NextPill();
-
-  @override
-  Widget build(BuildContext context) {
-    const accent = MonacoColors.monacoGreen;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        gradient: LinearGradient(
-          colors: [
-            accent.withOpacity(0.28),
-            accent.withOpacity(0.12),
-          ],
-        ),
-        border: Border.all(color: accent.withOpacity(0.5), width: 0.8),
-      ),
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.bolt_rounded, size: 12, color: accent),
-          SizedBox(width: 5),
-          Text(
-            'PRÓXIMO',
-            style: TextStyle(
-              color: accent,
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.5,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      a.horaLabel,
+                      style: TextStyle(
+                        color: apagado ? Colors.white.withValues(alpha: 0.7) : MonacoColors.textPrimary,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.4,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    AppointmentStatusChip(status: a.status),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  a.servicesLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: apagado ? 0.65 : 0.88),
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  [
+                    if (a.barberName != null && a.barberName!.trim().isNotEmpty) 'con ${a.barberName}',
+                    if (a.branchName != null) a.branchName!,
+                  ].join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.5),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
+          ),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (price != null)
+                Text(
+                  Fechas.moneda(price),
+                  style: TextStyle(
+                    color: apagado ? Colors.white.withValues(alpha: 0.6) : MonacoColors.textPrimary,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              const SizedBox(height: 6),
+              Icon(Icons.chevron_right_rounded, color: Colors.white.withValues(alpha: 0.35), size: 20),
+            ],
           ),
         ],
       ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  const _InfoRow({required this.icon, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 14, color: Colors.white.withOpacity(0.6)),
-        const SizedBox(width: 7),
-        Expanded(
-          child: Text(
-            label,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.86),
-              fontSize: 13.5,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ],
     );
   }
 }
@@ -263,43 +332,52 @@ class _ActionPill extends StatelessWidget {
   final String label;
   final VoidCallback? onTap;
   final bool destructive;
+  final bool primary;
+  final bool compact;
 
   const _ActionPill({
     required this.icon,
     required this.label,
     this.onTap,
     this.destructive = false,
+    this.primary = false,
+    this.compact = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final accent =
-        destructive ? const Color(0xFFE5484D) : Colors.white;
+    final accent = destructive
+        ? MonacoColors.destructive
+        : primary
+            ? MonacoColors.monacoGreen
+            : Colors.white;
     return LiquidPill(
       onTap: onTap,
       tint: accent,
-      tintOpacity: destructive ? 0.16 : 0.10,
+      tintOpacity: destructive ? 0.16 : (primary ? 0.18 : 0.10),
       borderRadius: 14,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 12, vertical: 11),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 15, color: accent),
-          const SizedBox(width: 7),
-          Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: accent,
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.1,
+          Icon(icon, size: 15, color: destructive ? accent : Colors.white),
+          if (!compact) ...[
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: destructive ? accent : Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.1,
+                ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );

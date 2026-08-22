@@ -31,97 +31,58 @@ class BranchDetailScreen extends ConsumerWidget {
       title: title,
       showBackButton: true,
       body: detail.when(
-        data: (data) => _LiveQueueContent(data: data),
-        loading: () => _buildShimmer(),
-        error: (e, _) => _ErrorState(
+        data: (data) => _LiveQueueContent(
+          data: data,
+          onRefresh: () async {
+            ref.invalidate(branchDetailProvider(branchId));
+            await ref
+                .read(branchDetailProvider(branchId).future)
+                .then((_) {}, onError: (_) {});
+          },
+        ),
+        loading: () => const _LoadingState(),
+        error: (e, _) => LiquidErrorState(
+          error: e,
+          message: 'No pudimos cargar la sucursal. Probá en unos segundos.',
           onRetry: () => ref.invalidate(branchDetailProvider(branchId)),
         ),
       ),
     );
   }
+}
 
-  Widget _buildShimmer() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 140),
-      child: Column(
-        children: [
-          _ShimmerBlock(height: 180),
-          const SizedBox(height: 14),
-          Row(
-            children: List.generate(
-              3,
-              (i) => Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(right: i < 2 ? 8 : 0),
-                  child: _ShimmerBlock(height: 78),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          ...List.generate(
+class _LoadingState extends StatelessWidget {
+  const _LoadingState();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 48),
+      children: [
+        const LiquidSkeleton(height: 190, radius: 26),
+        const SizedBox(height: 14),
+        Row(
+          children: List.generate(
             3,
-            (_) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _ShimmerBlock(height: 80),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ErrorState extends StatelessWidget {
-  final VoidCallback onRetry;
-  const _ErrorState({required this.onRetry});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.error_outline, size: 48, color: MonacoColors.destructive),
-          const SizedBox(height: 12),
-          Text(
-            'Error al cargar detalle',
-            style: TextStyle(color: Colors.white.withOpacity(0.7)),
-          ),
-          const SizedBox(height: 16),
-          LiquidPill(
-            onTap: onRetry,
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-            child: const Text(
-              'Reintentar',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
+            (i) => Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(right: i < 2 ? 10 : 0),
+                child: const LiquidSkeleton(height: 86, radius: 18),
               ),
             ),
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 24),
+        ...List.generate(
+          3,
+          (_) => const Padding(
+            padding: EdgeInsets.only(bottom: 10),
+            child: LiquidSkeleton(height: 80, radius: 18),
+          ),
+        ),
+      ],
     );
-  }
-}
-
-class _ShimmerBlock extends StatelessWidget {
-  final double height;
-  const _ShimmerBlock({required this.height});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: height,
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
-      ),
-    )
-        .animate(onPlay: (c) => c.repeat())
-        .shimmer(duration: 1200.ms, color: Colors.white10);
   }
 }
 
@@ -131,8 +92,9 @@ class _ShimmerBlock extends StatelessWidget {
 
 class _LiveQueueContent extends StatelessWidget {
   final Map<String, dynamic> data;
+  final Future<void> Function() onRefresh;
 
-  const _LiveQueueContent({required this.data});
+  const _LiveQueueContent({required this.data, required this.onRefresh});
 
   @override
   Widget build(BuildContext context) {
@@ -164,12 +126,12 @@ class _LiveQueueContent extends StatelessWidget {
     return RefreshIndicator(
       color: Colors.white,
       backgroundColor: MonacoColors.surface,
-      onRefresh: () async {
-        await Future.delayed(const Duration(milliseconds: 300));
-      },
+      onRefresh: onRefresh,
       child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 140),
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 48),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -223,7 +185,7 @@ class _LiveQueueContent extends StatelessWidget {
             _SectionHeader(
               icon: Icons.info_outline_rounded,
               title: 'Información',
-              accent: Colors.white.withOpacity(0.7),
+              accent: Colors.white.withValues(alpha: 0.7),
             ).liquidEnter(index: 10),
             const SizedBox(height: 12),
 
@@ -289,7 +251,7 @@ _OccupancyInfo _computeOccupancy({
   if (!isOpen || activeBarbers == 0) {
     return const _OccupancyInfo(
       level: _OccupancyLevel.closed,
-      color: Color(0xFF6B6B6B),
+      color: MonacoColors.occupancyClosed,
       title: 'Cerrado',
       subtitle: 'Volvemos pronto',
       fillRatio: 0.0,
@@ -299,7 +261,7 @@ _OccupancyInfo _computeOccupancy({
   if (availableCount >= 1) {
     return const _OccupancyInfo(
       level: _OccupancyLevel.free,
-      color: LiquidTokens.monacoGreen,
+      color: MonacoColors.occupancyNone,
       title: 'Libre ahora',
       subtitle: 'Entrá cuando quieras, sin espera',
       fillRatio: 0.15,
@@ -311,7 +273,7 @@ _OccupancyInfo _computeOccupancy({
   if (ratio < 1.5) {
     return const _OccupancyInfo(
       level: _OccupancyLevel.low,
-      color: Color(0xFF84CC16),
+      color: MonacoColors.occupancyLow,
       title: 'Espera corta',
       subtitle: 'Aprox. un turno por barbero',
       fillRatio: 0.45,
@@ -321,7 +283,7 @@ _OccupancyInfo _computeOccupancy({
   if (ratio < 2.5) {
     return const _OccupancyInfo(
       level: _OccupancyLevel.medium,
-      color: Color(0xFFF59E0B),
+      color: MonacoColors.occupancyMedium,
       title: 'Movimiento moderado',
       subtitle: 'Aprox. dos turnos por barbero',
       fillRatio: 0.75,
@@ -330,7 +292,7 @@ _OccupancyInfo _computeOccupancy({
 
   return const _OccupancyInfo(
     level: _OccupancyLevel.high,
-    color: Color(0xFFEF4444),
+    color: MonacoColors.occupancyHigh,
     title: 'Mayor demanda',
     subtitle: 'Varios turnos por barbero',
     fillRatio: 1.0,
@@ -368,7 +330,9 @@ class _OccupancyHero extends StatelessWidget {
             children: [
               LiquidStatusPill(
                 label: isClosed ? 'CERRADO' : 'EN VIVO',
-                color: isClosed ? Colors.grey : LiquidTokens.monacoGreen,
+                color: isClosed
+                    ? MonacoColors.occupancyClosed
+                    : MonacoColors.monacoGreen,
                 pulse: !isClosed,
                 compact: true,
               ),
@@ -380,13 +344,13 @@ class _OccupancyHero extends StatelessWidget {
                     Icon(
                       Icons.group_rounded,
                       size: 14,
-                      color: Colors.white.withOpacity(0.65),
+                      color: Colors.white.withValues(alpha: 0.65),
                     ),
                     const SizedBox(width: 6),
                     Text(
                       '$activeBarbers ${activeBarbers == 1 ? "barbero activo" : "barberos activos"}',
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.75),
+                        color: Colors.white.withValues(alpha: 0.75),
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
@@ -407,7 +371,7 @@ class _OccupancyHero extends StatelessWidget {
               height: 1.0,
               shadows: [
                 Shadow(
-                  color: color.withOpacity(0.4),
+                  color: color.withValues(alpha: 0.4),
                   blurRadius: 18,
                 ),
               ],
@@ -417,7 +381,7 @@ class _OccupancyHero extends StatelessWidget {
           Text(
             occupancy.subtitle,
             style: TextStyle(
-              color: Colors.white.withOpacity(0.65),
+              color: Colors.white.withValues(alpha: 0.65),
               fontSize: 13,
               fontWeight: FontWeight.w500,
             ),
@@ -444,13 +408,13 @@ class _OccupancyHero extends StatelessWidget {
               height: 7,
               decoration: BoxDecoration(
                 color: filled
-                    ? color.withOpacity(0.9)
-                    : Colors.white.withOpacity(0.06),
+                    ? color.withValues(alpha: 0.9)
+                    : Colors.white.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(4),
                 boxShadow: filled
                     ? [
                         BoxShadow(
-                          color: color.withOpacity(0.5),
+                          color: color.withValues(alpha: 0.5),
                           blurRadius: 8,
                         )
                       ]
@@ -488,7 +452,7 @@ class _QuickStats extends StatelessWidget {
             value: '$waitingCount',
             label: 'Esperando',
             icon: Icons.hourglass_top_rounded,
-            color: const Color(0xFFF59E0B),
+            color: MonacoColors.warning,
           ),
         ),
         const SizedBox(width: 10),
@@ -497,7 +461,7 @@ class _QuickStats extends StatelessWidget {
             value: '$inProgressCount',
             label: 'Atendiendo',
             icon: Icons.content_cut_rounded,
-            color: const Color(0xFF3B82F6),
+            color: MonacoColors.info,
           ),
         ),
         const SizedBox(width: 10),
@@ -549,7 +513,7 @@ class _StatPill extends StatelessWidget {
               fontFeatures: const [FontFeature.tabularFigures()],
               shadows: [
                 Shadow(
-                  color: color.withOpacity(0.45),
+                  color: color.withValues(alpha: 0.45),
                   blurRadius: 12,
                 ),
               ],
@@ -559,7 +523,7 @@ class _StatPill extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              color: Colors.white.withOpacity(0.6),
+              color: Colors.white.withValues(alpha: 0.6),
               fontSize: 11,
               fontWeight: FontWeight.w500,
             ),
@@ -595,7 +559,7 @@ class _AvailableBarbersStrip extends StatelessWidget {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: LiquidTokens.monacoGreen.withOpacity(0.7),
+                    color: LiquidTokens.monacoGreen.withValues(alpha: 0.7),
                     blurRadius: 6,
                   ),
                 ],
@@ -607,7 +571,7 @@ class _AvailableBarbersStrip extends StatelessWidget {
             Text(
               'Libres ahora',
               style: TextStyle(
-                color: LiquidTokens.monacoGreen.withOpacity(0.95),
+                color: LiquidTokens.monacoGreen.withValues(alpha: 0.95),
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.3,
@@ -645,8 +609,6 @@ class _AvailableBarberChip extends StatelessWidget {
 
   const _AvailableBarberChip({required this.name, this.avatarUrl});
 
-  String get _initial => name.isNotEmpty ? name[0].toUpperCase() : '?';
-
   @override
   Widget build(BuildContext context) {
     const green = LiquidTokens.monacoGreen;
@@ -657,29 +619,27 @@ class _AvailableBarberChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Anillo verde "en vivo" alrededor del avatar cacheado.
           Container(
-            width: 34,
-            height: 34,
-            clipBehavior: Clip.antiAlias,
+            padding: const EdgeInsets.all(1.2),
             decoration: BoxDecoration(
-              color: MonacoColors.surfaceVariant,
               shape: BoxShape.circle,
-              border: Border.all(color: green, width: 1.6),
+              border: Border.all(color: green, width: 1.4),
               boxShadow: [
                 BoxShadow(
-                  color: green.withOpacity(0.35),
+                  color: green.withValues(alpha: 0.35),
                   blurRadius: 8,
                   spreadRadius: -1,
                 ),
               ],
             ),
-            child: (avatarUrl != null && avatarUrl!.isNotEmpty)
-                ? Image.network(
-                    avatarUrl!,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => _InitialFallback(text: _initial),
-                  )
-                : _InitialFallback(text: _initial),
+            child: LiquidAvatar(
+              imageUrl: avatarUrl,
+              name: name,
+              size: 30,
+              tint: green,
+              ring: false,
+            ),
           ),
           const SizedBox(width: 10),
           Text(
@@ -691,25 +651,6 @@ class _AvailableBarberChip extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _InitialFallback extends StatelessWidget {
-  final String text;
-  const _InitialFallback({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: LiquidTokens.monacoGreen,
-          fontSize: 13,
-          fontWeight: FontWeight.w800,
-        ),
       ),
     );
   }
@@ -744,12 +685,12 @@ class _SectionHeader extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                accent.withOpacity(0.22),
-                accent.withOpacity(0.08),
+                accent.withValues(alpha: 0.22),
+                accent.withValues(alpha: 0.08),
               ],
             ),
             borderRadius: BorderRadius.circular(9),
-            border: Border.all(color: accent.withOpacity(0.28), width: 0.8),
+            border: Border.all(color: accent.withValues(alpha: 0.28), width: 0.8),
           ),
           child: Icon(icon, size: 16, color: accent),
         ),
@@ -768,9 +709,9 @@ class _SectionHeader extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 2),
             decoration: BoxDecoration(
-              color: accent.withOpacity(0.14),
+              color: accent.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: accent.withOpacity(0.22), width: 0.6),
+              border: Border.all(color: accent.withValues(alpha: 0.22), width: 0.6),
             ),
             child: Text(
               '$count',
@@ -811,12 +752,7 @@ class _InProgressCard extends StatelessWidget {
       showVignette: false,
       child: Row(
         children: [
-          _Avatar(
-            name: barberName,
-            avatarUrl: avatarUrl,
-            ringColor: Colors.white.withOpacity(0.2),
-            size: 54,
-          ),
+          LiquidAvatar(imageUrl: avatarUrl, name: barberName, size: 54),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -837,7 +773,7 @@ class _InProgressCard extends StatelessWidget {
                 Text(
                   'Atendiendo ahora',
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.55),
+                    color: Colors.white.withValues(alpha: 0.55),
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
                   ),
@@ -851,15 +787,15 @@ class _InProgressCard extends StatelessWidget {
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
-                  green.withOpacity(0.25),
-                  green.withOpacity(0.10),
+                  green.withValues(alpha: 0.25),
+                  green.withValues(alpha: 0.10),
                 ],
               ),
               shape: BoxShape.circle,
-              border: Border.all(color: green.withOpacity(0.4), width: 0.8),
+              border: Border.all(color: green.withValues(alpha: 0.4), width: 0.8),
               boxShadow: [
                 BoxShadow(
-                  color: green.withOpacity(0.3),
+                  color: green.withValues(alpha: 0.3),
                   blurRadius: 10,
                   spreadRadius: -2,
                 ),
@@ -903,15 +839,15 @@ class _EmptyState extends StatelessWidget {
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
-                  green.withOpacity(0.30),
-                  green.withOpacity(0.14),
+                  green.withValues(alpha: 0.30),
+                  green.withValues(alpha: 0.14),
                 ],
               ),
               shape: BoxShape.circle,
-              border: Border.all(color: green.withOpacity(0.38)),
+              border: Border.all(color: green.withValues(alpha: 0.38)),
               boxShadow: [
                 BoxShadow(
-                  color: green.withOpacity(0.32),
+                  color: green.withValues(alpha: 0.32),
                   blurRadius: 18,
                   spreadRadius: -3,
                 ),
@@ -938,95 +874,13 @@ class _EmptyState extends StatelessWidget {
                 ? 'Hay 1 barbero esperando para atenderte'
                 : 'Hay $totalBarbers barberos esperando para atenderte',
             style: TextStyle(
-              color: Colors.white.withOpacity(0.6),
+              color: Colors.white.withValues(alpha: 0.6),
               fontSize: 13,
               fontWeight: FontWeight.w500,
             ),
             textAlign: TextAlign.center,
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// AVATAR
-// ═══════════════════════════════════════════════════════════════════════════
-
-class _Avatar extends StatelessWidget {
-  final String name;
-  final String? avatarUrl;
-  final Color ringColor;
-  final double size;
-
-  const _Avatar({
-    required this.name,
-    required this.avatarUrl,
-    required this.ringColor,
-    required this.size,
-  });
-
-  String get _initial {
-    if (name.isEmpty) return '?';
-    final parts = name.trim().split(' ');
-    if (parts.length >= 2) {
-      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-    }
-    return parts[0][0].toUpperCase();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    Widget inner;
-    if (avatarUrl != null && avatarUrl!.isNotEmpty) {
-      inner = ClipOval(
-        child: Image.network(
-          avatarUrl!,
-          width: size,
-          height: size,
-          fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => _fallback(),
-        ),
-      );
-    } else {
-      inner = _fallback();
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(color: ringColor, width: 1.5),
-      ),
-      child: SizedBox(width: size, height: size, child: inner),
-    );
-  }
-
-  Widget _fallback() {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            ringColor.withOpacity(0.28),
-            ringColor.withOpacity(0.08),
-          ],
-        ),
-      ),
-      child: Center(
-        child: Text(
-          _initial,
-          style: TextStyle(
-            color: ringColor,
-            fontWeight: FontWeight.w800,
-            fontSize: size * 0.35,
-          ),
-        ),
       ),
     );
   }
@@ -1053,13 +907,13 @@ class _InfoRow extends StatelessWidget {
       blur: LiquidTokens.blurSubtle,
       child: Row(
         children: [
-          Icon(icon, size: 16, color: Colors.white.withOpacity(0.65)),
+          Icon(icon, size: 16, color: Colors.white.withValues(alpha: 0.65)),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               text,
               style: TextStyle(
-                color: Colors.white.withOpacity(0.75),
+                color: Colors.white.withValues(alpha: 0.75),
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
               ),

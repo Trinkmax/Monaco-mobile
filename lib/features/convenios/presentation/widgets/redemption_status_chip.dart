@@ -52,29 +52,25 @@ class RedemptionStatusChip extends StatelessWidget {
     final variant = _resolveVariant();
     if (variant == null) return const SizedBox.shrink();
 
-    final (label, icon, bg, fg) = switch (variant) {
+    final (label, icon, color) = switch (variant) {
       _ChipVariant.used => (
         'Ya canjeado',
-        Icons.check_circle,
-        MonacoColors.success.withOpacity(0.18),
-        MonacoColors.success,
+        Icons.check_circle_rounded,
+        MonacoColors.monacoGreen,
       ),
       _ChipVariant.expired => (
         'Vencido',
-        Icons.schedule_outlined,
-        MonacoColors.foregroundSubtle.withOpacity(0.18),
+        Icons.schedule_rounded,
         MonacoColors.foregroundMuted,
       ),
       _ChipVariant.expiresSoon => (
         'Vence pronto',
         Icons.hourglass_bottom_rounded,
-        MonacoColors.warning.withOpacity(0.18),
         MonacoColors.warning,
       ),
       _ChipVariant.active => (
         'Vigente',
-        Icons.local_activity_outlined,
-        MonacoColors.info.withOpacity(0.18),
+        Icons.local_activity_rounded,
         MonacoColors.info,
       ),
     };
@@ -84,20 +80,28 @@ class RedemptionStatusChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: bg,
           borderRadius: BorderRadius.circular(999),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              color.withValues(alpha: 0.24),
+              color.withValues(alpha: 0.10),
+            ],
+          ),
+          border: Border.all(color: color.withValues(alpha: 0.38), width: 0.8),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 12, color: fg),
+            Icon(icon, size: 12, color: color),
             const SizedBox(width: 4),
             Text(
               label,
               style: TextStyle(
-                color: fg,
+                color: color,
                 fontSize: 10.5,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w800,
                 letterSpacing: 0.2,
               ),
             ),

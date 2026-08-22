@@ -7,11 +7,14 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
+import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 import 'package:monaco_mobile/features/convenios/presentation/widgets/redemption_card.dart';
 import 'package:monaco_mobile/features/convenios/providers/convenios_provider.dart';
 import 'package:monaco_mobile/features/convenios/providers/my_redemptions_provider.dart';
 import 'package:monaco_mobile/features/convenios/providers/redemption_provider.dart';
 
+/// Detalle de un convenio: imagen hero detrás del app bar, tarjeta de canje
+/// (activar / QR / usado) y la letra chica en láminas de vidrio.
 class ConvenioDetailScreen extends ConsumerStatefulWidget {
   final String id;
   const ConvenioDetailScreen({super.key, required this.id});
@@ -46,72 +49,61 @@ class _ConvenioDetailScreenState extends ConsumerState<ConvenioDetailScreen>
     }
   }
 
+  Future<void> _refresh() async {
+    ref.invalidate(conveniosDetailProvider(widget.id));
+    ref.invalidate(existingRedemptionProvider(widget.id));
+    ref.invalidate(myRedemptionsProvider);
+    await ref
+        .read(conveniosDetailProvider(widget.id).future)
+        .then((_) {}, onError: (_) {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final asyncBenefit = ref.watch(conveniosDetailProvider(widget.id));
+    final topInset = MediaQuery.paddingOf(context).top + kToolbarHeight;
 
-    return Scaffold(
-      backgroundColor: MonacoColors.background,
+    final title = asyncBenefit.maybeWhen(
+      data: (b) {
+        final partner = b?['partner'] as Map<String, dynamic>?;
+        final name = partner?['business_name'] as String?;
+        return (name != null && name.trim().isNotEmpty) ? name : 'Convenio';
+      },
+      orElse: () => 'Convenio',
+    );
+
+    return LiquidAppBarScaffold(
+      title: title,
+      showBackButton: true,
       extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: Container(
-          margin: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.4),
-            shape: BoxShape.circle,
-          ),
-          child: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new,
-                color: Colors.white, size: 18),
-            onPressed: () => context.pop(),
-          ),
-        ),
-      ),
       body: asyncBenefit.when(
-        loading: () => const Center(
-          child: CircularProgressIndicator(color: MonacoColors.gold),
-        ),
-        error: (e, _) => Center(
-          child: Text('Error: $e',
-              style: const TextStyle(color: Colors.white70)),
+        loading: () => _DetailSkeleton(topInset: topInset),
+        error: (e, _) => Padding(
+          padding: EdgeInsets.only(top: topInset),
+          child: LiquidErrorState(error: e, onRetry: _refresh),
         ),
         data: (benefit) {
-          if (benefit == null) return _notFound(context);
-          return _DetailContent(benefit: benefit);
-        },
-      ),
-    );
-  }
-
-  Widget _notFound(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.search_off_rounded,
-                size: 72, color: MonacoColors.foregroundSubtle),
-            const SizedBox(height: 12),
-            const Text(
-              'Este convenio ya no está disponible',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: MonacoColors.textPrimary,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
+          if (benefit == null) {
+            return Padding(
+              padding: EdgeInsets.only(top: topInset),
+              child: LiquidEmptyState(
+                icon: Icons.search_off_rounded,
+                title: 'Este convenio ya no está disponible',
+                message:
+                    'Puede que haya vencido o que el comercio lo haya pausado.',
+                ctaLabel: 'Volver',
+                onCta: () => context.pop(),
               ),
-            ),
-            const SizedBox(height: 16),
-            TextButton(
-              onPressed: () => context.pop(),
-              child: const Text('Volver',
-                  style: TextStyle(color: MonacoColors.gold)),
-            ),
-          ],
-        ),
+            );
+          }
+          return RefreshIndicator(
+            color: Colors.white,
+            backgroundColor: MonacoColors.surface,
+            edgeOffset: topInset,
+            onRefresh: _refresh,
+            child: _DetailContent(benefit: benefit),
+          );
+        },
       ),
     );
   }
@@ -136,14 +128,32 @@ class _DetailContent extends StatelessWidget {
     return false;
   }
 
+  Future<void> _openMaps(BuildContext context, String address, String? mapUrl) async {
+    final url = (mapUrl != null && mapUrl.trim().isNotEmpty)
+        ? mapUrl.trim()
+        : 'https://maps.google.com/?q=${Uri.encodeComponent(address)}';
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (!context.mounted) return;
+      showLiquidToast(
+        context,
+        'No pudimos abrir el mapa.',
+        tone: LiquidToastTone.error,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final title = benefit['title'] as String? ?? '';
-    final description = benefit['description'] as String?;
-    final discount = benefit['discount_text'] as String?;
-    final imageUrl = benefit['image_url'] as String?;
-    final terms = benefit['terms'] as String?;
-    final address = benefit['location_address'] as String?;
+    final description = (benefit['description'] as String?)?.trim();
+    final discount = (benefit['discount_text'] as String?)?.trim();
+    final imageUrl = (benefit['image_url'] as String?)?.trim();
+    final terms = (benefit['terms'] as String?)?.trim();
+    final address = (benefit['location_address'] as String?)?.trim();
     final mapUrl = benefit['location_map_url'] as String?;
     final validFrom = benefit['valid_from'] as String?;
     final validUntil = benefit['valid_until'] as String?;
@@ -152,16 +162,31 @@ class _DetailContent extends StatelessWidget {
     final partnerLogo = partner?['logo_url'] as String?;
     final benefitId = benefit['id'] as String;
 
-    String fmtDate(String iso) => DateFormat("d 'de' MMM y", 'es')
-        .format(DateTime.parse(iso).toLocal());
+    String fmtDate(String iso) {
+      final d = DateTime.tryParse(iso);
+      if (d == null) return '';
+      return DateFormat("d 'de' MMM y", 'es').format(d.toLocal());
+    }
+
+    final validity = [
+      if (validFrom != null && fmtDate(validFrom).isNotEmpty)
+        'Desde ${fmtDate(validFrom)}',
+      if (validUntil != null && fmtDate(validUntil).isNotEmpty)
+        'Hasta ${fmtDate(validUntil)}',
+    ].join(' · ');
+
+    var enterIndex = 0;
 
     return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(
+        parent: BouncingScrollPhysics(),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ---------- Hero image ----------
+          // ── Hero ──
           SizedBox(
-            height: 280,
+            height: 320,
             width: double.infinity,
             child: Stack(
               fit: StackFit.expand,
@@ -170,62 +195,65 @@ class _DetailContent extends StatelessWidget {
                   CachedNetworkImage(
                     imageUrl: imageUrl,
                     fit: BoxFit.cover,
-                    placeholder: (_, __) =>
-                        Container(color: MonacoColors.surfaceVariant),
-                    errorWidget: (_, __, ___) =>
-                        Container(color: MonacoColors.surfaceVariant),
+                    placeholder: (_, _) => const ColoredBox(
+                      color: MonacoColors.surfaceVariant,
+                    ),
+                    errorWidget: (_, _, _) => const _HeroFallback(),
                   )
                 else
-                  Container(
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [MonacoColors.surface, MonacoColors.background],
-                      ),
-                    ),
-                    child: const Icon(Icons.local_offer_outlined,
-                        size: 72, color: MonacoColors.foregroundSubtle),
-                  ),
-                Container(
+                  const _HeroFallback(),
+                DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        Colors.black.withOpacity(0.3),
+                        Colors.black.withValues(alpha: 0.45),
                         Colors.transparent,
-                        Colors.black.withOpacity(0.2),
+                        Colors.black.withValues(alpha: 0.25),
                         MonacoColors.background,
                       ],
-                      stops: const [0.0, 0.3, 0.7, 1.0],
+                      stops: const [0.0, 0.35, 0.72, 1.0],
                     ),
                   ),
                 ),
                 if (discount != null && discount.isNotEmpty)
                   Positioned(
                     left: 20,
-                    bottom: 28,
+                    bottom: 26,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 8),
+                          horizontal: 16, vertical: 9),
                       decoration: BoxDecoration(
-                        color: MonacoColors.primary,
-                        borderRadius: BorderRadius.circular(10),
+                        gradient: const LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            MonacoColors.monacoGreen,
+                            MonacoColors.monacoGreenDeep,
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.25),
+                          width: 0.8,
+                        ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.4),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
+                            color: MonacoColors.monacoGreen.withValues(alpha: 0.45),
+                            blurRadius: 18,
+                            spreadRadius: -2,
+                            offset: const Offset(0, 6),
                           ),
                         ],
                       ),
                       child: Text(
                         discount,
                         style: const TextStyle(
-                          color: MonacoColors.primaryForeground,
-                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
                           fontSize: 18,
+                          letterSpacing: -0.2,
                         ),
                       ),
                     )
@@ -237,133 +265,91 @@ class _DetailContent extends StatelessWidget {
             ),
           ),
 
-          // ---------- Body ----------
+          // ── Cuerpo ──
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 48),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
                   title,
                   style: const TextStyle(
                     color: MonacoColors.textPrimary,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w800,
-                    height: 1.2,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.6,
+                    height: 1.15,
                   ),
-                ).animate().fadeIn(duration: 400.ms).slideX(begin: -0.03),
+                ).liquidEnter(index: enterIndex++),
                 if (partnerName.isNotEmpty) ...[
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
-                      CircleAvatar(
-                        radius: 14,
-                        backgroundColor: MonacoColors.surfaceVariant,
-                        backgroundImage:
-                            (partnerLogo != null && partnerLogo.isNotEmpty)
-                                ? CachedNetworkImageProvider(partnerLogo)
-                                : null,
-                        child: (partnerLogo == null || partnerLogo.isEmpty)
-                            ? Text(
-                                partnerName.substring(0, 1).toUpperCase(),
-                                style: const TextStyle(
-                                  color: MonacoColors.textPrimary,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              )
-                            : null,
+                      LiquidAvatar(
+                        imageUrl: partnerLogo,
+                        name: partnerName,
+                        size: 32,
+                        fallbackIcon: Icons.storefront_rounded,
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           partnerName,
-                          style: const TextStyle(
-                            color: MonacoColors.textSecondary,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.7),
                             fontSize: 14,
-                            fontWeight: FontWeight.w500,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
                     ],
-                  ),
+                  ).liquidEnter(index: enterIndex++),
                 ],
+                const SizedBox(height: 22),
 
-                const SizedBox(height: 24),
-
-                // ---------- Tarjeta de canje (multi-estado) ----------
+                // ── Tarjeta de canje (multi-estado) ──
                 RedemptionCard(
                   benefitId: benefitId,
                   benefitTitle: title,
                   partnerName: partnerName.isNotEmpty ? partnerName : null,
                   isOutOfWindow: _isOutOfWindow,
-                )
-                    .animate()
-                    .fadeIn(delay: 200.ms, duration: 400.ms)
-                    .slideY(begin: 0.05, end: 0),
-
-                const SizedBox(height: 24),
+                ).liquidEnter(index: enterIndex++),
+                const SizedBox(height: 22),
 
                 if (description != null && description.isNotEmpty) ...[
-                  _SectionTitle('Descripción'),
-                  const SizedBox(height: 8),
-                  Text(
-                    description,
-                    style: const TextStyle(
-                      color: MonacoColors.textSecondary,
-                      fontSize: 14,
-                      height: 1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
+                  _GlassSection(
+                    icon: Icons.notes_rounded,
+                    title: 'Descripción',
+                    body: description,
+                  ).liquidEnter(index: enterIndex++),
+                  const SizedBox(height: 12),
                 ],
-
                 if (terms != null && terms.isNotEmpty) ...[
-                  _SectionTitle('Términos y condiciones'),
-                  const SizedBox(height: 8),
-                  Text(
-                    terms,
-                    style: const TextStyle(
-                      color: MonacoColors.textSecondary,
-                      fontSize: 13,
-                      height: 1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
+                  _GlassSection(
+                    icon: Icons.gavel_rounded,
+                    title: 'Términos y condiciones',
+                    body: terms,
+                    small: true,
+                  ).liquidEnter(index: enterIndex++),
+                  const SizedBox(height: 12),
                 ],
-
-                // ---------- Validez ----------
-                if (validFrom != null || validUntil != null)
-                  _InfoRow(
-                    icon: Icons.calendar_today_outlined,
-                    text: [
-                      if (validFrom != null) 'Desde ${fmtDate(validFrom)}',
-                      if (validUntil != null) 'Hasta ${fmtDate(validUntil)}',
-                    ].join(' · '),
-                  ),
-
-                // ---------- Dirección ----------
+                if (validity.isNotEmpty) ...[
+                  _InfoTile(
+                    icon: Icons.calendar_today_rounded,
+                    label: 'Vigencia',
+                    text: validity,
+                  ).liquidEnter(index: enterIndex++),
+                  const SizedBox(height: 10),
+                ],
                 if (address != null && address.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: InkWell(
-                      onTap: () async {
-                        final url = mapUrl ??
-                            'https://maps.google.com/?q=${Uri.encodeComponent(address)}';
-                        final uri = Uri.parse(url);
-                        if (await canLaunchUrl(uri)) {
-                          await launchUrl(uri,
-                              mode: LaunchMode.externalApplication);
-                        }
-                      },
-                      child: _InfoRow(
-                        icon: Icons.place_outlined,
-                        text: address,
-                        trailing: const Icon(Icons.open_in_new,
-                            color: MonacoColors.gold, size: 14),
-                      ),
-                    ),
-                  ),
+                  _InfoTile(
+                    icon: Icons.place_rounded,
+                    label: 'Dónde',
+                    text: address,
+                    onTap: () => _openMaps(context, address, mapUrl),
+                  ).liquidEnter(index: enterIndex++),
               ],
             ),
           ),
@@ -373,50 +359,191 @@ class _DetailContent extends StatelessWidget {
   }
 }
 
-class _SectionTitle extends StatelessWidget {
-  final String text;
-  const _SectionTitle(this.text);
+class _HeroFallback extends StatelessWidget {
+  const _HeroFallback();
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: const TextStyle(
-        color: MonacoColors.textPrimary,
-        fontSize: 15,
-        fontWeight: FontWeight.w700,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            MonacoColors.monacoGreen.withValues(alpha: 0.22),
+            MonacoColors.background,
+          ],
+        ),
+      ),
+      child: Center(
+        child: Icon(
+          Icons.local_offer_rounded,
+          size: 80,
+          color: Colors.white.withValues(alpha: 0.18),
+        ),
       ),
     );
   }
 }
 
-class _InfoRow extends StatelessWidget {
+class _GlassSection extends StatelessWidget {
   final IconData icon;
-  final String text;
-  final Widget? trailing;
-  const _InfoRow({required this.icon, required this.text, this.trailing});
+  final String title;
+  final String body;
+  final bool small;
+
+  const _GlassSection({
+    required this.icon,
+    required this.title,
+    required this.body,
+    this.small = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 16, color: MonacoColors.foregroundSubtle),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            text,
-            style: const TextStyle(
-              color: MonacoColors.textSecondary,
-              fontSize: 13,
-              height: 1.4,
+    return LiquidGlass(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      borderRadius: 20,
+      tintOpacity: 0.06,
+      pressable: false,
+      showVignette: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: Colors.white.withValues(alpha: 0.7)),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: const TextStyle(
+                  color: MonacoColors.textPrimary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.2,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            body,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: small ? 0.55 : 0.68),
+              fontSize: small ? 12.5 : 14,
+              height: 1.5,
+              fontWeight: FontWeight.w500,
             ),
           ),
-        ),
-        if (trailing != null) ...[
-          const SizedBox(width: 8),
-          trailing!,
         ],
+      ),
+    );
+  }
+}
+
+class _InfoTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String text;
+  final VoidCallback? onTap;
+
+  const _InfoTile({
+    required this.icon,
+    required this.label,
+    required this.text,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LiquidGlass(
+      onTap: onTap,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      borderRadius: 16,
+      tintOpacity: 0.05,
+      pressable: onTap != null,
+      showVignette: false,
+      blur: LiquidTokens.blurSubtle,
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              gradient: LinearGradient(
+                colors: [
+                  Colors.white.withValues(alpha: 0.18),
+                  Colors.white.withValues(alpha: 0.06),
+                ],
+              ),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.2),
+                width: 0.8,
+              ),
+            ),
+            child: Icon(icon, size: 16, color: Colors.white),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.5),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  text,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.85),
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (onTap != null) ...[
+            const SizedBox(width: 8),
+            Icon(
+              Icons.open_in_new_rounded,
+              size: 16,
+              color: MonacoColors.monacoGreen.withValues(alpha: 0.95),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailSkeleton extends StatelessWidget {
+  final double topInset;
+  const _DetailSkeleton({required this.topInset});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.fromLTRB(20, topInset + 12, 20, 48),
+      children: const [
+        LiquidSkeleton(height: 220, radius: 28),
+        SizedBox(height: 22),
+        LiquidSkeleton.line(width: 240, height: 24),
+        SizedBox(height: 12),
+        LiquidSkeleton.line(width: 140, height: 16),
+        SizedBox(height: 22),
+        LiquidSkeleton(height: 210, radius: 24),
+        SizedBox(height: 14),
+        LiquidSkeleton(height: 110, radius: 20),
       ],
     );
   }

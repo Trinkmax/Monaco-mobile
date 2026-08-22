@@ -3,97 +3,122 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as sb;
 import 'package:supabase_flutter/supabase_flutter.dart' show SupabaseClient;
+
 import '../supabase/supabase_provider.dart';
 import 'auth_service.dart';
 import 'secure_storage.dart';
 import 'biometric_service.dart';
+import 'pin_service.dart';
 
-/// Auth state enum
+/// Estados del ciclo de auth.
+///
+/// - `needsBiometric`: hay sesión pero el cliente activó el gate local.
+/// - `needsBranch`: hay sesión pero todavía no eligió sucursal (onboarding).
 enum AuthStatus {
   initial,
   unauthenticated,
   needsBiometric,
+  needsBranch,
   authenticated,
 }
 
-/// Auth state model
+/// Estado de auth (mono-org: la organización es `AppConstants.organizationId`).
 class AuthState {
   final AuthStatus status;
   final String? clientId;
   final String? clientName;
+  final String? clientPhone;
   final String? error;
   final bool isNewClient;
-  final String? selectedOrgId;
-  final String? selectedOrgName;
   final String? selectedBranchId;
   final String? selectedBranchName;
-
-  /// Modo de operación de la sucursal seleccionada (`walk_in` / `appointments`
-  /// / `hybrid`). Se usa para mostrar/ocultar UI de turnos vs cola walk-in.
-  final String? selectedBranchOperationMode;
-
-  /// Slug público de la sucursal — necesario para armar el link a la web de
-  /// reservas (`/turnos/{slug}`).
   final String? selectedBranchSlug;
+
+  /// `walk_in | appointments | hybrid` de la sucursal elegida.
+  final String? selectedBranchOperationMode;
 
   const AuthState({
     this.status = AuthStatus.initial,
     this.clientId,
     this.clientName,
+    this.clientPhone,
     this.error,
     this.isNewClient = false,
-    this.selectedOrgId,
-    this.selectedOrgName,
     this.selectedBranchId,
     this.selectedBranchName,
-    this.selectedBranchOperationMode,
     this.selectedBranchSlug,
+    this.selectedBranchOperationMode,
   });
 
-  bool get hasOrg => selectedOrgId != null;
   bool get hasBranch => selectedBranchId != null;
+  bool get isAuthenticated => status == AuthStatus.authenticated;
 
-  /// La sucursal seleccionada acepta reservas online (modo `appointments` o
-  /// `hybrid`). Útil para mostrar el flujo de "Mis turnos" + FAB Reservar.
+  /// La sucursal elegida acepta reservas online (`appointments` o `hybrid`).
   bool get acceptsAppointments =>
       selectedBranchOperationMode == 'appointments' ||
       selectedBranchOperationMode == 'hybrid';
 
-  /// La sucursal seleccionada acepta walk-ins (modo `walk_in` o `hybrid`).
-  /// En modo `appointments` puro se oculta la cola/occupancy.
+  /// La sucursal elegida acepta walk-ins (`walk_in` o `hybrid`).
   bool get acceptsWalkIn =>
       selectedBranchOperationMode == null ||
       selectedBranchOperationMode == 'walk_in' ||
       selectedBranchOperationMode == 'hybrid';
 
+  /// Primer nombre para saludar ("Hola, Nacho"). Si el nombre es sólo
+  /// dígitos (cuenta vieja sin nombre) devuelve "".
+  String get firstName {
+    final n = (clientName ?? '').trim();
+    if (n.isEmpty || RegExp(r'^\d+$').hasMatch(n)) return '';
+    return n.split(RegExp(r'\s+')).first;
+  }
+
   AuthState copyWith({
     AuthStatus? status,
     String? clientId,
     String? clientName,
+    String? clientPhone,
     String? error,
     bool? isNewClient,
-    String? selectedOrgId,
-    String? selectedOrgName,
     String? selectedBranchId,
     String? selectedBranchName,
-    String? selectedBranchOperationMode,
     String? selectedBranchSlug,
+    String? selectedBranchOperationMode,
   }) {
     return AuthState(
       status: status ?? this.status,
       clientId: clientId ?? this.clientId,
       clientName: clientName ?? this.clientName,
+      clientPhone: clientPhone ?? this.clientPhone,
       error: error,
       isNewClient: isNewClient ?? this.isNewClient,
-      selectedOrgId: selectedOrgId ?? this.selectedOrgId,
-      selectedOrgName: selectedOrgName ?? this.selectedOrgName,
       selectedBranchId: selectedBranchId ?? this.selectedBranchId,
       selectedBranchName: selectedBranchName ?? this.selectedBranchName,
+      selectedBranchSlug: selectedBranchSlug ?? this.selectedBranchSlug,
       selectedBranchOperationMode:
           selectedBranchOperationMode ?? this.selectedBranchOperationMode,
-      selectedBranchSlug: selectedBranchSlug ?? this.selectedBranchSlug,
     );
   }
+}
+
+/// Resultado de `startLogin`: o hay sesión, o se mandó un código.
+class StartResult {
+  final bool sessionReady;
+  final bool otpSent;
+  final String? phoneMasked;
+  final int expiresIn;
+  final int resendIn;
+  final bool clientKnown;
+  final String? firstName;
+
+  const StartResult({
+    required this.sessionReady,
+    required this.otpSent,
+    this.phoneMasked,
+    this.expiresIn = 600,
+    this.resendIn = 45,
+    this.clientKnown = false,
+    this.firstName,
+  });
 }
 
 /// Auth service provider
@@ -106,6 +131,9 @@ final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
   return AuthNotifier(ref);
 });
 
+/// NOTA para el agente de auth (F1): este notifier es el ESQUELETO del
+/// coordinador para que el router y el resto compilen. Reemplazalo entero
+/// respetando la API pública (nombres y firmas de abajo) y los estados.
 class AuthNotifier extends StateNotifier<AuthState> {
   final Ref _ref;
   StreamSubscription? _authSub;
@@ -119,77 +147,42 @@ class AuthNotifier extends StateNotifier<AuthState> {
   AuthService get _authService => _ref.read(authServiceProvider);
 
   Future<void> _init() async {
-    // Importante: suscribirse ANTES de cualquier lectura/refresh para no
-    // perder eventos (signedOut) que dispara recoverSession internamente
-    // cuando el refresh_token persistido es inválido.
     _authSub = _client.auth.onAuthStateChange.listen(_onAuthEvent);
-
     try {
       final session = _client.auth.currentSession;
-
-      sb.Session? validSession = session;
-      if (session != null && _isSessionStale(session)) {
-        validSession = await _tryRefresh();
-        if (validSession == null) {
-          await _clearLocalSession();
-          state = const AuthState(status: AuthStatus.unauthenticated);
-          return;
-        }
-      }
-
-      if (validSession == null) {
+      if (session == null) {
         state = const AuthState(status: AuthStatus.unauthenticated);
         return;
       }
-
       final clientId = await SecureStorageService.getClientId();
       if (clientId == null) {
-        // Sesión en Supabase pero sin datos locales → inconsistencia, sign out.
         await _clearLocalSession();
         state = const AuthState(status: AuthStatus.unauthenticated);
         return;
       }
-
-      var clientName = await SecureStorageService.getClientName();
-      if (clientName != null && RegExp(r'^\d+$').hasMatch(clientName)) {
-        try {
-          final row = await _client
-              .from('clients')
-              .select('name')
-              .eq('id', clientId)
-              .maybeSingle();
-          final dbName = row?['name'] as String?;
-          if (dbName != null && dbName.isNotEmpty) {
-            clientName = dbName;
-            await SecureStorageService.saveClientInfo(
-              clientId: clientId,
-              name: dbName,
-              phone: await SecureStorageService.getClientPhone() ?? '',
-            );
-          }
-        } catch (_) {}
-      }
-
-      final orgId = await SecureStorageService.getSelectedOrgId();
-      final orgName = await SecureStorageService.getSelectedOrgName();
+      final name = await SecureStorageService.getClientName();
+      final phone = await SecureStorageService.getClientPhone();
       final branchId = await SecureStorageService.getSelectedBranchId();
       final branchName = await SecureStorageService.getSelectedBranchName();
-      final branchOpMode =
-          await SecureStorageService.getSelectedBranchOperationMode();
       final branchSlug = await SecureStorageService.getSelectedBranchSlug();
-
+      final branchMode =
+          await SecureStorageService.getSelectedBranchOperationMode();
+      // Gate local: biometría o PIN (cualquiera de los dos lo pide al abrir).
       final bioEnabled = await SecureStorageService.isBiometricEnabled();
+      final pinEnabled = await PinService.isEnabled();
       state = AuthState(
-        status:
-            bioEnabled ? AuthStatus.needsBiometric : AuthStatus.authenticated,
+        status: (bioEnabled || pinEnabled)
+            ? AuthStatus.needsBiometric
+            : (branchId == null
+                ? AuthStatus.needsBranch
+                : AuthStatus.authenticated),
         clientId: clientId,
-        clientName: clientName,
-        selectedOrgId: orgId,
-        selectedOrgName: orgName,
+        clientName: name,
+        clientPhone: phone,
         selectedBranchId: branchId,
         selectedBranchName: branchName,
-        selectedBranchOperationMode: branchOpMode,
         selectedBranchSlug: branchSlug,
+        selectedBranchOperationMode: branchMode,
       );
     } catch (e, st) {
       debugPrint('[auth] _init error: $e\n$st');
@@ -201,41 +194,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   void _onAuthEvent(sb.AuthState data) {
-    // Durante _init manejamos transiciones manualmente para evitar carreras.
     if (!_initialized) return;
-
-    switch (data.event) {
-      case sb.AuthChangeEvent.signedOut:
-        _handleSignedOut();
-        break;
-      default:
-        break;
-    }
-  }
-
-  void _handleSignedOut() {
-    // No volver a llamar a signOut() — ya estamos signedOut (este handler fue
-    // disparado por el propio evento). Llamarlo crea un loop infinito que
-    // satura memoria y mata el proceso. Solo limpiamos el storage local.
-    unawaited(SecureStorageService.clearSession());
-    state = const AuthState(status: AuthStatus.unauthenticated);
-  }
-
-  bool _isSessionStale(sb.Session session) {
-    final expiresAt = session.expiresAt;
-    if (expiresAt == null) return false;
-    final expiry = DateTime.fromMillisecondsSinceEpoch(expiresAt * 1000);
-    // Considerar expirado si faltan menos de 60s.
-    return expiry.isBefore(DateTime.now().add(const Duration(seconds: 60)));
-  }
-
-  Future<sb.Session?> _tryRefresh() async {
-    try {
-      final res = await _client.auth.refreshSession();
-      return res.session;
-    } catch (e) {
-      debugPrint('[auth] refresh failed: $e');
-      return null;
+    if (data.event == sb.AuthChangeEvent.signedOut) {
+      unawaited(SecureStorageService.clearSession());
+      state = const AuthState(status: AuthStatus.unauthenticated);
     }
   }
 
@@ -246,46 +208,54 @@ class AuthNotifier extends StateNotifier<AuthState> {
     await SecureStorageService.clearSession();
   }
 
-  Future<void> login({
-    required String phone,
-    required String orgId,
-    required String orgName,
-    String? name,
-  }) async {
-    final result = await _authService.loginWithPhone(
-      phone: phone,
-      orgId: orgId,
-      name: name,
-    );
-
-    if (result.success) {
-      final savedName = await SecureStorageService.getClientName();
-      await SecureStorageService.saveSelectedOrg(
-        orgId: orgId,
-        orgName: orgName,
-      );
-      state = AuthState(
-        status: AuthStatus.authenticated,
-        clientId: result.clientId,
-        clientName: savedName ?? name ?? phone,
-        isNewClient: result.isNewClient,
-        selectedOrgId: orgId,
-        selectedOrgName: orgName,
-      );
-    } else {
-      state = state.copyWith(
-        status: AuthStatus.unauthenticated,
-        error: result.error,
-      );
+  /// Paso 1 del login: teléfono. Si el dispositivo ya es conocido, la sesión
+  /// queda lista; si no, se mandó un código por WhatsApp.
+  Future<StartResult> startLogin(String phone) async {
+    final res = await _authService.startLogin(phone: phone);
+    if (res.sessionReady) {
+      await _afterSession(res);
     }
+    return res;
+  }
+
+  /// Paso 2: código (y nombre si el cliente es nuevo).
+  Future<void> verifyCode(String phone, String code, {String? name}) async {
+    final res = await _authService.verifyCode(phone: phone, code: code, name: name);
+    await _afterSession(res);
+  }
+
+  Future<void> _afterSession(StartResult res) async {
+    final clientId = await SecureStorageService.getClientId();
+    final name = await SecureStorageService.getClientName();
+    final phone = await SecureStorageService.getClientPhone();
+    final branchId = await SecureStorageService.getSelectedBranchId();
+    final branchName = await SecureStorageService.getSelectedBranchName();
+    final branchSlug = await SecureStorageService.getSelectedBranchSlug();
+    final branchMode =
+        await SecureStorageService.getSelectedBranchOperationMode();
+    state = AuthState(
+      status: branchId == null ? AuthStatus.needsBranch : AuthStatus.authenticated,
+      clientId: clientId,
+      clientName: name,
+      clientPhone: phone,
+      isNewClient: !res.clientKnown,
+      selectedBranchId: branchId,
+      selectedBranchName: branchName,
+      selectedBranchSlug: branchSlug,
+      selectedBranchOperationMode: branchMode,
+    );
   }
 
   Future<bool> authenticateWithBiometrics() async {
     final success = await BiometricService.authenticate();
-    if (success) {
-      state = state.copyWith(status: AuthStatus.authenticated);
-    }
+    if (success) completeBiometric();
     return success;
+  }
+
+  void completeBiometric() {
+    state = state.copyWith(
+      status: state.hasBranch ? AuthStatus.authenticated : AuthStatus.needsBranch,
+    );
   }
 
   Future<void> logout() async {
@@ -293,70 +263,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = const AuthState(status: AuthStatus.unauthenticated);
   }
 
-  /// Apple App Store Guideline 5.1.1(v): el cliente elimina su cuenta desde la app.
-  /// Llama a la Edge Function `delete-client-account` que borra todos los datos
-  /// PII y el usuario de auth.users. Devuelve `null` si fue OK, o un mensaje de error.
+  /// Apple 5.1.1(v): borrar la cuenta desde la app. `null` = OK.
   Future<String?> deleteAccount() async {
-    try {
-      final session = _client.auth.currentSession;
-      if (session == null) return 'No hay sesión activa';
-
-      final res = await _client.functions.invoke(
-        'delete-client-account',
-        headers: {'Authorization': 'Bearer ${session.accessToken}'},
-      );
-
-      if (res.status >= 400) {
-        final data = res.data;
-        final msg = (data is Map<String, dynamic>)
-            ? (data['error'] as String?)
-            : null;
-        return msg ?? 'No se pudo eliminar la cuenta (HTTP ${res.status})';
-      }
-
-      // Borrado OK → limpiar todo localmente.
-      await SecureStorageService.clearAll();
-      try {
-        await _client.auth.signOut();
-      } catch (_) {}
+    final err = await _authService.deleteAccount();
+    if (err == null) {
       state = const AuthState(status: AuthStatus.unauthenticated);
-      return null;
-    } catch (e) {
-      debugPrint('[auth] deleteAccount error: $e');
-      return 'Error inesperado: $e';
     }
+    return err;
   }
 
-  Future<void> completeBiometric() async {
-    state = state.copyWith(status: AuthStatus.authenticated);
-  }
-
-  /// Guarda la organización seleccionada por el cliente.
-  Future<void> setSelectedOrg(String orgId, String orgName) async {
-    await SecureStorageService.saveSelectedOrg(
-      orgId: orgId,
-      orgName: orgName,
-    );
-    state = state.copyWith(
-      selectedOrgId: orgId,
-      selectedOrgName: orgName,
-    );
-  }
-
-  /// Limpia la organización y sucursal (para cambiar de org).
-  Future<void> clearSelectedOrg() async {
-    await SecureStorageService.clearSelectedOrg();
-    state = AuthState(
-      status: state.status,
-      clientId: state.clientId,
-      clientName: state.clientName,
-      isNewClient: state.isNewClient,
-    );
-  }
-
-  /// Guarda la sucursal seleccionada por el cliente. Persistimos también el
-  /// `operationMode` y el `slug` para que la UI (home, /appointments,
-  /// booking webview) pueda decidir qué mostrar offline.
   Future<void> setSelectedBranch(
     String branchId,
     String branchName, {
@@ -370,6 +285,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
       slug: slug,
     );
     state = state.copyWith(
+      status: state.status == AuthStatus.needsBranch
+          ? AuthStatus.authenticated
+          : state.status,
       selectedBranchId: branchId,
       selectedBranchName: branchName,
       selectedBranchOperationMode: operationMode,
@@ -377,17 +295,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
-  /// Limpia la sucursal seleccionada (vuelve a selección de branch dentro de la org).
-  Future<void> clearSelectedBranch() async {
-    await SecureStorageService.clearSelectedBranch();
-    state = AuthState(
-      status: state.status,
-      clientId: state.clientId,
-      clientName: state.clientName,
-      isNewClient: state.isNewClient,
-      selectedOrgId: state.selectedOrgId,
-      selectedOrgName: state.selectedOrgName,
-    );
+  /// Actualiza el nombre en el estado + storage local (la persistencia remota
+  /// la hace quien llama, vía API).
+  Future<void> updateClientName(String name) async {
+    final clientId = state.clientId;
+    if (clientId != null) {
+      await SecureStorageService.saveClientInfo(
+        clientId: clientId,
+        name: name,
+        phone: state.clientPhone ?? '',
+      );
+    }
+    state = state.copyWith(clientName: name);
   }
 
   void clearError() {

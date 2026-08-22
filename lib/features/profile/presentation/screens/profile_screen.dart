@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -8,40 +11,28 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
+import 'package:monaco_mobile/core/api/mobile_api.dart';
 import 'package:monaco_mobile/core/auth/auth_provider.dart';
+import 'package:monaco_mobile/core/auth/biometric_service.dart';
 import 'package:monaco_mobile/core/auth/secure_storage.dart';
-import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
 import 'package:monaco_mobile/core/push/push_service.dart';
 import 'package:monaco_mobile/core/utils/constants.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:monaco_mobile/features/notifications/presentation/widgets/push_pre_prompt.dart';
+import 'package:monaco_mobile/features/notifications/providers/notifications_provider.dart';
+import 'package:monaco_mobile/features/onboarding/utils/phone_format.dart';
 
-// ---------------------------------------------------------------------------
-// Client profile provider
-// ---------------------------------------------------------------------------
-final clientProfileProvider =
-    FutureProvider<Map<String, dynamic>>((ref) async {
-  final supabase = ref.read(supabaseClientProvider);
-  final userId = supabase.auth.currentUser?.id;
-  if (userId == null) return {};
-  final res = await supabase
-      .from('clients')
-      .select()
-      .eq('auth_user_id', userId)
-      .maybeSingle();
-  if (res != null) return Map<String, dynamic>.from(res);
-  return {};
-});
+// ═══════════════════════════════════════════════════════════════════════════
+// Providers
+// ═══════════════════════════════════════════════════════════════════════════
 
-// ---------------------------------------------------------------------------
-// Biometric toggle provider
-// ---------------------------------------------------------------------------
+/// Biometría como gate local (Keychain/EncryptedPrefs).
 final biometricEnabledProvider =
-    StateNotifierProvider<_BiometricNotifier, bool>(
-  (ref) => _BiometricNotifier(),
-);
+    StateNotifierProvider<BiometricEnabledNotifier, bool>(
+      (ref) => BiometricEnabledNotifier(),
+    );
 
-class _BiometricNotifier extends StateNotifier<bool> {
-  _BiometricNotifier() : super(false) {
+class BiometricEnabledNotifier extends StateNotifier<bool> {
+  BiometricEnabledNotifier() : super(false) {
     _load();
   }
 
@@ -49,128 +40,801 @@ class _BiometricNotifier extends StateNotifier<bool> {
     state = await SecureStorageService.isBiometricEnabled();
   }
 
-  Future<void> toggle(bool value) async {
+  Future<void> set(bool value) async {
     await SecureStorageService.setBiometricEnabled(value);
     state = value;
   }
 }
 
-// ---------------------------------------------------------------------------
-// Push notifications — estado real del sistema iOS
-// ---------------------------------------------------------------------------
-final pushPermissionProvider =
-    FutureProvider.autoDispose<AuthorizationStatus?>((ref) async {
-  return PushService.currentAuthorizationStatus();
+/// Qué biometría ofrece el teléfono (para el texto del toggle).
+final biometricKindProvider = FutureProvider<BiometricKind>((ref) {
+  return BiometricService.availableKind();
 });
 
-// ---------------------------------------------------------------------------
-// App version provider
-// ---------------------------------------------------------------------------
+/// ¿Hay PIN local configurado? (hash en SecureStorage; se tolera el flag viejo.)
+final pinConfiguredProvider = FutureProvider.autoDispose<bool>((ref) async {
+  final hash = await SecureStorageService.getLocalPinHash();
+  if (hash != null && hash.isNotEmpty) return true;
+  return SecureStorageService.isPinEnabled();
+});
+
+/// "2.0.0 (20)".
 final appVersionProvider = FutureProvider<String>((ref) async {
   final info = await PackageInfo.fromPlatform();
   return '${info.version} (${info.buildNumber})';
 });
 
-// ---------------------------------------------------------------------------
+/// Modo prueba (muestra la sucursal Test). Se activa con 7 toques sobre la
+/// versión. Los listados de sucursales pueden `watch`earlo para refrescarse.
+final testModeEnabledProvider = StateNotifierProvider<TestModeNotifier, bool>(
+  (ref) => TestModeNotifier(),
+);
+
+class TestModeNotifier extends StateNotifier<bool> {
+  TestModeNotifier() : super(false) {
+    _load();
+  }
+
+  Future<void> _load() async {
+    state = await SecureStorageService.isTestModeEnabled();
+  }
+
+  Future<bool> toggle() async {
+    final next = !state;
+    await SecureStorageService.setTestModeEnabled(next);
+    state = next;
+    return next;
+  }
+}
+
+/// `GET /api/mobile/me`: valida la sesión y trae el nombre canónico (por si
+/// lo cambiaron desde el dashboard). La pantalla lo usa para re-sincronizar
+/// el nombre local; si falla, se muestra lo que hay en el estado de auth.
+final meProvider = FutureProvider.autoDispose<Map<String, dynamic>>((
+  ref,
+) async {
+  final json = await ref.read(mobileApiProvider).getJson('/api/mobile/me');
+  final client = json['client'];
+  return client is Map
+      ? Map<String, dynamic>.from(client)
+      : <String, dynamic>{};
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Screen
-// ---------------------------------------------------------------------------
-class ProfileScreen extends ConsumerWidget {
+// ═══════════════════════════════════════════════════════════════════════════
+
+class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final asyncProfile = ref.watch(clientProfileProvider);
-    final biometricEnabled = ref.watch(biometricEnabledProvider);
-    final pushStatus = ref.watch(pushPermissionProvider);
-    final asyncVersion = ref.watch(appVersionProvider);
+  ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
+}
 
-    final pushEnabled = pushStatus.valueOrNull == AuthorizationStatus.authorized
-        || pushStatus.valueOrNull == AuthorizationStatus.provisional;
+class _ProfileScreenState extends ConsumerState<ProfileScreen>
+    with WidgetsBindingObserver {
+  int _versionTaps = 0;
+  Timer? _versionTapTimer;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    _versionTapTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Al volver de Ajustes del sistema el permiso de push pudo cambiar.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.invalidate(pushPermissionProvider);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = ref.watch(authProvider);
+    final pushStatus = ref.watch(pushPermissionProvider);
+    final unread = ref.watch(unreadNotificationsCountProvider);
+    final biometricEnabled = ref.watch(biometricEnabledProvider);
+    final biometricKind = ref.watch(biometricKindProvider).valueOrNull;
+    final pinConfigured = ref.watch(pinConfiguredProvider).valueOrNull;
+    final version = ref.watch(appVersionProvider).valueOrNull;
+    final testMode = ref.watch(testModeEnabledProvider);
+
+    // Si el server tiene otro nombre (lo editaron desde el dashboard), se
+    // adopta en silencio.
+    ref.listen(meProvider, (_, next) {
+      final remote = (next.valueOrNull?['name'] as String?)?.trim();
+      final local = (ref.read(authProvider).clientName ?? '').trim();
+      if (remote != null && remote.isNotEmpty && remote != local) {
+        ref.read(authProvider.notifier).updateClientName(remote);
+      }
+    });
+
+    final pushAvailable = PushService.isAvailable;
+    final pushGranted = PushService.isGranted(pushStatus.valueOrNull);
 
     return LiquidAppBarScaffold(
-      title: 'Mi Perfil',
-      body: asyncProfile.when(
-        loading: () => const Center(
-          child: CircularProgressIndicator(color: Colors.white),
+      title: 'Perfil',
+      actions: [
+        Padding(
+          padding: const EdgeInsets.only(right: 12),
+          child: _BellAction(
+            unread: unread,
+            onTap: () => context.push('/notificaciones'),
+          ),
         ),
-        error: (e, _) => _ErrorState(
-          error: e,
-          onRetry: () => ref.invalidate(clientProfileProvider),
+      ],
+      body: RefreshIndicator(
+        color: Colors.white,
+        backgroundColor: MonacoColors.surface,
+        onRefresh: () async {
+          ref.invalidate(meProvider);
+          ref.invalidate(pushPermissionProvider);
+          ref.invalidate(pinConfiguredProvider);
+          ref.invalidate(biometricKindProvider);
+          await Future<void>.delayed(const Duration(milliseconds: 400));
+        },
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
+          children: [
+            // ── Tarjeta de perfil ──────────────────────────────────────
+            _ProfileCard(
+              name: auth.clientName ?? '',
+              phone: auth.clientPhone ?? '',
+              onEditName: _editName,
+            ).liquidEnter(index: 0),
+
+            const SizedBox(height: 14),
+
+            // ── Tu sucursal ────────────────────────────────────────────
+            _BranchCard(
+              name: auth.selectedBranchName,
+              operationMode: auth.selectedBranchOperationMode,
+              onChange: () => context.push('/elegir-sucursal'),
+            ).liquidEnter(index: 1),
+
+            const SizedBox(height: 26),
+
+            // ── Notificaciones ─────────────────────────────────────────
+            const _SectionLabel('Notificaciones').liquidEnter(index: 2),
+            const SizedBox(height: 10),
+            LiquidSectionCard(
+              children: [
+                LiquidListTile(
+                  icon: Icons.inbox_rounded,
+                  title: 'Bandeja de notificaciones',
+                  subtitle: unread > 0
+                      ? '$unread sin leer'
+                      : 'Recordatorios, premios y novedades',
+                  trailing: unread > 0 ? _CountBadge(count: unread) : null,
+                  onTap: () => context.push('/notificaciones'),
+                ),
+                LiquidListTile(
+                  icon: Icons.tune_rounded,
+                  title: 'Preferencias',
+                  subtitle: 'Elegí qué querés recibir',
+                  onTap: () => context.push('/notificaciones/preferencias'),
+                ),
+                LiquidSwitchTile(
+                  icon: pushGranted
+                      ? Icons.notifications_active_rounded
+                      : Icons.notifications_none_rounded,
+                  iconColor: pushGranted ? MonacoColors.monacoGreen : null,
+                  title: 'Notificaciones del sistema',
+                  subtitle: !pushAvailable
+                      ? 'No disponibles en esta versión de la app'
+                      : pushGranted
+                      ? 'Activadas. Se desactivan desde Ajustes.'
+                      : pushStatus.valueOrNull == AuthorizationStatus.denied
+                      ? 'Bloqueadas en el sistema. Se activan desde Ajustes.'
+                      : 'Te avisamos de turnos, premios y novedades',
+                  value: pushGranted,
+                  onChanged: (v) => _onPushToggle(v, pushStatus.valueOrNull),
+                ),
+              ],
+            ).liquidEnter(index: 3),
+
+            const SizedBox(height: 26),
+
+            // ── Seguridad ──────────────────────────────────────────────
+            const _SectionLabel('Seguridad').liquidEnter(index: 4),
+            const SizedBox(height: 10),
+            LiquidSectionCard(
+              children: [
+                LiquidSwitchTile(
+                  icon: (biometricKind ?? BiometricKind.generic).icon,
+                  iconColor: biometricEnabled ? MonacoColors.monacoGreen : null,
+                  title:
+                      'Desbloqueo con ${(biometricKind ?? BiometricKind.generic).label}',
+                  subtitle: biometricKind == BiometricKind.none
+                      ? 'No disponible en este dispositivo'
+                      : 'Pedimos tu ${(biometricKind ?? BiometricKind.generic).label} al abrir la app',
+                  value: biometricEnabled,
+                  onChanged: (v) => _onBiometricToggle(v, biometricKind),
+                ),
+                LiquidListTile(
+                  icon: Icons.pin_rounded,
+                  iconColor: pinConfigured == true
+                      ? MonacoColors.monacoGreen
+                      : null,
+                  title: pinConfigured == true
+                      ? 'Cambiar PIN'
+                      : 'Configurar PIN',
+                  subtitle: pinConfigured == true
+                      ? 'PIN configurado'
+                      : 'Un código de 4 dígitos como alternativa',
+                  onTap: () async {
+                    await context.push('/pin-setup');
+                    ref.invalidate(pinConfiguredProvider);
+                  },
+                ),
+              ],
+            ).liquidEnter(index: 5),
+
+            const SizedBox(height: 26),
+
+            // ── Historial ──────────────────────────────────────────────
+            const _SectionLabel('Historial').liquidEnter(index: 6),
+            const SizedBox(height: 10),
+            LiquidSectionCard(
+              children: [
+                LiquidListTile(
+                  icon: Icons.content_cut_rounded,
+                  title: 'Mis visitas',
+                  subtitle: 'Cortes y servicios anteriores',
+                  onTap: () => context.push('/visits'),
+                ),
+                LiquidListTile(
+                  icon: Icons.stars_rounded,
+                  iconColor: MonacoColors.monacoGreen,
+                  title: 'Movimientos de puntos',
+                  subtitle: 'Lo que sumaste y lo que canjeaste',
+                  onTap: () => context.push('/points'),
+                ),
+                LiquidListTile(
+                  icon: Icons.local_offer_rounded,
+                  title: 'Mis canjes',
+                  subtitle: 'Códigos activados y canjeados',
+                  onTap: () => context.push('/mis-canjes'),
+                ),
+              ],
+            ).liquidEnter(index: 7),
+
+            const SizedBox(height: 26),
+
+            // ── Legal y soporte ────────────────────────────────────────
+            const _SectionLabel('Legal y soporte').liquidEnter(index: 8),
+            const SizedBox(height: 10),
+            LiquidSectionCard(
+              children: [
+                LiquidListTile(
+                  icon: Icons.shield_outlined,
+                  title: 'Política de privacidad',
+                  onTap: () => _openUrl(AppConstants.privacyPolicyUrl),
+                ),
+                LiquidListTile(
+                  icon: Icons.description_outlined,
+                  title: 'Términos y condiciones',
+                  onTap: () => _openUrl(AppConstants.termsOfServiceUrl),
+                ),
+                LiquidListTile(
+                  icon: Icons.chat_rounded,
+                  iconColor: MonacoColors.monacoGreen,
+                  title: 'Soporte por WhatsApp',
+                  subtitle: 'Te respondemos en horario de atención',
+                  onTap: () => _openUrl(AppConstants.supportWhatsappUrl),
+                ),
+                LiquidListTile(
+                  icon: Icons.alternate_email_rounded,
+                  title: 'Soporte por email',
+                  subtitle: AppConstants.supportEmail,
+                  onTap: () => _openUrl(
+                    'mailto:${AppConstants.supportEmail}?subject=${Uri.encodeComponent('Soporte app Monaco')}',
+                  ),
+                ),
+              ],
+            ).liquidEnter(index: 9),
+
+            const SizedBox(height: 32),
+
+            // ── Cerrar sesión ──────────────────────────────────────────
+            LiquidPill(
+              onTap: _busy ? null : _confirmLogout,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              tint: MonacoColors.destructive,
+              tintOpacity: 0.12,
+              borderRadius: 18,
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.logout_rounded,
+                    size: 20,
+                    color: MonacoColors.destructive,
+                  ),
+                  SizedBox(width: 10),
+                  Text(
+                    'Cerrar sesión',
+                    style: TextStyle(
+                      color: MonacoColors.destructive,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.1,
+                    ),
+                  ),
+                ],
+              ),
+            ).liquidEnter(index: 10),
+
+            const SizedBox(height: 14),
+
+            // ── Eliminar cuenta (Apple 5.1.1(v)) ───────────────────────
+            Semantics(
+              button: true,
+              child: GestureDetector(
+                onTap: _busy ? null : _confirmDeleteAccount,
+                behavior: HitTestBehavior.opaque,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Center(
+                    child: Text(
+                      'Eliminar mi cuenta',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.45),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        decoration: TextDecoration.underline,
+                        decorationColor: Colors.white.withValues(alpha: 0.25),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ).liquidEnter(index: 11),
+
+            const SizedBox(height: 14),
+
+            // ── Versión (7 toques → modo prueba) ───────────────────────
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _onVersionTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Column(
+                  children: [
+                    Text(
+                      'Versión ${version ?? '…'}',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.3),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                    if (testMode) ...[
+                      const SizedBox(height: 8),
+                      const LiquidStatusPill(
+                        label: 'MODO PRUEBA',
+                        color: MonacoColors.warning,
+                        compact: true,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
-        data: (profile) => _ProfileBody(
-          profile: profile,
-          biometricEnabled: biometricEnabled,
-          pushEnabled: pushEnabled,
-          version: asyncVersion.valueOrNull ?? '...',
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Acciones
+  // ═══════════════════════════════════════════════════════════════════════
+
+  Future<void> _editName() async {
+    final current = ref.read(authProvider).clientName ?? '';
+    final saved = await showLiquidSheet<String>(
+      context,
+      title: 'Editar nombre',
+      subtitle: 'Así te llamamos en la app y en tus turnos.',
+      builder: (ctx) => _EditNameSheet(
+        initial: current,
+        onSave: (name) async {
+          final json = await ref.read(mobileApiProvider).postJson(
+            '/api/mobile/me',
+            {'name': name},
+          );
+          final confirmed = (json['name'] as String?)?.trim();
+          final finalName = (confirmed == null || confirmed.isEmpty)
+              ? name
+              : confirmed;
+          await ref.read(authProvider.notifier).updateClientName(finalName);
+          return finalName;
+        },
+      ),
+    );
+    if (saved != null && mounted) {
+      ref.invalidate(meProvider);
+      showLiquidToast(
+        context,
+        'Nombre actualizado.',
+        tone: LiquidToastTone.success,
+      );
+    }
+  }
+
+  Future<void> _onPushToggle(
+    bool wantEnabled,
+    AuthorizationStatus? status,
+  ) async {
+    if (!PushService.isAvailable) {
+      showLiquidToast(
+        context,
+        'Las notificaciones push llegan en una próxima versión de la app.',
+        tone: LiquidToastTone.info,
+      );
+      return;
+    }
+    if (wantEnabled) {
+      if (status == AuthorizationStatus.denied) {
+        // El prompt nativo no vuelve a aparecer: hay que ir a Ajustes.
+        await openPushSettingsOrExplain(context);
+        return;
+      }
+      await requestPushWithPrePrompt(context, ref);
+      return;
+    }
+    // El sistema no permite revocar desde la app.
+    showLiquidToast(
+      context,
+      'Para desactivarlas, hacelo desde los ajustes del sistema.',
+      tone: LiquidToastTone.info,
+      actionLabel: 'Ajustes',
+      onAction: () => openPushSettingsOrExplain(context),
+    );
+  }
+
+  Future<void> _onBiometricToggle(bool value, BiometricKind? kind) async {
+    HapticFeedback.selectionClick();
+    if (value) {
+      if (kind == BiometricKind.none) {
+        showLiquidToast(
+          context,
+          'Tu dispositivo no tiene biometría configurada.',
+          tone: LiquidToastTone.info,
+        );
+        return;
+      }
+      // Confirmamos con la biometría antes de prender el gate: si no
+      // funciona acá, tampoco va a funcionar al abrir la app.
+      final ok = await BiometricService.authenticate(
+        reason: 'Confirmá para activar el desbloqueo',
+      );
+      if (!ok) {
+        if (mounted) {
+          showLiquidToast(
+            context,
+            'No pudimos verificar tu ${(kind ?? BiometricKind.generic).label}.',
+            tone: LiquidToastTone.error,
+          );
+        }
+        return;
+      }
+    }
+    await ref.read(biometricEnabledProvider.notifier).set(value);
+    if (!mounted) return;
+    showLiquidToast(
+      context,
+      value ? 'Desbloqueo activado.' : 'Desbloqueo desactivado.',
+      tone: value ? LiquidToastTone.success : LiquidToastTone.neutral,
+    );
+  }
+
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok && mounted) {
+        showLiquidToast(
+          context,
+          'No pudimos abrir el enlace.',
+          tone: LiquidToastTone.error,
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        showLiquidToast(
+          context,
+          'No pudimos abrir el enlace.',
+          tone: LiquidToastTone.error,
+        );
+      }
+    }
+  }
+
+  Future<void> _confirmLogout() async {
+    final ok = await showLiquidDialog<bool>(
+      context,
+      title: 'Cerrar sesión',
+      message:
+          'Vas a tener que volver a ingresar con tu número de teléfono la próxima vez.',
+      icon: Icons.logout_rounded,
+      actions: const [
+        LiquidDialogAction(label: 'Cancelar', value: false),
+        LiquidDialogAction(
+          label: 'Cerrar sesión',
+          value: true,
+          destructive: true,
+          icon: Icons.logout_rounded,
+        ),
+      ],
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _busy = true);
+    HapticFeedback.mediumImpact();
+    try {
+      // Primero la baja del token (necesita el JWT), después el signOut.
+      await PushService.unregister();
+      await ref.read(authProvider.notifier).logout();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (mounted) context.go('/welcome');
+  }
+
+  Future<void> _confirmDeleteAccount() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      useRootNavigator: true,
+      barrierColor: Colors.black.withValues(alpha: 0.72),
+      builder: (_) => const _DeleteAccountDialog(),
+    );
+    if (confirmed != true || !mounted) return;
+    await _executeDeleteAccount();
+  }
+
+  Future<void> _executeDeleteAccount() async {
+    HapticFeedback.mediumImpact();
+    setState(() => _busy = true);
+
+    // Overlay bloqueante mientras borra.
+    unawaited(
+      showDialog<void>(
+        context: context,
+        useRootNavigator: true,
+        barrierDismissible: false,
+        barrierColor: Colors.black.withValues(alpha: 0.72),
+        builder: (_) => const PopScope(
+          canPop: false,
+          child: Center(
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 2.5,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    String? error;
+    try {
+      await PushService.unregister();
+      error = await ref.read(authProvider.notifier).deleteAccount();
+    } catch (e) {
+      error = e.toString();
+    }
+
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop(); // cierra el overlay
+    setState(() => _busy = false);
+
+    if (error == null) {
+      showLiquidToast(
+        context,
+        'Tu cuenta fue eliminada.',
+        tone: LiquidToastTone.success,
+      );
+      context.go('/welcome');
+    } else {
+      showLiquidToast(
+        context,
+        'No pudimos eliminar la cuenta: $error',
+        tone: LiquidToastTone.error,
+        duration: const Duration(seconds: 5),
+      );
+    }
+  }
+
+  void _onVersionTap() {
+    _versionTapTimer?.cancel();
+    _versionTaps++;
+    if (_versionTaps >= 7) {
+      _versionTaps = 0;
+      HapticFeedback.heavyImpact();
+      ref.read(testModeEnabledProvider.notifier).toggle().then((enabled) {
+        if (!mounted) return;
+        showLiquidToast(
+          context,
+          enabled ? 'Modo prueba activado.' : 'Modo prueba desactivado.',
+          tone: enabled ? LiquidToastTone.success : LiquidToastTone.neutral,
+          icon: Icons.science_rounded,
+        );
+      });
+      return;
+    }
+    if (_versionTaps >= 4) HapticFeedback.selectionClick();
+    _versionTapTimer = Timer(const Duration(seconds: 2), () {
+      _versionTaps = 0;
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Widgets
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _BellAction extends StatelessWidget {
+  final int unread;
+  final VoidCallback onTap;
+  const _BellAction({required this.unread, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: unread > 0 ? 'Notificaciones, $unread sin leer' : 'Notificaciones',
+      child: LiquidTapEffect(
+        onTap: onTap,
+        scaleTo: 0.9,
+        borderRadius: BorderRadius.circular(999),
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Icon(
+                unread > 0
+                    ? Icons.notifications_rounded
+                    : Icons.notifications_none_rounded,
+                color: Colors.white.withValues(alpha: 0.9),
+                size: 24,
+              ),
+              if (unread > 0)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    constraints: const BoxConstraints(
+                      minWidth: 16,
+                      minHeight: 16,
+                    ),
+                    decoration: BoxDecoration(
+                      color: MonacoColors.monacoGreen,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: MonacoColors.background,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        unread > 9 ? '9+' : '$unread',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w900,
+                          height: 1.2,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-// ---------------------------------------------------------------------------
-// Body
-// ---------------------------------------------------------------------------
-class _ProfileBody extends ConsumerWidget {
-  const _ProfileBody({
-    required this.profile,
-    required this.biometricEnabled,
-    required this.pushEnabled,
-    required this.version,
+class _ProfileCard extends StatelessWidget {
+  final String name;
+  final String phone;
+  final VoidCallback onEditName;
+
+  const _ProfileCard({
+    required this.name,
+    required this.phone,
+    required this.onEditName,
   });
 
-  final Map<String, dynamic> profile;
-  final bool biometricEnabled;
-  final bool pushEnabled;
-  final String version;
-
-  String _initial() {
-    final name = profile['name'] as String? ?? '';
-    if (name.isEmpty) return '?';
-    return name[0].toUpperCase();
-  }
+  bool get _hasRealName =>
+      name.trim().isNotEmpty && !RegExp(r'^\d+$').hasMatch(name.trim());
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final fullName = profile['name'] as String? ?? 'Sin nombre';
-    final phone = profile['phone'] as String? ?? '';
-
-    return ListView(
-      physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 140),
-      children: [
-        // ---- Avatar card ----
-        LiquidGlass(
-          padding: const EdgeInsets.all(18),
-          borderRadius: 24,
-          tintOpacity: 0.09,
-          pressable: false,
-          child: Row(
+  Widget build(BuildContext context) {
+    final display = _hasRealName ? name.trim() : 'Completá tu nombre';
+    return LiquidGlass(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+      borderRadius: LiquidTokens.radiusCardLarge,
+      tintOpacity: 0.10,
+      pressable: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              _AvatarCircle(initial: _initial()),
+              LiquidAvatar(
+                name: _hasRealName ? name : null,
+                size: 68,
+                tint: MonacoColors.monacoGreen,
+              ),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      fullName,
-                      style: const TextStyle(
-                        color: MonacoColors.textPrimary,
-                        fontSize: 18,
+                      display,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withValues(
+                          alpha: _hasRealName ? 1 : 0.6,
+                        ),
+                        fontSize: 20,
                         fontWeight: FontWeight.w800,
-                        letterSpacing: -0.3,
+                        letterSpacing: -0.5,
+                        height: 1.15,
                       ),
                     ),
                     if (phone.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        phone,
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.55),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
+                      const SizedBox(height: 5),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.phone_iphone_rounded,
+                            size: 14,
+                            color: Colors.white.withValues(alpha: 0.45),
+                          ),
+                          const SizedBox(width: 5),
+                          Flexible(
+                            child: Text(
+                              _formatPhone(phone),
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.6),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ],
@@ -178,562 +842,379 @@ class _ProfileBody extends ConsumerWidget {
               ),
             ],
           ),
-        ).liquidEnter(index: 0),
-
-        const SizedBox(height: 26),
-
-        // ---- Seguridad ----
-        _SectionTitle('Seguridad').liquidEnter(index: 1),
-        const SizedBox(height: 10),
-        LiquidSectionCard(
-          children: [
-            LiquidSwitchTile(
-              icon: Icons.fingerprint_rounded,
-              title: 'Biometría',
-              subtitle: 'Desbloquear con huella o Face ID',
-              value: biometricEnabled,
-              onChanged: (val) =>
-                  ref.read(biometricEnabledProvider.notifier).toggle(val),
-            ),
-            LiquidListTile(
-              icon: Icons.pin_outlined,
-              title: 'Configurar PIN',
-              onTap: () => context.push('/pin-setup'),
-            ),
-          ],
-        ).liquidEnter(index: 2),
-
-        const SizedBox(height: 26),
-
-        // ---- Preferencias ----
-        _SectionTitle('Preferencias').liquidEnter(index: 3),
-        const SizedBox(height: 10),
-        LiquidSectionCard(
-          children: [
-            LiquidSwitchTile(
-              icon: Icons.notifications_outlined,
-              title: 'Notificaciones push',
-              subtitle: pushEnabled
-                  ? 'Activadas. Podés desactivarlas desde Ajustes de iOS.'
-                  : 'Te avisamos cuando llamamos tu turno o sumás puntos.',
-              value: pushEnabled,
-              onChanged: (val) => _onPushToggle(context, ref, val),
-            ),
-          ],
-        ).liquidEnter(index: 4),
-
-        const SizedBox(height: 26),
-
-        // ---- Historial ----
-        _SectionTitle('Historial').liquidEnter(index: 5),
-        const SizedBox(height: 10),
-        LiquidSectionCard(
-          children: [
-            LiquidListTile(
-              icon: Icons.calendar_month_outlined,
-              title: 'Mis visitas',
-              onTap: () => context.push('/visits'),
-            ),
-            LiquidListTile(
-              icon: Icons.stars_rounded,
-              title: 'Transacciones de puntos',
-              onTap: () => context.push('/points'),
-            ),
-            LiquidListTile(
-              icon: Icons.local_offer_outlined,
-              title: 'Mis canjes',
-              subtitle: 'Códigos activados y canjeados',
-              onTap: () => context.push('/mis-canjes'),
-            ),
-          ],
-        ).liquidEnter(index: 6),
-
-        const SizedBox(height: 26),
-
-        // ---- Legal y soporte ----
-        _SectionTitle('Legal y soporte').liquidEnter(index: 7),
-        const SizedBox(height: 10),
-        LiquidSectionCard(
-          children: [
-            LiquidListTile(
-              icon: Icons.shield_outlined,
-              title: 'Política de privacidad',
-              onTap: () => _openUrl(AppConstants.privacyPolicyUrl),
-            ),
-            LiquidListTile(
-              icon: Icons.description_outlined,
-              title: 'Términos y condiciones',
-              onTap: () => _openUrl(AppConstants.termsOfServiceUrl),
-            ),
-            LiquidListTile(
-              icon: Icons.support_agent_outlined,
-              title: 'Soporte',
-              subtitle: AppConstants.supportEmail,
-              onTap: () => _openUrl('mailto:${AppConstants.supportEmail}'),
-            ),
-          ],
-        ).liquidEnter(index: 8),
-
-        const SizedBox(height: 32),
-
-        // ---- Cerrar sesión ----
-        LiquidPill(
-          onTap: () => _confirmLogout(context, ref),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          tint: Colors.redAccent,
-          tintOpacity: 0.12,
-          borderRadius: 18,
-          child: const Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
+          const SizedBox(height: 14),
+          Row(
             children: [
-              Icon(Icons.logout_rounded, size: 20, color: Colors.redAccent),
-              SizedBox(width: 10),
-              Text(
-                'Cerrar sesión',
-                style: TextStyle(
-                  color: Colors.redAccent,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.1,
+              Expanded(
+                child: LiquidPill(
+                  onTap: onEditName,
+                  borderRadius: 14,
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  child: const Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.edit_rounded, size: 15, color: Colors.white),
+                        SizedBox(width: 7),
+                        Text(
+                          'Editar nombre',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
-        ).liquidEnter(index: 9),
+        ],
+      ),
+    );
+  }
 
-        const SizedBox(height: 14),
+  /// "+54 9 351 212-5249" a partir de lo que haya guardado (10 dígitos
+  /// nacionales, 549…, 54…). Usa la misma regla que el login (`ArPhone`):
+  /// área de 2 dígitos para 11 (Buenos Aires), 3 para el resto.
+  static String _formatPhone(String raw) {
+    final national = ArPhone.normalizeTyped(raw);
+    if (national.length != ArPhone.nationalLength) return raw;
+    return ArPhone.formatInternational(national);
+  }
+}
 
-        // ---- Eliminar cuenta (Apple Guideline 5.1.1(v)) ----
-        GestureDetector(
-          onTap: () => _confirmDeleteAccount(context, ref),
-          behavior: HitTestBehavior.opaque,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Center(
-              child: Text(
-                'Eliminar mi cuenta',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.45),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  decoration: TextDecoration.underline,
-                  decorationColor: Colors.white.withOpacity(0.25),
-                ),
+class _BranchCard extends StatelessWidget {
+  final String? name;
+  final String? operationMode;
+  final VoidCallback onChange;
+
+  const _BranchCard({
+    required this.name,
+    required this.operationMode,
+    required this.onChange,
+  });
+
+  String get _modeLabel => switch (operationMode) {
+    'appointments' => 'Atiende sólo con turno',
+    'hybrid' => 'Con turno o por orden de llegada',
+    _ => 'Por orden de llegada',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final hasBranch = name != null && name!.trim().isNotEmpty;
+    return LiquidGlass(
+      onTap: onChange,
+      padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
+      borderRadius: LiquidTokens.radiusCard,
+      tintOpacity: 0.08,
+      showVignette: false,
+      scalePressed: 0.985,
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(13),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  MonacoColors.monacoGreen.withValues(alpha: 0.28),
+                  MonacoColors.monacoGreen.withValues(alpha: 0.10),
+                ],
+              ),
+              border: Border.all(
+                color: MonacoColors.monacoGreen.withValues(alpha: 0.36),
+                width: 0.8,
               ),
             ),
-          ),
-        ).liquidEnter(index: 10),
-
-        const SizedBox(height: 18),
-
-        Center(
-          child: Text(
-            'Versión $version',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.3),
-              fontSize: 12,
+            child: const Icon(
+              Icons.storefront_rounded,
+              size: 21,
+              color: MonacoColors.monacoGreen,
             ),
           ),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _openUrl(String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
-  }
-
-  Future<void> _onPushToggle(
-      BuildContext context, WidgetRef ref, bool wantEnabled) async {
-    if (wantEnabled) {
-      // Pre-prompt contextual antes del dialog nativo de iOS.
-      final accepted = await showDialog<bool>(
-        context: context,
-        barrierColor: Colors.black.withOpacity(0.6),
-        builder: (ctx) => const _PushPrePromptDialog(),
-      );
-      if (accepted != true) return;
-
-      final status = await PushService.requestPermissionExplicitly();
-      ref.invalidate(pushPermissionProvider);
-
-      if (context.mounted &&
-          status != null &&
-          status != AuthorizationStatus.authorized &&
-          status != AuthorizationStatus.provisional) {
-        _showOpenSettingsSnack(context,
-            'No pudimos activar las notificaciones. Podés habilitarlas desde Ajustes.');
-      }
-    } else {
-      // iOS no permite revocar permiso desde la app: mandamos al usuario a Ajustes.
-      _showOpenSettingsSnack(context,
-          'Para desactivarlas, abrí Ajustes de iOS > Notificaciones > Monaco Mobile.');
-    }
-  }
-
-  void _showOpenSettingsSnack(BuildContext context, String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: Colors.black.withOpacity(0.92),
-        content: Text(message),
-        action: SnackBarAction(
-          label: 'Ajustes',
-          textColor: Colors.white,
-          onPressed: () => launchUrl(Uri.parse('app-settings:')),
-        ),
-      ),
-    );
-  }
-
-  void _confirmDeleteAccount(BuildContext context, WidgetRef ref) {
-    showDialog(
-      context: context,
-      barrierColor: Colors.black.withOpacity(0.72),
-      builder: (ctx) => _DeleteAccountDialog(
-        onConfirm: () async {
-          Navigator.of(ctx).pop();
-          await _executeDeleteAccount(context, ref);
-        },
-      ),
-    );
-  }
-
-  Future<void> _executeDeleteAccount(
-      BuildContext context, WidgetRef ref) async {
-    HapticFeedback.mediumImpact();
-
-    // Loading dialog bloqueante
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      barrierColor: Colors.black.withOpacity(0.72),
-      builder: (_) => const Dialog(
-        backgroundColor: Colors.transparent,
-        child: Center(
-          child: CircularProgressIndicator(color: Colors.white),
-        ),
-      ),
-    );
-
-    final error = await ref.read(authProvider.notifier).deleteAccount();
-
-    if (!context.mounted) return;
-    Navigator.of(context, rootNavigator: true).pop(); // cerrar loading
-
-    if (error == null) {
-      if (context.mounted) context.go('/welcome');
-    } else {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.redAccent.withOpacity(0.95),
-            content: Text('No se pudo eliminar la cuenta: $error'),
-          ),
-        );
-      }
-    }
-  }
-
-  void _confirmLogout(BuildContext context, WidgetRef ref) {
-    showDialog(
-      context: context,
-      barrierColor: Colors.black.withOpacity(0.6),
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 40),
-        child: LiquidGlass(
-          padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
-          borderRadius: 24,
-          pressable: false,
-          tintOpacity: 0.10,
-          blur: LiquidTokens.blurHeavy,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Cerrar sesión',
-                style: TextStyle(
-                  color: MonacoColors.textPrimary,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 18,
-                  letterSpacing: -0.3,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '¿Estás seguro de que querés cerrar sesión?',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.7),
-                  fontSize: 14,
-                ),
-              ),
-              const SizedBox(height: 22),
-              Row(
-                children: [
-                  Expanded(
-                    child: LiquidPill(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      onTap: () => Navigator.of(ctx).pop(),
-                      child: const Center(
-                        child: Text(
-                          'Cancelar',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'TU SUCURSAL',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.45),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.1,
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: LiquidButton(
-                      primary: false,
-                      tint: Colors.redAccent,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      onPressed: () async {
-                        Navigator.of(ctx).pop();
-                        await ref.read(authProvider.notifier).logout();
-                        if (context.mounted) context.go('/welcome');
-                      },
-                      child: const Text(
-                        'Cerrar sesión',
-                        style: TextStyle(
-                          color: Colors.redAccent,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  hasBranch ? name! : 'Elegí tu sucursal',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: MonacoColors.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                if (hasBranch) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    _modeLabel,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.5),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              color: Colors.white.withValues(alpha: 0.08),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.16),
+                width: 0.8,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  hasBranch ? 'Cambiar' : 'Elegir',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.92),
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 3),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 16,
+                  color: Colors.white.withValues(alpha: 0.7),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _SectionTitle extends StatelessWidget {
+class _CountBadge extends StatelessWidget {
+  final int count;
+  const _CountBadge({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            gradient: LinearGradient(
+              colors: [
+                MonacoColors.monacoGreen.withValues(alpha: 0.95),
+                MonacoColors.monacoGreenDeep.withValues(alpha: 0.8),
+              ],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: MonacoColors.monacoGreen.withValues(alpha: 0.35),
+                blurRadius: 10,
+                spreadRadius: -2,
+              ),
+            ],
+          ),
+          child: Text(
+            count > 99 ? '99+' : '$count',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w900,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Icon(
+          Icons.chevron_right_rounded,
+          color: Colors.white.withValues(alpha: 0.3),
+          size: 22,
+        ),
+      ],
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
   final String text;
-  const _SectionTitle(this.text);
+  const _SectionLabel(this.text);
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(left: 6),
       child: Text(
-        text,
+        text.toUpperCase(),
         style: TextStyle(
-          color: Colors.white.withOpacity(0.5),
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 1.0,
+          color: Colors.white.withValues(alpha: 0.5),
+          fontSize: 11.5,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1.1,
         ),
       ),
     );
   }
 }
 
-class _AvatarCircle extends StatelessWidget {
+// ── Hoja: editar nombre ────────────────────────────────────────────────────
+
+class _EditNameSheet extends StatefulWidget {
   final String initial;
-  const _AvatarCircle({required this.initial});
+  final Future<String> Function(String name) onSave;
+
+  const _EditNameSheet({required this.initial, required this.onSave});
+
+  @override
+  State<_EditNameSheet> createState() => _EditNameSheetState();
+}
+
+class _EditNameSheetState extends State<_EditNameSheet> {
+  late final TextEditingController _ctrl;
+  String? _error;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initial.trim();
+    _ctrl = TextEditingController(
+      text: RegExp(r'^\d+$').hasMatch(initial) ? '' : initial,
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final name = _ctrl.text.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (name.length < 2) {
+      setState(() => _error = 'Ingresá al menos 2 letras.');
+      return;
+    }
+    if (name.length > 80) {
+      setState(() => _error = 'Máximo 80 caracteres.');
+      return;
+    }
+    if (RegExp(r'^\d+$').hasMatch(name)) {
+      setState(() => _error = 'Ingresá tu nombre, no un número.');
+      return;
+    }
+    setState(() {
+      _error = null;
+      _saving = true;
+    });
+    try {
+      final saved = await widget.onSave(name);
+      if (!mounted) return;
+      Navigator.of(context).pop(saved);
+    } on MobileApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = e.isNetwork
+            ? 'Sin conexión. Revisá tu internet e intentá de nuevo.'
+            : e.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = 'No pudimos guardar el nombre. Probá de nuevo.';
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 72,
-      height: 72,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.white.withOpacity(0.22),
-            Colors.white.withOpacity(0.08),
-          ],
-        ),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.28),
-          width: 1.2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.32),
-            blurRadius: 14,
-            spreadRadius: -2,
-            offset: const Offset(0, 4),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 6),
+        LiquidTextField(
+          controller: _ctrl,
+          label: 'NOMBRE Y APELLIDO',
+          hint: 'Ej.: Juan Pérez',
+          autofocus: true,
+          enabled: !_saving,
+          errorText: _error,
+          maxLength: 80,
+          textCapitalization: TextCapitalization.words,
+          textInputAction: TextInputAction.done,
+          keyboardType: TextInputType.name,
+          prefix: Icon(
+            Icons.person_rounded,
+            size: 18,
+            color: Colors.white.withValues(alpha: 0.5),
           ),
-        ],
-      ),
-      child: Center(
-        child: Text(
-          initial,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 30,
-            fontWeight: FontWeight.w900,
-          ),
+          onChanged: (_) {
+            if (_error != null) setState(() => _error = null);
+          },
+          onSubmitted: (_) => _submit(),
         ),
-      ),
+        const SizedBox(height: 18),
+        LiquidButton(
+          onPressed: _saving ? null : _submit,
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: _saving
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2.2,
+                  ),
+                )
+              : const Text(
+                  'Guardar',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+        ),
+      ],
     );
   }
 }
 
-// ---------------------------------------------------------------------------
-// Push notifications pre-prompt (Apple Guideline 4.5.4)
-// ---------------------------------------------------------------------------
-class _PushPrePromptDialog extends StatelessWidget {
-  const _PushPrePromptDialog();
+// ── Diálogo: eliminar cuenta (dos pasos) ───────────────────────────────────
 
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 32),
-      child: LiquidGlass(
-        padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
-        borderRadius: 24,
-        pressable: false,
-        tintOpacity: 0.10,
-        blur: LiquidTokens.blurHeavy,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withOpacity(0.12),
-                  ),
-                  child: const Icon(Icons.notifications_active_rounded,
-                      color: Colors.white, size: 22),
-                ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Text(
-                    'Activar notificaciones',
-                    style: TextStyle(
-                      color: MonacoColors.textPrimary,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 17,
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Text(
-              'Con tu permiso te avisamos cuando:',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.7),
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            _bullet('Se acerca tu turno en la cola'),
-            _bullet('Sumás puntos o desbloqueás un premio'),
-            _bullet('Hay promociones nuevas para vos'),
-            const SizedBox(height: 12),
-            Text(
-              'En el siguiente paso, iOS te pedirá confirmación.',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.5),
-                fontSize: 12,
-                fontStyle: FontStyle.italic,
-              ),
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: LiquidPill(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    onTap: () => Navigator.of(context).pop(false),
-                    child: const Center(
-                      child: Text(
-                        'Ahora no',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: LiquidButton(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    onPressed: () => Navigator.of(context).pop(true),
-                    child: const Text(
-                      'Continuar',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _bullet(String text) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('•',
-              style: TextStyle(
-                  color: Colors.white.withOpacity(0.75),
-                  fontWeight: FontWeight.w800)),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.82),
-                fontSize: 13.5,
-                height: 1.35,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Delete account dialog (2-step confirmation)
-// ---------------------------------------------------------------------------
 class _DeleteAccountDialog extends StatefulWidget {
-  const _DeleteAccountDialog({required this.onConfirm});
-
-  final VoidCallback onConfirm;
+  const _DeleteAccountDialog();
 
   @override
   State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
@@ -749,7 +1230,7 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
       insetPadding: const EdgeInsets.symmetric(horizontal: 28),
       child: LiquidGlass(
         padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
-        borderRadius: 24,
+        borderRadius: LiquidTokens.radiusGroup,
         pressable: false,
         tintOpacity: 0.10,
         blur: LiquidTokens.blurHeavy,
@@ -759,16 +1240,38 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
           children: [
             Row(
               children: [
-                Icon(Icons.warning_amber_rounded,
-                    color: Colors.redAccent.shade200, size: 22),
-                const SizedBox(width: 8),
-                const Text(
-                  'Eliminar cuenta',
-                  style: TextStyle(
-                    color: MonacoColors.textPrimary,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18,
-                    letterSpacing: -0.3,
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [
+                        MonacoColors.destructive.withValues(alpha: 0.26),
+                        MonacoColors.destructive.withValues(alpha: 0.08),
+                      ],
+                    ),
+                    border: Border.all(
+                      color: MonacoColors.destructive.withValues(alpha: 0.36),
+                      width: 0.8,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.warning_amber_rounded,
+                    color: MonacoColors.destructive,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Eliminar cuenta',
+                    style: TextStyle(
+                      color: MonacoColors.textPrimary,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18,
+                      letterSpacing: -0.3,
+                    ),
                   ),
                 ),
               ],
@@ -777,54 +1280,59 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
             Text(
               'Vamos a eliminar de forma permanente:',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.75),
+                color: Colors.white.withValues(alpha: 0.75),
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 6),
-            ..._items([
+            ..._items(const [
               'Tus datos personales (nombre, teléfono)',
               'Tus puntos y premios acumulados',
-              'Tu historial de reviews y canjes',
+              'Tus turnos, reseñas y canjes',
               'El acceso a tu cuenta en todos los dispositivos',
             ]),
             const SizedBox(height: 12),
             Text(
-              'Los registros de visitas se anonimizan para mantener las estadísticas del negocio, pero no quedarán asociados a tu identidad.',
+              'Los registros de visitas se anonimizan para mantener las estadísticas del negocio, pero no quedan asociados a tu identidad.',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.55),
+                color: Colors.white.withValues(alpha: 0.55),
                 fontSize: 12,
                 height: 1.35,
               ),
             ),
             const SizedBox(height: 16),
-            InkWell(
-              borderRadius: BorderRadius.circular(10),
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: () => setState(() => _acknowledged = !_acknowledged),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 6),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
+                    AnimatedContainer(
+                      duration: LiquidTokens.swap,
+                      curve: LiquidTokens.curveSwap,
                       width: 22,
                       height: 22,
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(6),
                         border: Border.all(
                           color: _acknowledged
-                              ? Colors.redAccent
-                              : Colors.white.withOpacity(0.35),
+                              ? MonacoColors.destructive
+                              : Colors.white.withValues(alpha: 0.35),
                           width: 1.5,
                         ),
                         color: _acknowledged
-                            ? Colors.redAccent.withOpacity(0.85)
+                            ? MonacoColors.destructive.withValues(alpha: 0.85)
                             : Colors.transparent,
                       ),
                       child: _acknowledged
-                          ? const Icon(Icons.check,
-                              size: 16, color: Colors.white)
+                          ? const Icon(
+                              Icons.check_rounded,
+                              size: 16,
+                              color: Colors.white,
+                            )
                           : null,
                     ),
                     const SizedBox(width: 10),
@@ -832,7 +1340,7 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
                       child: Text(
                         'Entiendo que esta acción no se puede deshacer.',
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.85),
+                          color: Colors.white.withValues(alpha: 0.85),
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
                         ),
@@ -848,7 +1356,8 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
                 Expanded(
                   child: LiquidPill(
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    onTap: () => Navigator.of(context).pop(),
+                    borderRadius: 16,
+                    onTap: () => Navigator.of(context).pop(false),
                     child: const Center(
                       child: Text(
                         'Cancelar',
@@ -863,19 +1372,25 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Opacity(
+                  child: AnimatedOpacity(
+                    duration: LiquidTokens.swap,
                     opacity: _acknowledged ? 1 : 0.4,
-                    child: LiquidButton(
-                      primary: false,
-                      tint: Colors.redAccent,
+                    child: LiquidPill(
                       padding: const EdgeInsets.symmetric(vertical: 12),
-                      onPressed: _acknowledged ? widget.onConfirm : null,
-                      child: const Text(
-                        'Eliminar',
-                        style: TextStyle(
-                          color: Colors.redAccent,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
+                      borderRadius: 16,
+                      tint: MonacoColors.destructive,
+                      tintOpacity: 0.18,
+                      onTap: _acknowledged
+                          ? () => Navigator.of(context).pop(true)
+                          : null,
+                      child: const Center(
+                        child: Text(
+                          'Eliminar',
+                          style: TextStyle(
+                            color: MonacoColors.destructive,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
                     ),
@@ -886,130 +1401,43 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
           ],
         ),
       ),
-    );
+    ).animate().fadeIn(duration: 200.ms).scaleXY(begin: 0.96, end: 1);
   }
 
   List<Widget> _items(List<String> texts) {
     return texts
-        .map((t) => Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('•',
-                      style: TextStyle(
-                          color: Colors.redAccent.shade200,
-                          fontWeight: FontWeight.w800)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      t,
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.78),
-                        fontSize: 13,
-                        height: 1.35,
-                      ),
+        .map(
+          (t) => Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Container(
+                    width: 5,
+                    height: 5,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: MonacoColors.destructive,
                     ),
                   ),
-                ],
-              ),
-            ))
-        .toList();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Error state
-// ---------------------------------------------------------------------------
-class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.error, required this.onRetry});
-
-  final Object error;
-  final VoidCallback onRetry;
-
-  bool get _isNetworkError {
-    final s = error.toString().toLowerCase();
-    return s.contains('socketexception') ||
-        s.contains('failed host lookup') ||
-        s.contains('no address associated') ||
-        s.contains('authretryablefetchexception') ||
-        s.contains('clientexception') ||
-        s.contains('connection') ||
-        s.contains('network is unreachable') ||
-        s.contains('timeout');
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final offline = _isNetworkError;
-    final icon = offline ? Icons.wifi_off_rounded : Icons.error_outline_rounded;
-    final title = offline ? 'Sin conexión' : 'Algo salió mal';
-    final message = offline
-        ? 'No pudimos conectarnos con el servidor. Revisá tu conexión a internet e intentá nuevamente.'
-        : 'No pudimos cargar tu perfil. Intentá nuevamente en unos segundos.';
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [
-                    Colors.white.withOpacity(0.18),
-                    Colors.white.withOpacity(0.05),
-                  ],
                 ),
-                border: Border.all(color: Colors.white.withOpacity(0.22)),
-              ),
-              child: Icon(icon, color: Colors.white, size: 34),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              title,
-              style: const TextStyle(
-                color: MonacoColors.textPrimary,
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.55),
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(height: 22),
-            LiquidButton(
-              onPressed: onRetry,
-              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.refresh_rounded, size: 18, color: Colors.white),
-                  SizedBox(width: 8),
-                  Text(
-                    'Reintentar',
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    t,
                     style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15,
+                      color: Colors.white.withValues(alpha: 0.78),
+                      fontSize: 13,
+                      height: 1.35,
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
-    ).animate().fadeIn(duration: 400.ms);
+          ),
+        )
+        .toList();
   }
 }

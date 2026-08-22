@@ -2,13 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 import 'package:monaco_mobile/core/auth/auth_provider.dart';
 import 'package:monaco_mobile/core/branch/selected_branch_provider.dart';
 import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
+import 'package:monaco_mobile/features/appointments/data/appointment_model.dart';
+import 'package:monaco_mobile/features/appointments/data/fechas.dart';
+import 'package:monaco_mobile/features/appointments/presentation/widgets/appointment_countdown.dart';
+import 'package:monaco_mobile/features/appointments/presentation/widgets/turno_links.dart';
+import 'package:monaco_mobile/features/appointments/providers/appointments_provider.dart';
+import 'package:monaco_mobile/features/appointments/providers/booking_provider.dart';
 import 'package:monaco_mobile/features/convenios/presentation/widgets/convenio_card.dart';
 import 'package:monaco_mobile/features/convenios/providers/convenios_provider.dart';
 import 'package:monaco_mobile/features/home/presentation/widgets/occupancy_mini_card.dart';
@@ -32,6 +37,9 @@ final billboardProvider =
 
 // ── Screen ─────────────────────────────────────────────────────────────────
 
+/// Inicio. Orden: saludo + fecha, pill de sucursal, **tu próximo turno** (o el
+/// CTA para reservar si la sucursal toma turnos online), puntos, reseñas
+/// pendientes, sucursales en vivo, cartelera, convenios y accesos rápidos.
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
@@ -44,9 +52,16 @@ class HomeScreen extends ConsumerWidget {
     final billboard = ref.watch(billboardProvider);
     final convenios = ref.watch(conveniosProvider);
     final selectedBranchName = ref.watch(selectedBranchNameProvider);
+    final nextAppointment = ref.watch(nextAppointmentProvider);
 
-    final userName = auth.clientName ?? 'Cliente';
-    final today = DateFormat("EEEE d 'de' MMMM", 'es').format(DateTime.now());
+    // ¿La sucursal elegida toma turnos online? El server lo resuelve (modo +
+    // `is_enabled`); mientras no contesta caemos al modo guardado en la app.
+    final bookable =
+        ref.watch(selectedBranchBookableProvider) ?? auth.acceptsAppointments;
+
+    final firstName = auth.firstName;
+    final saludo = firstName.isEmpty ? 'Hola' : 'Hola, $firstName';
+    final today = Fechas.fechaLarga(DateTime.now());
 
     return Scaffold(
       backgroundColor: MonacoColors.background,
@@ -63,6 +78,12 @@ class HomeScreen extends ConsumerWidget {
               ref.invalidate(branchSignalsProvider);
               ref.invalidate(billboardProvider);
               ref.invalidate(conveniosProvider);
+              ref.invalidate(upcomingAppointmentsProvider);
+              ref.invalidate(mobileBranchesProvider);
+              await Future.wait([
+                ref.read(globalPointsProvider.future),
+                ref.read(upcomingAppointmentsProvider.future),
+              ]);
             },
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -71,23 +92,22 @@ class HomeScreen extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // ── Header ──
-                  _Header(name: userName, date: today),
+                  _Header(saludo: saludo, date: today),
                   const SizedBox(height: 14),
 
-                  // ── Org + Sucursal ──
-                  if (auth.selectedOrgName != null ||
-                      selectedBranchName != null)
-                    _OrgPill(
-                      label: [
-                        if (auth.selectedOrgName != null) auth.selectedOrgName!,
-                        if (selectedBranchName != null) selectedBranchName,
-                      ].join(' · '),
-                      onTap: () {
-                        ref.read(authProvider.notifier).clearSelectedOrg();
-                        context.go('/select-org');
-                      },
-                    ).animate().fadeIn(delay: 250.ms, duration: 400.ms),
+                  // ── Sucursal ──
+                  _BranchPill(
+                    label: selectedBranchName ?? 'Elegí tu sucursal',
+                    onTap: () => context.push('/elegir-sucursal'),
+                  ).animate().fadeIn(delay: 250.ms, duration: 400.ms),
                   const SizedBox(height: 22),
+
+                  // ── Tu próximo turno / Reservá ──
+                  _TurnoBlock(
+                    nextAppointment: nextAppointment,
+                    bookable: bookable,
+                    acceptsAppointments: auth.acceptsAppointments,
+                  ),
 
                   // ── Points Card ──
                   points.when(
@@ -96,7 +116,7 @@ class HomeScreen extends ConsumerWidget {
                       totalEarned: (data['total_earned'] ?? 0).toInt(),
                       onTap: () => context.push('/points'),
                     ),
-                    loading: () => _shimmerCard(height: 150),
+                    loading: () => const LiquidSkeleton(height: 150, radius: 26),
                     error: (_, _) => const SizedBox.shrink(),
                   ),
                   const SizedBox(height: 22),
@@ -120,10 +140,10 @@ class HomeScreen extends ConsumerWidget {
                   ),
 
                   // ── Sucursales ──
-                  // Solo mostramos la cola/occupancy si la sucursal acepta
-                  // walk-ins. En modo `appointments` puro se oculta.
+                  // La fila en vivo sólo tiene sentido donde se atiende por
+                  // orden de llegada. En modo `appointments` puro se oculta.
                   if (auth.acceptsWalkIn) ...[
-                    _SectionTitle(
+                    LiquidSectionTitle(
                       title: 'Sucursales',
                       subtitle: 'Estado en vivo',
                       onAction: () => context.push('/occupancy'),
@@ -139,13 +159,16 @@ class HomeScreen extends ConsumerWidget {
                               child: Text(
                                 'Sin sucursales disponibles',
                                 style: TextStyle(
-                                  color: MonacoColors.textSecondary,
+                                  color: Colors.white.withValues(alpha: 0.55),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
                             );
                           }
                           return ListView.separated(
                             scrollDirection: Axis.horizontal,
+                            clipBehavior: Clip.none,
                             itemCount: list.length,
                             separatorBuilder: (_, _) => const SizedBox(width: 10),
                             itemBuilder: (context, i) {
@@ -154,8 +177,7 @@ class HomeScreen extends ConsumerWidget {
                                 branchName: b['branch_name'] ?? 'Sucursal',
                                 occupancyLevel: b['occupancy_level'] ?? 'baja',
                                 isOpen: (b['is_open'] ?? true) as bool,
-                                totalBarbers:
-                                    (b['total_barbers'] ?? 0).toInt(),
+                                totalBarbers: (b['total_barbers'] ?? 0).toInt(),
                                 onTap: () =>
                                     context.push('/branch/${b['branch_id']}'),
                               ).liquidEnter(index: i, stagger: 70);
@@ -167,7 +189,7 @@ class HomeScreen extends ConsumerWidget {
                           itemCount: 3,
                           separatorBuilder: (_, _) => const SizedBox(width: 10),
                           itemBuilder: (_, _) =>
-                              _shimmerCard(width: 160, height: 128),
+                              const LiquidSkeleton(width: 160, height: 128),
                         ),
                         error: (_, _) => const SizedBox.shrink(),
                       ),
@@ -175,14 +197,14 @@ class HomeScreen extends ConsumerWidget {
                     const SizedBox(height: 26),
                   ],
 
-                  // ── Billboard ──
+                  // ── Cartelera ──
                   billboard.when(
                     data: (items) {
                       if (items.isEmpty) return const SizedBox.shrink();
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const _SectionTitle(
+                          const LiquidSectionTitle(
                             title: 'Cartelera',
                             subtitle: 'Novedades de la barbería',
                           ),
@@ -191,6 +213,7 @@ class HomeScreen extends ConsumerWidget {
                             height: 180,
                             child: ListView.separated(
                               scrollDirection: Axis.horizontal,
+                              clipBehavior: Clip.none,
                               itemCount: items.length,
                               separatorBuilder: (_, _) =>
                                   const SizedBox(width: 12),
@@ -222,7 +245,7 @@ class HomeScreen extends ConsumerWidget {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _SectionTitle(
+                          LiquidSectionTitle(
                             title: 'Convenios',
                             subtitle: 'Beneficios exclusivos para vos',
                             onAction: items.length > preview.length
@@ -235,6 +258,7 @@ class HomeScreen extends ConsumerWidget {
                             height: 210,
                             child: ListView.separated(
                               scrollDirection: Axis.horizontal,
+                              clipBehavior: Clip.none,
                               itemCount: preview.length +
                                   (items.length > preview.length ? 1 : 0),
                               separatorBuilder: (_, _) =>
@@ -263,68 +287,40 @@ class HomeScreen extends ConsumerWidget {
                     error: (_, _) => const SizedBox.shrink(),
                   ),
 
-                  // ── Quick Actions ──
-                  // En modo appointments / hybrid, mostramos "Mis turnos"
-                  // como acceso primario y el resto como secundario.
-                  const _SectionTitle(title: 'Accesos rápidos'),
+                  // ── Accesos rápidos ──
+                  const LiquidSectionTitle(title: 'Accesos rápidos'),
                   const SizedBox(height: 12),
-                  if (auth.acceptsAppointments) ...[
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _QuickAction(
-                            icon: Icons.event_available_rounded,
-                            label: 'Mis turnos',
-                            onTap: () => context.push('/appointments'),
-                          ).liquidEnter(index: 0, stagger: 70),
+                  _QuickActions(
+                    items: [
+                      if (bookable)
+                        _QuickActionItem(
+                          icon: Icons.add_circle_outline_rounded,
+                          label: 'Reservar',
+                          accent: MonacoColors.monacoGreen,
+                          onTap: () => context.push('/turnos/reservar'),
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _QuickAction(
-                            icon: Icons.menu_book_rounded,
-                            label: 'Catálogo',
-                            onTap: () => context.push('/catalog'),
-                          ).liquidEnter(index: 1, stagger: 70),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _QuickAction(
-                            icon: Icons.card_giftcard_rounded,
-                            label: 'Mis Premios',
-                            onTap: () => context.push('/rewards'),
-                          ).liquidEnter(index: 2, stagger: 70),
-                        ),
-                      ],
-                    ),
-                  ] else ...[
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _QuickAction(
-                            icon: Icons.menu_book_rounded,
-                            label: 'Catálogo',
-                            onTap: () => context.push('/catalog'),
-                          ).liquidEnter(index: 0, stagger: 70),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _QuickAction(
-                            icon: Icons.card_giftcard_rounded,
-                            label: 'Mis Premios',
-                            onTap: () => context.push('/rewards'),
-                          ).liquidEnter(index: 1, stagger: 70),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _QuickAction(
-                            icon: Icons.history_rounded,
-                            label: 'Historial',
-                            onTap: () => context.push('/points'),
-                          ).liquidEnter(index: 2, stagger: 70),
-                        ),
-                      ],
-                    ),
-                  ],
+                      _QuickActionItem(
+                        icon: Icons.event_available_rounded,
+                        label: 'Mis turnos',
+                        onTap: () => context.go('/turnos'),
+                      ),
+                      _QuickActionItem(
+                        icon: Icons.menu_book_rounded,
+                        label: 'Catálogo',
+                        onTap: () => context.push('/catalog'),
+                      ),
+                      _QuickActionItem(
+                        icon: Icons.card_giftcard_rounded,
+                        label: 'Premios',
+                        onTap: () => context.go('/rewards'),
+                      ),
+                      _QuickActionItem(
+                        icon: Icons.history_rounded,
+                        label: 'Historial',
+                        onTap: () => context.push('/visits'),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -336,13 +332,16 @@ class HomeScreen extends ConsumerWidget {
 
   void _handleBillboardTap(BuildContext context, Map<String, dynamic> item) {
     final linkType = item['link_type'] as String?;
-    final linkValue = item['link_value'] as String?;
-    if (linkType == null || linkValue == null) return;
+    final linkValue = (item['link_value'] as String?)?.trim();
+    if (linkType == null || linkValue == null || linkValue.isEmpty) return;
     switch (linkType) {
       case 'route':
-        context.push(linkValue);
+        if (linkValue.startsWith('/')) context.push(linkValue);
         break;
       case 'url':
+        if (linkValue.startsWith('http://') || linkValue.startsWith('https://')) {
+          abrirUrlExterna(context, linkValue);
+        }
         break;
       case 'branch':
         context.push('/branch/$linkValue');
@@ -356,10 +355,10 @@ class HomeScreen extends ConsumerWidget {
 // ═══════════════════════════════════════════════════════════════════════════
 
 class _Header extends StatelessWidget {
-  final String name;
+  final String saludo;
   final String date;
 
-  const _Header({required this.name, required this.date});
+  const _Header({required this.saludo, required this.date});
 
   @override
   Widget build(BuildContext context) {
@@ -367,7 +366,9 @@ class _Header extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Hola, $name',
+          saludo,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             color: MonacoColors.textPrimary,
             fontSize: 30,
@@ -383,7 +384,7 @@ class _Header extends StatelessWidget {
         Text(
           date,
           style: TextStyle(
-            color: Colors.white.withOpacity(0.55),
+            color: Colors.white.withValues(alpha: 0.55),
             fontSize: 13.5,
             fontWeight: FontWeight.w500,
           ),
@@ -394,70 +395,72 @@ class _Header extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ORG PILL — glass pill con nombre de sucursal + chip "Cambiar"
+// PILL DE SUCURSAL — "Rondeau · Cambiar ›"
 // ═══════════════════════════════════════════════════════════════════════════
 
-class _OrgPill extends StatelessWidget {
+class _BranchPill extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
 
-  const _OrgPill({required this.label, required this.onTap});
+  const _BranchPill({required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return Align(
       alignment: Alignment.centerLeft,
-      child: LiquidPill(
-        padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
-        onTap: onTap,
-        borderRadius: 16,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.storefront_rounded,
-                size: 15, color: Colors.white),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                label,
-                style: const TextStyle(
-                  color: MonacoColors.textPrimary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.1,
+      child: Semantics(
+        button: true,
+        label: 'Sucursal: $label. Cambiar',
+        child: LiquidPill(
+          padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
+          onTap: onTap,
+          borderRadius: 16,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.storefront_rounded, size: 15, color: Colors.white),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    color: MonacoColors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.1,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                overflow: TextOverflow.ellipsis,
               ),
-            ),
-            const SizedBox(width: 8),
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.10),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Cambiar',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.75),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Cambiar',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.75),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 2),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    size: 14,
-                    color: Colors.white.withOpacity(0.75),
-                  ),
-                ],
+                    const SizedBox(width: 2),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: 14,
+                      color: Colors.white.withValues(alpha: 0.75),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -465,80 +468,285 @@ class _OrgPill extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SECTION TITLE
+// TU PRÓXIMO TURNO / RESERVÁ TU TURNO
 // ═══════════════════════════════════════════════════════════════════════════
 
-class _SectionTitle extends StatelessWidget {
-  final String title;
-  final String? subtitle;
-  final VoidCallback? onAction;
-  final String? actionLabel;
+/// Decide qué va arriba de los puntos:
+/// - hay un turno próximo (en cualquier sucursal) → tarjeta con countdown;
+/// - no hay y la sucursal elegida toma turnos online → CTA "Reservá tu turno";
+/// - sucursal walk-in sin turnos → nada (la fila en vivo ya está más abajo).
+class _TurnoBlock extends StatelessWidget {
+  final AsyncValue<Appointment?> nextAppointment;
+  final bool bookable;
+  final bool acceptsAppointments;
 
-  const _SectionTitle({
-    required this.title,
-    this.subtitle,
-    this.onAction,
-    this.actionLabel,
+  const _TurnoBlock({
+    required this.nextAppointment,
+    required this.bookable,
+    required this.acceptsAppointments,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  color: MonacoColors.textPrimary,
-                  fontSize: 19,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.3,
+    final child = nextAppointment.when(
+      loading: () => (bookable || acceptsAppointments)
+          ? const LiquidSkeleton(height: 132, radius: 26)
+          : null,
+      error: (_, _) => bookable ? const _BookingCta() : null,
+      data: (a) {
+        if (a != null) return _NextAppointmentCard(appointment: a);
+        if (bookable) return const _BookingCta();
+        return null;
+      },
+    );
+    if (child == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 22),
+      child: child,
+    );
+  }
+}
+
+class _NextAppointmentCard extends StatelessWidget {
+  final Appointment appointment;
+  const _NextAppointmentCard({required this.appointment});
+
+  @override
+  Widget build(BuildContext context) {
+    final a = appointment;
+    final atShop = a.status.isAtShop;
+    final accent = atShop ? MonacoColors.info : MonacoColors.monacoGreen;
+    final barbero = (a.barberName ?? '').trim();
+    final detalle = [
+      a.servicesLabel,
+      if (barbero.isNotEmpty) 'con $barbero',
+    ].join(' · ');
+
+    return Semantics(
+      button: true,
+      label: 'Tu próximo turno, ${a.horaLabel}, ${a.etiquetaDia()}. Ver detalle',
+      child: LiquidGlass(
+        onTap: () => context.push('/turnos/${a.id}'),
+        padding: const EdgeInsets.fromLTRB(18, 16, 16, 16),
+        borderRadius: 26,
+        tint: accent,
+        tintOpacity: 0.12,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  atShop ? Icons.storefront_rounded : Icons.event_available_rounded,
+                  size: 14,
+                  color: accent,
                 ),
-              ),
-              if (subtitle != null) ...[
-                const SizedBox(height: 2),
+                const SizedBox(width: 6),
                 Text(
-                  subtitle!,
+                  atShop ? a.status.label.toUpperCase() : 'TU PRÓXIMO TURNO',
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.5),
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w500,
+                    color: accent.withValues(alpha: 0.95),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1,
                   ),
                 ),
+                const Spacer(),
+                AppointmentCountdown(appointment: a, pill: true),
               ],
-            ],
-          ),
-        ),
-        if (onAction != null && actionLabel != null)
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: onAction,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+            ),
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  actionLabel!,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.85),
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
+                  a.horaLabel,
+                  style: const TextStyle(
+                    color: MonacoColors.textPrimary,
+                    fontSize: 42,
+                    fontWeight: FontWeight.w900,
+                    height: 1,
+                    letterSpacing: -1.6,
+                    fontFeatures: [FontFeature.tabularFigures()],
                   ),
                 ),
-                const SizedBox(width: 2),
-                Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  size: 10,
-                  color: Colors.white.withOpacity(0.85),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 3),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          a.etiquetaDia(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: MonacoColors.textPrimary,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.3,
+                            height: 1.15,
+                          ),
+                        ),
+                        if (a.branchName != null)
+                          Text(
+                            a.branchName!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.6),
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
-          ),
-      ],
-    );
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                LiquidAvatar(
+                  imageUrl: a.barberAvatarUrl,
+                  name: barbero,
+                  size: 34,
+                  tint: accent,
+                  fallbackIcon: Icons.content_cut_rounded,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    detalle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.85),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                LiquidPill(
+                  onTap: () => context.push('/turnos/${a.id}'),
+                  tint: accent,
+                  tintOpacity: 0.2,
+                  borderRadius: 14,
+                  padding: const EdgeInsets.fromLTRB(14, 9, 10, 9),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Ver',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      SizedBox(width: 2),
+                      Icon(Icons.chevron_right_rounded, size: 18, color: Colors.white),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.08, end: 0, duration: 400.ms);
+  }
+}
+
+class _BookingCta extends StatelessWidget {
+  const _BookingCta();
+
+  @override
+  Widget build(BuildContext context) {
+    const accent = MonacoColors.monacoGreen;
+    return Semantics(
+      button: true,
+      label: 'Reservá tu turno',
+      child: LiquidGlass(
+        onTap: () => context.push('/turnos/reservar'),
+        padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
+        borderRadius: 24,
+        tint: accent,
+        tintOpacity: 0.13,
+        showVignette: false,
+        child: Row(
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(15),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    accent.withValues(alpha: 0.34),
+                    accent.withValues(alpha: 0.12),
+                  ],
+                ),
+                border: Border.all(color: accent.withValues(alpha: 0.45), width: 0.8),
+                boxShadow: [
+                  BoxShadow(
+                    color: accent.withValues(alpha: 0.3),
+                    blurRadius: 14,
+                    spreadRadius: -4,
+                  ),
+                ],
+              ),
+              child: const Icon(Icons.calendar_month_rounded, color: Colors.white, size: 22),
+            ),
+            const SizedBox(width: 14),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Reservá tu turno',
+                    style: TextStyle(
+                      color: MonacoColors.textPrimary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  SizedBox(height: 3),
+                  Text(
+                    'Elegís servicio, día y hora en un minuto. Sin esperar en el local.',
+                    style: TextStyle(
+                      color: Color(0xA6FFFFFF),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: accent.withValues(alpha: 0.9),
+                boxShadow: [
+                  BoxShadow(color: accent.withValues(alpha: 0.45), blurRadius: 12),
+                ],
+              ),
+              child: const Icon(Icons.arrow_forward_rounded, size: 18, color: Colors.white),
+            ),
+          ],
+        ),
+      ),
+    ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.08, end: 0, duration: 400.ms);
   }
 }
 
@@ -554,7 +762,7 @@ class _ReviewBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const amber = Color(0xFFF5A623);
+    const amber = MonacoColors.warning;
     return LiquidGlass(
       onTap: onTap,
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -573,18 +781,18 @@ class _ReviewBanner extends StatelessWidget {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  amber.withOpacity(0.28),
-                  amber.withOpacity(0.14),
+                  amber.withValues(alpha: 0.28),
+                  amber.withValues(alpha: 0.14),
                 ],
               ),
               borderRadius: BorderRadius.circular(11),
-              border: Border.all(color: amber.withOpacity(0.42), width: 0.8),
+              border: Border.all(color: amber.withValues(alpha: 0.42), width: 0.8),
             ),
             child: Center(
               child: Text(
                 '$count',
                 style: TextStyle(
-                  color: amber.withOpacity(0.98),
+                  color: amber.withValues(alpha: 0.98),
                   fontWeight: FontWeight.w900,
                   fontSize: 15,
                 ),
@@ -605,7 +813,7 @@ class _ReviewBanner extends StatelessWidget {
           Text(
             'Dejá tu opinión',
             style: TextStyle(
-              color: amber.withOpacity(0.98),
+              color: amber.withValues(alpha: 0.98),
               fontSize: 12.5,
               fontWeight: FontWeight.w800,
             ),
@@ -614,7 +822,7 @@ class _ReviewBanner extends StatelessWidget {
           Icon(
             Icons.arrow_forward_ios_rounded,
             size: 11,
-            color: amber.withOpacity(0.98),
+            color: amber.withValues(alpha: 0.98),
           ),
         ],
       ),
@@ -675,7 +883,7 @@ class _BillboardCard extends StatelessWidget {
                     end: Alignment.bottomCenter,
                     colors: [
                       Colors.transparent,
-                      Colors.black.withOpacity(0.65),
+                      Colors.black.withValues(alpha: 0.65),
                     ],
                     stops: const [0.4, 1.0],
                   ),
@@ -710,7 +918,7 @@ class _BillboardCard extends StatelessWidget {
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.85),
+                      color: Colors.white.withValues(alpha: 0.85),
                       fontSize: 12.5,
                       fontWeight: FontWeight.w500,
                       shadows: const [
@@ -764,13 +972,13 @@ class _ViewAllConveniosCard extends StatelessWidget {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  Colors.white.withOpacity(0.18),
-                  Colors.white.withOpacity(0.06),
+                  Colors.white.withValues(alpha: 0.18),
+                  Colors.white.withValues(alpha: 0.06),
                 ],
               ),
               shape: BoxShape.circle,
               border: Border.all(
-                color: Colors.white.withOpacity(0.22),
+                color: Colors.white.withValues(alpha: 0.22),
                 width: 0.8,
               ),
             ),
@@ -793,7 +1001,7 @@ class _ViewAllConveniosCard extends StatelessWidget {
           Text(
             '$total en total',
             style: TextStyle(
-              color: Colors.white.withOpacity(0.5),
+              color: Colors.white.withValues(alpha: 0.5),
               fontSize: 11,
               fontWeight: FontWeight.w500,
             ),
@@ -805,80 +1013,133 @@ class _ViewAllConveniosCard extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// QUICK ACTION — glass compacto con ícono y label
+// ACCESOS RÁPIDOS — filas balanceadas de tiles glass (máx. 3 por fila)
 // ═══════════════════════════════════════════════════════════════════════════
 
-class _QuickAction extends StatelessWidget {
+class _QuickActionItem {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final Color? accent;
 
-  const _QuickAction({
+  const _QuickActionItem({
     required this.icon,
     required this.label,
     required this.onTap,
+    this.accent,
   });
+}
+
+/// Reparte los accesos en filas de hasta 3, lo más parejas posible
+/// (4 → 2+2, 5 → 3+2, 6 → 3+3): nunca queda un tile solo en una fila.
+class _QuickActions extends StatelessWidget {
+  final List<_QuickActionItem> items;
+  const _QuickActions({required this.items});
+
+  static List<List<T>> _chunk<T>(List<T> list, {int maxPerRow = 3}) {
+    if (list.isEmpty) return const [];
+    final rows = (list.length / maxPerRow).ceil();
+    final base = list.length ~/ rows;
+    final extra = list.length % rows;
+    final out = <List<T>>[];
+    var i = 0;
+    for (var r = 0; r < rows; r++) {
+      final n = base + (r < extra ? 1 : 0);
+      out.add(list.sublist(i, i + n));
+      i += n;
+    }
+    return out;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return LiquidGlass(
-      onTap: onTap,
-      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 10),
-      borderRadius: 20,
-      tintOpacity: 0.07,
-      showVignette: false,
-      child: Column(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Colors.white.withOpacity(0.18),
-                  Colors.white.withOpacity(0.06),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(13),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.22),
-                width: 0.8,
-              ),
-            ),
-            child: Icon(icon, color: Colors.white, size: 20),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            label,
-            style: const TextStyle(
-              color: MonacoColors.textPrimary,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
-            textAlign: TextAlign.center,
+    final rows = _chunk(items);
+    var idx = 0;
+    return Column(
+      children: [
+        for (var r = 0; r < rows.length; r++) ...[
+          if (r > 0) const SizedBox(height: 10),
+          Row(
+            children: [
+              for (var c = 0; c < rows[r].length; c++) ...[
+                if (c > 0) const SizedBox(width: 10),
+                Expanded(
+                  child: _QuickAction(item: rows[r][c])
+                      .liquidEnter(index: idx++, stagger: 60),
+                ),
+              ],
+            ],
           ),
         ],
-      ),
+      ],
     );
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// SHIMMER HELPER
-// ═══════════════════════════════════════════════════════════════════════════
+class _QuickAction extends StatelessWidget {
+  final _QuickActionItem item;
+  const _QuickAction({required this.item});
 
-Widget _shimmerCard({double? width, double height = 140}) {
-  return Container(
-    width: width,
-    height: height,
-    decoration: BoxDecoration(
-      color: Colors.white.withOpacity(0.04),
-      borderRadius: BorderRadius.circular(22),
-      border: Border.all(color: Colors.white.withOpacity(0.06)),
-    ),
-  )
-      .animate(onPlay: (c) => c.repeat())
-      .shimmer(duration: 1400.ms, color: Colors.white10);
+  @override
+  Widget build(BuildContext context) {
+    final accent = item.accent ?? Colors.white;
+    final tinted = item.accent != null;
+    return Semantics(
+      button: true,
+      label: item.label,
+      child: LiquidGlass(
+        onTap: item.onTap,
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+        borderRadius: 20,
+        tint: tinted ? accent : null,
+        tintOpacity: tinted ? 0.12 : 0.07,
+        showVignette: false,
+        child: Column(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    accent.withValues(alpha: tinted ? 0.32 : 0.18),
+                    accent.withValues(alpha: tinted ? 0.12 : 0.06),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(13),
+                border: Border.all(
+                  color: accent.withValues(alpha: tinted ? 0.45 : 0.22),
+                  width: 0.8,
+                ),
+                boxShadow: tinted
+                    ? [
+                        BoxShadow(
+                          color: accent.withValues(alpha: 0.3),
+                          blurRadius: 12,
+                          spreadRadius: -4,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Icon(item.icon, color: Colors.white, size: 20),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              item.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: MonacoColors.textPrimary,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

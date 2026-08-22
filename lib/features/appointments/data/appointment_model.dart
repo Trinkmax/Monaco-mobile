@@ -1,4 +1,4 @@
-import 'package:intl/intl.dart';
+import 'fechas.dart';
 
 /// Servicio asociado a un turno (snapshot al momento de agendar).
 class AppointmentService {
@@ -14,40 +14,36 @@ class AppointmentService {
     this.durationMinutes,
   });
 
+  /// Soporta dos formas:
+  /// 1) fila de `appointment_services` con `price_snapshot`/`duration_snapshot`
+  ///    y el join `services(name, price, duration_minutes)` embebido;
+  /// 2) una fila plana de `services`.
   factory AppointmentService.fromJson(Map<String, dynamic> json) {
-    // Soporta dos formas:
-    // 1) snapshot directo desde appointment_services con price_snapshot/duration_snapshot
-    // 2) join `services(name, price, duration_minutes)` embebido como Map
     final services = json['services'];
-    if (services is Map<String, dynamic>) {
+    if (services is Map) {
+      final s = Map<String, dynamic>.from(services);
       return AppointmentService(
-        id: (json['service_id'] as String?) ?? (services['id'] as String? ?? ''),
-        name: services['name'] as String?,
-        price: (json['price_snapshot'] as num?) ?? (services['price'] as num?),
+        id: (json['service_id'] as String?) ?? (s['id'] as String? ?? ''),
+        name: s['name'] as String?,
+        price: (json['price_snapshot'] as num?) ?? (s['price'] as num?),
         durationMinutes: (json['duration_snapshot'] as num?)?.toInt() ??
-            (services['duration_minutes'] as num?)?.toInt(),
+            (s['duration_minutes'] as num?)?.toInt(),
       );
     }
     return AppointmentService(
       id: (json['service_id'] as String?) ?? (json['id'] as String? ?? ''),
       name: json['name'] as String?,
-      price: json['price_snapshot'] as num? ?? json['price'] as num?,
+      price: (json['price_snapshot'] as num?) ?? (json['price'] as num?),
       durationMinutes: (json['duration_snapshot'] as num?)?.toInt() ??
           (json['duration_minutes'] as num?)?.toInt(),
     );
   }
-
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        if (name != null) 'name': name,
-        if (price != null) 'price': price,
-        if (durationMinutes != null) 'duration_minutes': durationMinutes,
-      };
 }
 
-/// Estados que maneja la tabla `appointments` en Supabase.
+/// Estados que maneja la tabla `appointments`.
 enum AppointmentStatus {
   scheduled,
+  pendingPayment,
   confirmed,
   checkedIn,
   inProgress,
@@ -60,6 +56,8 @@ enum AppointmentStatus {
     switch (value) {
       case 'scheduled':
         return AppointmentStatus.scheduled;
+      case 'pending_payment':
+        return AppointmentStatus.pendingPayment;
       case 'confirmed':
         return AppointmentStatus.confirmed;
       case 'checked_in':
@@ -81,6 +79,8 @@ enum AppointmentStatus {
     switch (this) {
       case AppointmentStatus.scheduled:
         return 'scheduled';
+      case AppointmentStatus.pendingPayment:
+        return 'pending_payment';
       case AppointmentStatus.confirmed:
         return 'confirmed';
       case AppointmentStatus.checkedIn:
@@ -98,42 +98,87 @@ enum AppointmentStatus {
     }
   }
 
-  /// Etiqueta humana en español.
+  /// Etiqueta humana (misma tabla `ESTADOS` del turnero web).
   String get label {
     switch (this) {
       case AppointmentStatus.scheduled:
       case AppointmentStatus.confirmed:
         return 'Confirmado';
+      case AppointmentStatus.pendingPayment:
+        return 'Pendiente de pago';
       case AppointmentStatus.checkedIn:
-        return 'Esperando';
+        return 'Ya llegaste';
       case AppointmentStatus.inProgress:
         return 'En atención';
       case AppointmentStatus.completed:
-        return 'Realizado';
+        return 'Completado';
       case AppointmentStatus.cancelled:
         return 'Cancelado';
       case AppointmentStatus.noShow:
-        return 'No asistió';
+        return 'Ausente';
       case AppointmentStatus.unknown:
         return '—';
     }
   }
+
+  /// Sigue vivo (aparece en "Próximos").
+  bool get isActive =>
+      this == AppointmentStatus.scheduled ||
+      this == AppointmentStatus.pendingPayment ||
+      this == AppointmentStatus.confirmed ||
+      this == AppointmentStatus.checkedIn ||
+      this == AppointmentStatus.inProgress;
+
+  /// El cliente ya está en el local (no depende de la hora).
+  bool get isAtShop =>
+      this == AppointmentStatus.checkedIn || this == AppointmentStatus.inProgress;
+
+  /// Estados desde los que se puede cancelar (mismo set que el server).
+  bool get isCancellable =>
+      this == AppointmentStatus.scheduled ||
+      this == AppointmentStatus.confirmed ||
+      this == AppointmentStatus.checkedIn;
+
+  /// Estados que leemos en la pestaña "Próximos" (columna `status`).
+  static const List<String> upcomingRaw = [
+    'scheduled',
+    'pending_payment',
+    'confirmed',
+    'checked_in',
+    'in_progress',
+  ];
+
+  /// Estados que leemos en la pestaña "Anteriores".
+  static const List<String> pastRaw = ['completed', 'cancelled', 'no_show'];
 }
 
-/// Turno agendado por el cliente. Hidrata los datos relacionales que se
-/// suelen necesitar en la lista (sucursal, barbero, servicios) cuando vienen
-/// como joins embebidos desde Supabase.
+/// Turno del cliente, hidratado con sucursal, barbero y servicios.
+///
+/// `dateStr` + `startTime` son hora de PARED de la sucursal (`branchTimezone`).
+/// Los instantes reales se calculan con `Fechas.instantOf`, nunca con la zona
+/// del dispositivo.
 class Appointment {
   final String id;
   final String organizationId;
   final String branchId;
   final String? branchName;
+  final String? branchSlug;
+  final String? branchAddress;
+  final String? branchPhone;
+  final String branchTimezone;
+  final double? branchLatitude;
+  final double? branchLongitude;
   final String clientId;
   final String? barberId;
   final String? barberName;
-  final DateTime appointmentDate; // local date
-  final String startTime; // 'HH:mm:ss'
-  final String endTime; // 'HH:mm:ss'
+  final String? barberAvatarUrl;
+
+  /// 'yyyy-MM-dd' (hora de pared de la sucursal).
+  final String dateStr;
+
+  /// 'HH:MM' (normalizado desde 'HH:MM:SS').
+  final String startTime;
+  final String endTime;
   final int durationMinutes;
   final AppointmentStatus status;
   final String source;
@@ -142,91 +187,96 @@ class Appointment {
   final String? notes;
   final List<AppointmentService> services;
 
-  // Branch extras útiles para navegar a Maps / armar links
-  final double? branchLatitude;
-  final double? branchLongitude;
-  final String? branchAddress;
-
   const Appointment({
     required this.id,
     required this.organizationId,
     required this.branchId,
     required this.clientId,
-    required this.appointmentDate,
+    required this.dateStr,
     required this.startTime,
     required this.endTime,
     required this.durationMinutes,
     required this.status,
     required this.source,
     this.branchName,
+    this.branchSlug,
+    this.branchAddress,
+    this.branchPhone,
+    this.branchTimezone = Fechas.tzBuenosAires,
+    this.branchLatitude,
+    this.branchLongitude,
     this.barberId,
     this.barberName,
+    this.barberAvatarUrl,
     this.cancellationToken,
     this.tokenExpiresAt,
     this.notes,
     this.services = const [],
-    this.branchLatitude,
-    this.branchLongitude,
-    this.branchAddress,
   });
 
   factory Appointment.fromJson(Map<String, dynamic> json) {
-    // Branch embebido (join: branches(...))
+    // Sucursal embebida (join: branches(...)).
     final branchRaw = json['branches'] ?? json['branch'];
     String? branchName;
+    String? branchSlug;
+    String? branchAddress;
+    String? branchPhone;
+    String? branchTz;
     double? branchLat;
     double? branchLng;
-    String? branchAddress;
     if (branchRaw is Map) {
       final bm = Map<String, dynamic>.from(branchRaw);
       branchName = bm['name'] as String?;
+      branchSlug = bm['slug'] as String?;
+      branchAddress = bm['address'] as String?;
+      branchPhone = bm['phone'] as String?;
+      branchTz = bm['timezone'] as String?;
       branchLat = (bm['latitude'] as num?)?.toDouble();
       branchLng = (bm['longitude'] as num?)?.toDouble();
-      branchAddress = bm['address'] as String?;
     }
 
-    // Barber embebido (join: barber:staff(...))
+    // Barbero embebido por COLUMNA (barber:barber_id(...)).
     final barberRaw = json['barber'] ?? json['staff'];
     String? barberName;
+    String? barberAvatar;
     if (barberRaw is Map) {
       final sm = Map<String, dynamic>.from(barberRaw);
       barberName = (sm['full_name'] as String?) ?? (sm['name'] as String?);
+      barberAvatar = sm['avatar_url'] as String?;
     }
 
-    // Services: lista de appointment_services con join services
+    // Servicios: `appointment_services` sólo existe cuando el turno tiene más
+    // de un servicio; si no, el principal viene en `service:service_id(...)`.
     final servicesRaw = json['appointment_services'] ?? json['services_list'];
     final services = <AppointmentService>[];
     if (servicesRaw is List) {
-      for (final s in servicesRaw) {
-        if (s is Map) {
-          services.add(AppointmentService.fromJson(
-              Map<String, dynamic>.from(s)));
-        }
+      final rows = servicesRaw.whereType<Map>().map((s) => Map<String, dynamic>.from(s)).toList()
+        ..sort((a, b) => ((a['sort_order'] as num?) ?? 0).compareTo((b['sort_order'] as num?) ?? 0));
+      for (final s in rows) {
+        services.add(AppointmentService.fromJson(s));
       }
-    } else if (json['service_id'] != null) {
-      // Single service legacy
-      services.add(AppointmentService(
-        id: json['service_id'] as String,
-        name: (json['services'] is Map)
-            ? (json['services'] as Map)['name'] as String?
-            : null,
-      ));
+    }
+    if (services.isEmpty) {
+      final mainRaw = json['service'];
+      if (mainRaw is Map) {
+        services.add(AppointmentService.fromJson(Map<String, dynamic>.from(mainRaw)));
+      } else if (json['service_id'] != null) {
+        services.add(AppointmentService(id: json['service_id'] as String));
+      }
     }
 
-    final dateRaw = json['appointment_date'] as String?;
-    final date = dateRaw != null
-        ? DateTime.parse(dateRaw)
-        : DateTime.now();
+    final rawDate = (json['appointment_date'] as String?) ?? '';
+    final dateStr = rawDate.length >= 10 ? rawDate.substring(0, 10) : rawDate;
 
     return Appointment(
       id: json['id'] as String,
-      organizationId: json['organization_id'] as String,
-      branchId: json['branch_id'] as String,
-      clientId: json['client_id'] as String,
+      organizationId: (json['organization_id'] as String?) ?? '',
+      branchId: (json['branch_id'] as String?) ?? '',
+      clientId: (json['client_id'] as String?) ?? '',
       barberId: json['barber_id'] as String?,
-      appointmentDate: date,
-      startTime: (json['start_time'] as String?) ?? '00:00:00',
-      endTime: (json['end_time'] as String?) ?? '00:00:00',
+      dateStr: dateStr,
+      startTime: Fechas.hhmm((json['start_time'] as String?) ?? '00:00'),
+      endTime: Fechas.hhmm((json['end_time'] as String?) ?? '00:00'),
       durationMinutes: (json['duration_minutes'] as num?)?.toInt() ?? 0,
       status: AppointmentStatus.fromString(json['status'] as String?),
       source: (json['source'] as String?) ?? 'public',
@@ -237,121 +287,76 @@ class Appointment {
       notes: json['notes'] as String?,
       services: services,
       branchName: branchName,
-      barberName: barberName,
+      branchSlug: branchSlug,
+      branchAddress: branchAddress,
+      branchPhone: branchPhone,
+      branchTimezone: branchTz ?? Fechas.tzBuenosAires,
       branchLatitude: branchLat,
       branchLongitude: branchLng,
-      branchAddress: branchAddress,
+      barberName: barberName,
+      barberAvatarUrl: barberAvatar,
     );
   }
 
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'organization_id': organizationId,
-        'branch_id': branchId,
-        'client_id': clientId,
-        if (barberId != null) 'barber_id': barberId,
-        'appointment_date':
-            DateFormat('yyyy-MM-dd').format(appointmentDate),
-        'start_time': startTime,
-        'end_time': endTime,
-        'duration_minutes': durationMinutes,
-        'status': status.rawValue,
-        'source': source,
-        if (cancellationToken != null) 'cancellation_token': cancellationToken,
-        if (notes != null) 'notes': notes,
-      };
+  // ── Instantes (UTC) ────────────────────────────────────────────────────
 
-  /// Convierte fecha+hora local a un `DateTime` local para comparaciones.
-  DateTime get startDateTime {
-    final parts = startTime.split(':');
-    final h = parts.isNotEmpty ? int.tryParse(parts[0]) ?? 0 : 0;
-    final m = parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0;
-    return DateTime(
-      appointmentDate.year,
-      appointmentDate.month,
-      appointmentDate.day,
-      h,
-      m,
-    );
-  }
+  DateTime get startInstant => Fechas.instantOf(dateStr, startTime, branchTimezone);
 
-  DateTime get endDateTime {
-    final parts = endTime.split(':');
-    final h = parts.isNotEmpty ? int.tryParse(parts[0]) ?? 0 : 0;
-    final m = parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0;
-    return DateTime(
-      appointmentDate.year,
-      appointmentDate.month,
-      appointmentDate.day,
-      h,
-      m,
-    );
-  }
-
-  bool get isUpcoming {
-    if (status == AppointmentStatus.cancelled ||
-        status == AppointmentStatus.completed ||
-        status == AppointmentStatus.noShow) {
-      return false;
+  DateTime get endInstant {
+    final end = Fechas.instantOf(dateStr, endTime, branchTimezone);
+    // Un turno con end_time vacío o igual al inicio: usamos la duración.
+    if (!end.isAfter(startInstant)) {
+      return startInstant.add(Duration(minutes: durationMinutes > 0 ? durationMinutes : 30));
     }
-    return startDateTime.isAfter(DateTime.now());
+    return end;
   }
 
-  bool get isPast {
-    return status == AppointmentStatus.completed ||
-        status == AppointmentStatus.cancelled ||
-        status == AppointmentStatus.noShow ||
-        endDateTime.isBefore(DateTime.now());
+  /// Día de la semana estilo JS (0 = domingo).
+  int get dayOfWeek => Fechas.dayOfWeek(dateStr);
+
+  /// Todavía "viene": está en el local, o no terminó.
+  bool isLive({DateTime? now}) {
+    if (!status.isActive) return false;
+    if (status.isAtShop) return true;
+    return endInstant.isAfter((now ?? DateTime.now()).toUtc());
   }
 
-  /// Se puede cancelar si:
-  ///  - status confirmed/scheduled/checked_in,
-  ///  - falta más de 2h al start,
-  ///  - hay token y todavía no expiró.
-  bool get canCancel {
-    if (status != AppointmentStatus.scheduled &&
-        status != AppointmentStatus.confirmed &&
-        status != AppointmentStatus.checkedIn) {
-      return false;
-    }
-    if (cancellationToken == null) return false;
-    if (tokenExpiresAt != null &&
-        tokenExpiresAt!.isBefore(DateTime.now())) {
-      return false;
-    }
-    final diff = startDateTime.difference(DateTime.now());
-    return diff.inMinutes >= 120; // 2h mínimo
+  /// Se puede cancelar desde la app: estado cancelable y faltan al menos
+  /// `minHours` horas (la misma regla que aplica el server; acá sólo decide
+  /// si mostrar el botón).
+  bool canCancel({required int minHours, DateTime? now}) {
+    if (!status.isCancellable) return false;
+    final diff = startInstant.difference((now ?? DateTime.now()).toUtc());
+    return diff.inMinutes >= minHours * 60;
   }
 
-  /// "Lunes 5 de mayo" — capitalizado.
-  String get formattedDate {
-    final s =
-        DateFormat("EEEE d 'de' MMMM", 'es').format(appointmentDate.toLocal());
-    if (s.isEmpty) return s;
-    return '${s[0].toUpperCase()}${s.substring(1)}';
-  }
+  // ── Formato ────────────────────────────────────────────────────────────
 
-  /// "14:30 hs"
-  String get formattedTime {
-    final parts = startTime.split(':');
-    final h = parts.isNotEmpty ? parts[0].padLeft(2, '0') : '00';
-    final m = parts.length > 1 ? parts[1].padLeft(2, '0') : '00';
-    return '$h:$m hs';
-  }
+  /// "Miércoles, 6 de agosto".
+  String get fechaLarga => Fechas.fechaLargaDeStr(dateStr);
 
-  /// Lista de servicios separada por " · ". Si no hay, fallback "Servicio".
+  /// "Mié 6 ago".
+  String get fechaCorta => Fechas.fechaCortaDeStr(dateStr);
+
+  /// "Hoy" / "Mañana" / "Miércoles, 6 de agosto".
+  String etiquetaDia({DateTime? now}) =>
+      Fechas.etiquetaDia(dateStr, tz: branchTimezone, now: now);
+
+  /// "15:00".
+  String get horaLabel => startTime;
+
+  /// Nombres separados por " + " (o "Servicio").
   String get servicesLabel {
     final names = services
-        .map((s) => s.name ?? '')
-        .where((n) => n.trim().isNotEmpty)
+        .map((s) => (s.name ?? '').trim())
+        .where((n) => n.isNotEmpty)
         .toList();
     if (names.isEmpty) return 'Servicio';
-    return names.join(' · ');
+    return names.join(' + ');
   }
 
-  /// Total $ snapshot de los servicios (si están cargados los precios).
+  /// Total del snapshot de precios, si hay alguno.
   num? get totalPrice {
-    if (services.isEmpty) return null;
     num total = 0;
     var any = false;
     for (final s in services) {
@@ -362,4 +367,46 @@ class Appointment {
     }
     return any ? total : null;
   }
+
+  bool get canOpenMaps =>
+      (branchLatitude != null && branchLongitude != null) ||
+      (branchAddress != null && branchAddress!.trim().isNotEmpty);
+
+  String? get mapsUrl {
+    if (branchLatitude != null && branchLongitude != null) {
+      return 'https://www.google.com/maps/search/?api=1&query=$branchLatitude,$branchLongitude';
+    }
+    final addr = branchAddress?.trim();
+    if (addr != null && addr.isNotEmpty) {
+      return 'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(addr)}';
+    }
+    return null;
+  }
+
+  Appointment copyWith({AppointmentStatus? status}) => Appointment(
+        id: id,
+        organizationId: organizationId,
+        branchId: branchId,
+        clientId: clientId,
+        dateStr: dateStr,
+        startTime: startTime,
+        endTime: endTime,
+        durationMinutes: durationMinutes,
+        status: status ?? this.status,
+        source: source,
+        branchName: branchName,
+        branchSlug: branchSlug,
+        branchAddress: branchAddress,
+        branchPhone: branchPhone,
+        branchTimezone: branchTimezone,
+        branchLatitude: branchLatitude,
+        branchLongitude: branchLongitude,
+        barberId: barberId,
+        barberName: barberName,
+        barberAvatarUrl: barberAvatarUrl,
+        cancellationToken: cancellationToken,
+        tokenExpiresAt: tokenExpiresAt,
+        notes: notes,
+        services: services,
+      );
 }

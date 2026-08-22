@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../app/widgets/glass/liquid.dart';
 import '../auth/auth_provider.dart';
 import '../../features/onboarding/presentation/screens/splash_screen.dart';
 import '../../features/onboarding/presentation/screens/welcome_screen.dart';
-import '../../features/onboarding/presentation/screens/login_screen.dart';
+import '../../features/onboarding/presentation/screens/login_phone_screen.dart';
+import '../../features/onboarding/presentation/screens/login_code_screen.dart';
+import '../../features/onboarding/presentation/screens/login_name_screen.dart';
 import '../../features/onboarding/presentation/screens/biometric_gate_screen.dart';
+import '../../features/branch_selection/presentation/screens/branch_picker_screen.dart';
 import '../../features/home/presentation/screens/home_screen.dart';
 import '../../features/occupancy/presentation/screens/occupancy_screen.dart';
 import '../../features/occupancy/presentation/screens/branch_detail_screen.dart';
@@ -22,20 +26,24 @@ import '../../features/convenios/presentation/screens/convenio_detail_screen.dar
 import '../../features/convenios/presentation/screens/my_redemptions_screen.dart';
 import '../../features/profile/presentation/screens/profile_screen.dart';
 import '../../features/profile/presentation/screens/pin_setup_screen.dart';
+import '../../features/profile/presentation/screens/pin_verify_screen.dart';
 import '../../features/visits/presentation/screens/visits_screen.dart';
-import '../../features/branch_selection/presentation/screens/branch_selection_screen.dart';
-import '../../features/org_selection/presentation/screens/org_selection_screen.dart';
 import '../../features/appointments/presentation/my_appointments_screen.dart';
-import '../../features/appointments/presentation/booking_webview_screen.dart';
+import '../../features/appointments/presentation/booking_wizard_screen.dart';
+import '../../features/appointments/presentation/appointment_detail_screen.dart';
+import '../../features/notifications/presentation/screens/notifications_screen.dart';
+import '../../features/notifications/presentation/screens/notification_preferences_screen.dart';
 
-final _rootNavigatorKey = GlobalKey<NavigatorState>();
+/// Navigator raíz — lo usa también `PushHandler` para navegar desde una
+/// notificación sin contexto de widget.
+final rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellNavigatorKey = GlobalKey<NavigatorState>();
 
 /// ChangeNotifier que hace refresh del router cuando cambia el auth state,
 /// sin recrear el GoRouter en cada cambio (evita resetear a initialLocation).
 class _AuthRouterRefresh extends ChangeNotifier {
   _AuthRouterRefresh(Ref ref) {
-    _sub = ref.listen<AuthState>(authProvider, (_, __) => notifyListeners());
+    _sub = ref.listen<AuthState>(authProvider, (_, _) => notifyListeners());
   }
   late final ProviderSubscription<AuthState> _sub;
 
@@ -46,154 +54,147 @@ class _AuthRouterRefresh extends ChangeNotifier {
   }
 }
 
+/// Rutas del flujo de login (teléfono → código → nombre).
+const _loginPaths = {'/login', '/login/codigo', '/login/nombre'};
+
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = _AuthRouterRefresh(ref);
   ref.onDispose(refresh.dispose);
 
   return GoRouter(
-    navigatorKey: _rootNavigatorKey,
+    navigatorKey: rootNavigatorKey,
     initialLocation: '/splash',
     refreshListenable: refresh,
     redirect: (context, state) {
-      final authState = ref.read(authProvider);
+      final auth = ref.read(authProvider);
       final path = state.matchedLocation;
-      final isAuth = authState.status == AuthStatus.authenticated;
-      final needsBio = authState.status == AuthStatus.needsBiometric;
-      final isUnauthenticated = authState.status == AuthStatus.unauthenticated;
-      final isInitial = authState.status == AuthStatus.initial;
-      final hasOrg = authState.hasOrg;
+      final status = auth.status;
 
-      // Allow splash always
       if (path == '/splash') return null;
+      if (status == AuthStatus.initial) return '/splash';
 
-      // Still loading
-      if (isInitial) return '/splash';
+      final isWelcome = path == '/welcome';
+      final isLogin = _loginPaths.contains(path);
+      final isGate = path == '/biometric' || path == '/pin';
+      final isPicker = path == '/elegir-sucursal';
 
-      // Needs biometric verification
-      if (needsBio && path != '/biometric') return '/biometric';
-
-      // Flujo no autenticado: welcome → select-org → login
-      if (isUnauthenticated) {
-        final allowed = path.startsWith('/welcome') ||
-            path.startsWith('/login') ||
-            path == '/select-org';
-        if (!allowed) return '/welcome';
-        // No permitir login sin haber elegido org antes (evita mismatch con app_metadata)
-        if (path.startsWith('/login') && !hasOrg) return '/select-org';
-        return null;
+      switch (status) {
+        case AuthStatus.unauthenticated:
+          if (isWelcome || isLogin) return null;
+          return '/welcome';
+        case AuthStatus.needsBiometric:
+          if (isGate) return null;
+          return '/biometric';
+        case AuthStatus.needsBranch:
+          if (isPicker) return null;
+          return '/elegir-sucursal?onboarding=1';
+        case AuthStatus.authenticated:
+          if (isWelcome || isLogin || isGate || path == '/splash') return '/home';
+          return null;
+        case AuthStatus.initial:
+          return '/splash';
       }
-
-      // Authenticated pero sin org seleccionada (sesión vieja) → selección de org
-      if (isAuth && !hasOrg && path != '/select-org') {
-        return '/select-org';
-      }
-
-      // Authenticated con org, redirect away from auth/selection screens
-      if (isAuth && hasOrg &&
-          (path.startsWith('/welcome') || path.startsWith('/login') ||
-           path == '/biometric' || path == '/splash' ||
-           path == '/select-org' || path == '/select-branch')) {
-        return '/home';
-      }
-
-      return null;
     },
     routes: [
-      GoRoute(path: '/splash', builder: (_, __) => const SplashScreen()),
-      GoRoute(path: '/welcome', builder: (_, __) => const WelcomeScreen()),
-      GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
-      GoRoute(path: '/biometric', builder: (_, __) => const BiometricGateScreen()),
-      GoRoute(path: '/select-org', builder: (_, __) => const OrgSelectionScreen()),
-      GoRoute(path: '/select-branch', builder: (_, __) => const BranchSelectionScreen()),
+      GoRoute(path: '/splash', builder: (_, _) => const SplashScreen()),
+      GoRoute(path: '/welcome', builder: (_, _) => const WelcomeScreen()),
+      GoRoute(path: '/login', builder: (_, _) => const LoginPhoneScreen()),
+      GoRoute(path: '/login/codigo', builder: (_, _) => const LoginCodeScreen()),
+      GoRoute(path: '/login/nombre', builder: (_, _) => const LoginNameScreen()),
+      GoRoute(path: '/biometric', builder: (_, _) => const BiometricGateScreen()),
+      GoRoute(path: '/pin', builder: (_, _) => const PinVerifyScreen()),
+      GoRoute(
+        path: '/elegir-sucursal',
+        builder: (_, state) => BranchPickerScreen(
+          onboarding: state.uri.queryParameters['onboarding'] == '1',
+        ),
+      ),
 
-      // Main app with bottom nav
+      // ── App principal con dock flotante ──────────────────────────────
       ShellRoute(
         navigatorKey: _shellNavigatorKey,
         builder: (context, state, child) => MainShell(child: child),
         routes: [
           GoRoute(
             path: '/home',
-            pageBuilder: (_, __) => const NoTransitionPage(child: HomeScreen()),
+            pageBuilder: (_, _) => const NoTransitionPage(child: HomeScreen()),
+          ),
+          GoRoute(
+            path: '/turnos',
+            pageBuilder: (_, _) =>
+                const NoTransitionPage(child: MyAppointmentsScreen()),
           ),
           GoRoute(
             path: '/occupancy',
-            pageBuilder: (_, __) => const NoTransitionPage(child: OccupancyScreen()),
+            pageBuilder: (_, _) =>
+                const NoTransitionPage(child: OccupancyScreen()),
           ),
           GoRoute(
             path: '/rewards',
-            pageBuilder: (_, __) => const NoTransitionPage(child: RewardsScreen()),
+            pageBuilder: (_, _) => const NoTransitionPage(child: RewardsScreen()),
           ),
           GoRoute(
             path: '/profile',
-            pageBuilder: (_, __) => const NoTransitionPage(child: ProfileScreen()),
+            pageBuilder: (_, _) => const NoTransitionPage(child: ProfileScreen()),
           ),
         ],
       ),
 
-      // Detail screens (outside shell)
+      // ── Turnos (fuera del shell, pantalla completa) ──────────────────
+      GoRoute(
+        path: '/turnos/reservar',
+        builder: (_, state) => BookingWizardScreen(
+          branchSlug: state.uri.queryParameters['branch'],
+        ),
+      ),
+      GoRoute(
+        path: '/turnos/:id',
+        builder: (_, state) =>
+            AppointmentDetailScreen(appointmentId: state.pathParameters['id']!),
+      ),
+
+      // ── Notificaciones ───────────────────────────────────────────────
+      GoRoute(path: '/notificaciones', builder: (_, _) => const NotificationsScreen()),
+      GoRoute(
+        path: '/notificaciones/preferencias',
+        builder: (_, _) => const NotificationPreferencesScreen(),
+      ),
+
+      // ── Detalle (fuera del shell) ────────────────────────────────────
       GoRoute(
         path: '/branch/:id',
-        builder: (_, state) => BranchDetailScreen(branchId: state.pathParameters['id']!),
+        builder: (_, state) =>
+            BranchDetailScreen(branchId: state.pathParameters['id']!),
       ),
-      GoRoute(
-        path: '/points',
-        builder: (_, __) => const PointsScreen(),
-      ),
-      GoRoute(
-        path: '/catalog',
-        builder: (_, __) => const CatalogScreen(),
-      ),
-      GoRoute(
-        path: '/reviews',
-        builder: (_, __) => const ReviewsScreen(),
-      ),
+      GoRoute(path: '/points', builder: (_, _) => const PointsScreen()),
+      GoRoute(path: '/catalog', builder: (_, _) => const CatalogScreen()),
+      GoRoute(path: '/reviews', builder: (_, _) => const ReviewsScreen()),
       GoRoute(
         path: '/review/:token',
-        builder: (_, state) => ReviewFlowScreen(token: state.pathParameters['token']!),
+        builder: (_, state) =>
+            ReviewFlowScreen(token: state.pathParameters['token']!),
       ),
       GoRoute(
         path: '/reward-qr/:id',
-        builder: (_, state) => QrDisplayScreen(clientRewardId: state.pathParameters['id']!),
+        builder: (_, state) =>
+            QrDisplayScreen(clientRewardId: state.pathParameters['id']!),
       ),
-      GoRoute(
-        path: '/billboard',
-        builder: (_, __) => const BillboardScreen(),
-      ),
-      GoRoute(
-        path: '/convenios',
-        builder: (_, __) => const ConveniosListScreen(),
-      ),
+      GoRoute(path: '/billboard', builder: (_, _) => const BillboardScreen()),
+      GoRoute(path: '/convenios', builder: (_, _) => const ConveniosListScreen()),
       GoRoute(
         path: '/convenio/:id',
         builder: (_, state) =>
             ConvenioDetailScreen(id: state.pathParameters['id']!),
       ),
-      GoRoute(
-        path: '/mis-canjes',
-        builder: (_, __) => const MyRedemptionsScreen(),
-      ),
-      GoRoute(
-        path: '/pin-setup',
-        builder: (_, __) => const PinSetupScreen(),
-      ),
-      GoRoute(
-        path: '/visits',
-        builder: (_, __) => const VisitsScreen(),
-      ),
-      GoRoute(
-        path: '/appointments',
-        builder: (_, __) => const MyAppointmentsScreen(),
-      ),
-      GoRoute(
-        path: '/appointments/book',
-        builder: (_, __) => const BookingWebViewScreen(),
-      ),
+      GoRoute(path: '/mis-canjes', builder: (_, _) => const MyRedemptionsScreen()),
+      GoRoute(path: '/pin-setup', builder: (_, _) => const PinSetupScreen()),
+      GoRoute(path: '/visits', builder: (_, _) => const VisitsScreen()),
     ],
   );
 });
 
-/// Shell principal — dock flotante estilo iOS 26, con backgroundColor
-/// transparente y `extendBody` para que el contenido pase por detrás.
+/// Shell principal — dock flotante, `backgroundColor` transparente y
+/// `extendBody` para que el contenido pase por detrás.
 class MainShell extends StatelessWidget {
   final Widget child;
   const MainShell({super.key, required this.child});
@@ -203,6 +204,11 @@ class MainShell extends StatelessWidget {
       icon: Icons.home_outlined,
       selectedIcon: Icons.home_rounded,
       label: 'Inicio',
+    ),
+    LiquidDockItem(
+      icon: Icons.event_available_outlined,
+      selectedIcon: Icons.event_available_rounded,
+      label: 'Turnos',
     ),
     LiquidDockItem(
       icon: Icons.storefront_outlined,
@@ -221,11 +227,14 @@ class MainShell extends StatelessWidget {
     ),
   ];
 
+  static const _paths = ['/home', '/turnos', '/occupancy', '/rewards', '/profile'];
+
   static int _indexFromLocation(String location) {
-    if (location.startsWith('/home')) return 0;
-    if (location.startsWith('/occupancy')) return 1;
-    if (location.startsWith('/rewards')) return 2;
-    if (location.startsWith('/profile')) return 3;
+    for (var i = 0; i < _paths.length; i++) {
+      if (location == _paths[i] || location.startsWith('${_paths[i]}/')) {
+        return i;
+      }
+    }
     return 0;
   }
 
@@ -241,18 +250,7 @@ class MainShell extends StatelessWidget {
       bottomNavigationBar: LiquidDock(
         items: _items,
         currentIndex: currentIndex,
-        onSelect: (index) {
-          switch (index) {
-            case 0:
-              context.go('/home');
-            case 1:
-              context.go('/occupancy');
-            case 2:
-              context.go('/rewards');
-            case 3:
-              context.go('/profile');
-          }
-        },
+        onSelect: (index) => context.go(_paths[index]),
       ),
     );
   }

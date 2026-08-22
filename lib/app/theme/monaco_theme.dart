@@ -15,6 +15,7 @@ class MonacoTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
+      fontFamily: MonacoTypography.fontFamily,
       scaffoldBackgroundColor: MonacoColors.background,
       textTheme: textTheme,
       colorScheme: const ColorScheme.dark(
@@ -29,7 +30,7 @@ class MonacoTheme {
         outline: MonacoColors.border,
       ),
       appBarTheme: AppBarTheme(
-        backgroundColor: MonacoColors.background,
+        backgroundColor: Colors.transparent,
         foregroundColor: MonacoColors.foreground,
         elevation: 0,
         scrolledUnderElevation: 0,
@@ -96,13 +97,6 @@ class MonacoTheme {
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         hintStyle: const TextStyle(color: MonacoColors.foregroundSubtle),
         labelStyle: const TextStyle(color: MonacoColors.foregroundMuted),
-      ),
-      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-        backgroundColor: MonacoColors.surface,
-        selectedItemColor: MonacoColors.primary,
-        unselectedItemColor: MonacoColors.foregroundSubtle,
-        type: BottomNavigationBarType.fixed,
-        elevation: 0,
       ),
       dividerTheme: const DividerThemeData(
         color: MonacoColors.border,

@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:monaco_mobile/core/auth/auth_provider.dart';
+import 'package:monaco_mobile/core/utils/constants.dart';
 import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
 
 // ── Branch Signals (one-shot) ──────────────────────────────────────────────
@@ -10,8 +10,7 @@ import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
 /// barberías). Usa el RPC paramétrico para no depender de `get_user_org_id()`.
 final branchSignalsProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  final orgId = ref.watch(authProvider).selectedOrgId;
-  if (orgId == null) return [];
+  const orgId = AppConstants.organizationId;
 
   final supabase = ref.read(supabaseClientProvider);
   final res = await supabase.rpc(

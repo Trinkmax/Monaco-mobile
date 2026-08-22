@@ -1,25 +1,37 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'appointment_model.dart';
+import 'fechas.dart';
 
-/// Repositorio que envuelve las queries a Supabase relacionadas con turnos.
+/// Lecturas de `appointments` por PostgREST con el JWT del cliente.
 ///
-/// Las RLS para clientes lee `appointments` filtrando por
-/// `client_id IN (SELECT id FROM clients WHERE auth_user_id = auth.uid())`,
-/// así que solo pasamos el `clientId` y el server ya valida.
+/// La RLS (`appointments_select_own_client`) ya filtra por
+/// `client_id ∈ (SELECT id FROM clients WHERE auth_user_id = auth.uid())`;
+/// pasamos `clientId` igual para que la query sea explícita y cacheable.
+///
+/// Las MUTACIONES (reservar, cancelar) NO van por acá: van por la API mobile
+/// (`BookingApi`), que corre el camino TypeScript completo (mensajes de
+/// WhatsApp, cola, lista de espera).
 class AppointmentsRepository {
   final SupabaseClient _client;
 
   AppointmentsRepository(this._client);
 
-  /// Joins consistentes para hidratar branch + barber + servicios.
-  /// `branches!inner` evita devolver filas con sucursal eliminada (FK rota).
-  static const _selectFields = '''
+  /// Joins para hidratar sucursal + barbero + servicios.
+  ///
+  /// - `branches!inner` evita devolver filas con sucursal borrada.
+  /// - El barbero se embebe por COLUMNA (`barber:barber_id(...)`):
+  ///   `appointments` tiene 4 FKs contra `staff` y `barber:staff(...)` hace
+  ///   que PostgREST rechace la query ENTERA con PGRST201 (Known Risk #17).
+  /// - `service:service_id(...)` trae el servicio principal: para un turno de
+  ///   un solo servicio `appointment_services` viene vacío.
+  static const selectFields = '''
     id,
     organization_id,
     branch_id,
     client_id,
     barber_id,
+    service_id,
     appointment_date,
     start_time,
     end_time,
@@ -29,8 +41,9 @@ class AppointmentsRepository {
     cancellation_token,
     token_expires_at,
     notes,
-    branches!inner(id, name, address, latitude, longitude),
-    barber:staff(id, full_name),
+    branches!inner(id, name, slug, address, phone, timezone, latitude, longitude),
+    barber:barber_id(id, full_name, avatar_url),
+    service:service_id(id, name, price, duration_minutes),
     appointment_services(
       id,
       service_id,
@@ -41,16 +54,20 @@ class AppointmentsRepository {
     )
   ''';
 
-  /// Turnos próximos del cliente: futuros (date >= hoy) y status activos.
-  /// Ordena por fecha+hora ascendente.
+  /// Turnos próximos: estado activo y fecha >= HOY **de la sucursal**
+  /// (UTC-3), no del dispositivo ni de `toIso8601String()`.
+  ///
+  /// No se filtra por hora: un turno confirmado de hoy cuya hora ya pasó
+  /// sigue siendo "de hoy" hasta que el cron lo marque `no_show` o el
+  /// barbero lo complete. Los que ya están en el local (`checked_in`,
+  /// `in_progress`) se muestran siempre, por definición.
   Future<List<Appointment>> fetchUpcoming(String clientId) async {
-    final today =
-        DateTime.now().toIso8601String().substring(0, 10); // yyyy-MM-dd
+    final today = Fechas.todayStr(Fechas.tzBuenosAires);
     final res = await _client
         .from('appointments')
-        .select(_selectFields)
+        .select(selectFields)
         .eq('client_id', clientId)
-        .inFilter('status', ['scheduled', 'confirmed', 'checked_in', 'in_progress'])
+        .inFilter('status', AppointmentStatus.upcomingRaw)
         .gte('appointment_date', today)
         .order('appointment_date', ascending: true)
         .order('start_time', ascending: true);
@@ -58,82 +75,39 @@ class AppointmentsRepository {
     final list = (res as List)
         .map((row) => Appointment.fromJson(Map<String, dynamic>.from(row)))
         .toList();
-    // Filtrar fuera de fecha pero hoy con start anterior a now (no es upcoming)
-    final now = DateTime.now();
-    return list.where((a) {
-      if (a.status == AppointmentStatus.inProgress) return true;
-      return a.startDateTime
-          .add(const Duration(minutes: 1))
-          .isAfter(now);
-    }).toList();
+
+    // Los que ya están en el local van primero (es lo que está pasando AHORA).
+    list.sort((a, b) {
+      if (a.status.isAtShop != b.status.isAtShop) return a.status.isAtShop ? -1 : 1;
+      return a.startInstant.compareTo(b.startInstant);
+    });
+    return list;
   }
 
-  /// Turnos pasados del cliente: completed/cancelled/no_show, ordenados
-  /// descendente (más recientes primero), limitados a 50.
-  Future<List<Appointment>> fetchPast(String clientId) async {
+  /// Turnos pasados: completed / cancelled / no_show, más recientes primero.
+  Future<List<Appointment>> fetchPast(String clientId, {int limit = 50}) async {
     final res = await _client
         .from('appointments')
-        .select(_selectFields)
+        .select(selectFields)
         .eq('client_id', clientId)
-        .inFilter('status', ['completed', 'cancelled', 'no_show'])
+        .inFilter('status', AppointmentStatus.pastRaw)
         .order('appointment_date', ascending: false)
         .order('start_time', ascending: false)
-        .limit(50);
+        .limit(limit);
 
     return (res as List)
         .map((row) => Appointment.fromJson(Map<String, dynamic>.from(row)))
         .toList();
   }
 
-  /// Cancela el turno usando el `cancellation_token` (no requiere auth).
-  /// El RPC actual valida ventana de 2h y devuelve `{ success, error? }`.
-  /// El parámetro `reason` se acepta por simetría con la UI pero el RPC actual
-  /// no lo persiste — lo guardamos como nota optimista en `notes` si hay.
-  Future<void> cancelByToken(String token, {String? reason}) async {
-    final res = await _client.rpc(
-      'cancel_appointment_by_token',
-      params: {'p_token': token},
-    );
-
-    final data = (res is Map) ? Map<String, dynamic>.from(res) : null;
-    final ok = data != null && data['success'] == true;
-    if (!ok) {
-      final err = (data?['error'] as String?) ?? 'CANCEL_FAILED';
-      throw AppointmentCancelException(err);
-    }
-
-    // Best-effort: persistir motivo en notes (no bloquea si falla por RLS).
-    if (reason != null && reason.trim().isNotEmpty) {
-      try {
-        await _client
-            .from('appointments')
-            .update({
-              'notes': 'Cancelación cliente: ${reason.trim()}',
-            })
-            .eq('cancellation_token', token);
-      } catch (_) {
-        // No-op: el cancel ya quedó registrado, esto es solo metadata.
-      }
-    }
+  /// Un turno por id (la RLS garantiza que sea propio). `null` si no existe.
+  Future<Appointment?> fetchById(String id) async {
+    final res = await _client
+        .from('appointments')
+        .select(selectFields)
+        .eq('id', id)
+        .maybeSingle();
+    if (res == null) return null;
+    return Appointment.fromJson(Map<String, dynamic>.from(res));
   }
-}
-
-/// Errores conocidos del RPC `cancel_appointment_by_token`.
-class AppointmentCancelException implements Exception {
-  final String code;
-  AppointmentCancelException(this.code);
-
-  String get userMessage {
-    switch (code) {
-      case 'NOT_FOUND_OR_NOT_CANCELLABLE':
-        return 'No pudimos encontrar el turno o ya no se puede cancelar.';
-      case 'TOO_LATE':
-        return 'Faltan menos de 2 horas para el turno. Comunicate con la barbería.';
-      default:
-        return 'No pudimos cancelar el turno. Intentalo de nuevo en un momento.';
-    }
-  }
-
-  @override
-  String toString() => 'AppointmentCancelException($code)';
 }

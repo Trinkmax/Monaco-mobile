@@ -16,8 +16,8 @@ class SecureStorageService {
   static const _keyClientPhone = 'client_phone';
   static const _keyBiometricEnabled = 'biometric_enabled';
   static const _keyPinEnabled = 'pin_enabled';
-  static const _keySelectedOrgId = 'selected_org_id';
-  static const _keySelectedOrgName = 'selected_org_name';
+  static const _keyTestMode = 'test_mode_enabled';
+  static const _keyLocalPinHash = 'local_pin_hash';
   static const _keySelectedBranchId = 'selected_branch_id';
   static const _keySelectedBranchName = 'selected_branch_name';
   static const _keySelectedBranchOperationMode =
@@ -88,32 +88,18 @@ class SecureStorageService {
     await _storage.write(key: _keyPinEnabled, value: enabled.toString());
   }
 
-  // Selected organization
-  static Future<void> saveSelectedOrg({
-    required String orgId,
-    required String orgName,
-  }) async {
-    await Future.wait([
-      _storage.write(key: _keySelectedOrgId, value: orgId),
-      _storage.write(key: _keySelectedOrgName, value: orgName),
-    ]);
-  }
+  // Modo prueba (muestra la sucursal Test)
+  static Future<bool> isTestModeEnabled() async =>
+      (await _storage.read(key: _keyTestMode)) == 'true';
 
-  static Future<String?> getSelectedOrgId() =>
-      _storage.read(key: _keySelectedOrgId);
-  static Future<String?> getSelectedOrgName() =>
-      _storage.read(key: _keySelectedOrgName);
+  static Future<void> setTestModeEnabled(bool enabled) =>
+      _storage.write(key: _keyTestMode, value: enabled.toString());
 
-  static Future<void> clearSelectedOrg() async {
-    await Future.wait([
-      _storage.delete(key: _keySelectedOrgId),
-      _storage.delete(key: _keySelectedOrgName),
-      _storage.delete(key: _keySelectedBranchId),
-      _storage.delete(key: _keySelectedBranchName),
-      _storage.delete(key: _keySelectedBranchOperationMode),
-      _storage.delete(key: _keySelectedBranchSlug),
-    ]);
-  }
+  // PIN local (hash sha256 con sal del dispositivo)
+  static Future<String?> getLocalPinHash() => _storage.read(key: _keyLocalPinHash);
+  static Future<void> setLocalPinHash(String? hash) => hash == null
+      ? _storage.delete(key: _keyLocalPinHash)
+      : _storage.write(key: _keyLocalPinHash, value: hash);
 
   // Selected branch
   static Future<void> saveSelectedBranch({
@@ -169,8 +155,6 @@ class SecureStorageService {
       _storage.delete(key: _keyClientId),
       _storage.delete(key: _keyClientName),
       _storage.delete(key: _keyClientPhone),
-      _storage.delete(key: _keySelectedOrgId),
-      _storage.delete(key: _keySelectedOrgName),
       _storage.delete(key: _keySelectedBranchId),
       _storage.delete(key: _keySelectedBranchName),
       _storage.delete(key: _keySelectedBranchOperationMode),

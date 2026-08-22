@@ -21,6 +21,9 @@ plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
     id("com.android.application") version "8.11.1" apply false
     id("org.jetbrains.kotlin.android") version "2.2.20" apply false
+    // Firebase: se declara acá (en el classpath) pero app/build.gradle.kts lo aplica
+    // sólo si existe android/app/google-services.json.
+    id("com.google.gms.google-services") version "4.4.3" apply false
 }
 
 include(":app")

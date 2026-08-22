@@ -1,0 +1,12 @@
+# Firma de release para Play Store.
+# Copiar a android/key.properties (está en .gitignore: NUNCA commitear el real).
+#
+# Generar el keystore UNA sola vez y guardarlo fuera del repo (y un backup):
+#   keytool -genkey -v -keystore ~/monaco-release.jks -keyalg RSA -keysize 2048 \
+#     -validity 10000 -alias monaco
+#
+# storeFile es relativo a android/ (o absoluto).
+storeFile=../../monaco-release.jks
+storePassword=CAMBIAR
+keyAlias=monaco
+keyPassword=CAMBIAR

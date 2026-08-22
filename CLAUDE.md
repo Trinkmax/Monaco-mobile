@@ -1,146 +1,209 @@
-# CLAUDE.md — Monaco Mobile (App de Clientes)
+# CLAUDE.md — Monaco (app de clientes, Flutter)
 
-This file provides guidance to Claude Code (claude.ai/code) when working with the Flutter client app of Monaco Smart Barber.
+Guía para Claude Code al trabajar en `Monaco-mobile/`. El contrato compartido del rediseño
+2026-08 (API mobile, auth OTP, push, rutas) manda sobre lo que diga el código viejo.
 
-## Project Overview
+## Qué es
 
-**barberOS — App de Clientes**: Flutter mobile app que el cliente final usa para puntos, recompensas, reseñas, ocupación de sucursal, **mis turnos** y reserva (vía WebView del link público). Comparte el backend Supabase con el dashboard `../MonacoSmartBarber/` y la edge function `client-auth`.
+App **mono-organización** de Monaco Barber Studio (`organization_id a0eebc99-…-6bb9bd380a11`,
+slug `monaco`). El cliente elige **sucursal** (Rondeau, Parana, Caseros; `test` sólo en modo
+prueba). Comparte Supabase (`gzsfoqpxvnwmvngfoqqk`) con `../MonacoSmartBarber` y consume sus
+route handlers `/api/mobile/**` en `https://monaco-smart-barber.vercel.app`.
 
 ```
-package: monaco_mobile
-sdk: ^3.10.3
+package: monaco_mobile · Flutter 3.38.4 / Dart 3.10.3 · Riverpod (sin codegen) · go_router
 ```
 
-## Commands
+## Comandos
 
 ```bash
-flutter pub get                                                              # Install deps
-flutter analyze                                                              # Static analysis
-flutter test                                                                 # Run tests (none configured v1)
-flutter run                                                                  # Run on connected device/sim
-flutter build ios --dart-define=SUPABASE_ANON_KEY=...                        # iOS prod build
-flutter build apk --dart-define=SUPABASE_ANON_KEY=...                        # Android prod build
+flutter pub get
+dart analyze lib/ test/                  # flutter analyze crashea a veces; este es el confiable
+flutter test                             # 166 tests
+flutter run [--dart-define=API_BASE_URL=http://localhost:3000]
+dart run flutter_launcher_icons          # regenerar íconos desde assets/brand/
+dart run flutter_native_splash:create    # regenerar splash nativo
+flutter build apk --debug                # smoke de lo nativo Android
+flutter build ios --debug --no-codesign  # smoke de lo nativo iOS
+flutter build appbundle --release        # Play (firma con android/key.properties)
+flutter build ipa --release              # App Store (Team pago)
+./scripts/instalar-en-iphone.sh          # iPhone por cable con Apple ID gratuito
+
+# QA visual: recorre TODA la app en el simulador y guarda capturas en build/qa-shots/
+#   (antes: `npm run dev` en ../MonacoSmartBarber y `xcrun simctl boot <udid>`)
+QA_SHOTS_DIR=build/qa-shots flutter drive --driver=test_driver/integration_test.dart \
+  --target=integration_test/qa_flow_test.dart -d <udid-simulador> \
+  --dart-define=API_BASE_URL=http://localhost:3000 --dart-define=QA_PHONE=1100000000
 ```
 
-`SUPABASE_ANON_KEY` se pasa como `--dart-define` en build time (no hay `.env`).
+Ojo con el QA drive: si las capturas salen todas iguales (la pantalla de lanzamiento con la M),
+el simulador quedó con una instancia vieja de la app: `xcrun simctl shutdown/boot` del simulador
+y volver a correr. El teléfono de QA crea un cliente real en prod: borrarlo al terminar
+(`delete_client_account` + `auth.users`).
 
-## Architecture — Clean Architecture + Riverpod
+`pubspec.yaml`, `lib/main.dart`, `lib/app/app.dart`, `lib/core/router/app_router.dart`,
+`lib/core/utils/constants.dart`, `lib/app/theme/*` y `lib/app/widgets/glass/*` los mantiene
+el coordinador del rediseño: si hace falta una ruta/dep/token nuevo, se pide, no se improvisa.
+
+## Arquitectura
 
 ```
 lib/
 ├── app/
-│   ├── theme/                 # MonacoColors, themes
-│   └── widgets/glass/         # Liquid Glass design system (LiquidGlass, LiquidPill, LiquidButton, LiquidSegmentedTabs, LiquidAppBarScaffold, LiquidStatusPill)
+│   ├── app.dart                 # MaterialApp.router, locale es_AR, textScaler acotado 0.85–1.3
+│   ├── theme/                   # MonacoColors (#0A0A0A, verde #22C55E), Poppins bundleada, MonacoTheme.dark
+│   └── widgets/glass/           # Liquid Glass: LiquidGlass/Pill/Button/Dock/AppBarScaffold/Sheet/Toast/
+│                                #   Dialog/TextField/CodeField/Skeleton/Empty/ErrorState/Chip/Avatar/MonacoLogo
 ├── core/
-│   ├── auth/                  # AuthState, secure_storage, biometric
-│   ├── branch/                # selected_branch_provider
-│   ├── location/              # geolocation
-│   ├── push/                  # push_handler, push_service
-│   ├── router/                # app_router (go_router)
-│   ├── supabase/              # supabase_provider
-│   └── utils/
+│   ├── api/mobile_api.dart      # MobileApi (Bearer del cliente, timeout 15 s, MobileApiException tipada)
+│   ├── auth/                    # AuthNotifier/AuthState (OTP), auth_service (client-auth), secure_storage,
+│   │                            #   secure_local_storage (sesión Supabase en Keychain), biometric, pin local
+│   ├── branch/                  # selectedBranch*Provider
+│   ├── location/                # geolocator best-effort (ordenar sucursales)
+│   ├── push/                    # push_service (token → /api/mobile/push/token), push_handler (deep links)
+│   ├── router/app_router.dart   # rutas + redirect por AuthStatus + shell con LiquidDock
+│   ├── supabase/                # supabaseClientProvider
+│   └── utils/                   # constants, formatters
 ├── features/
-│   ├── appointments/          # 🆕 v2.1 — Mis turnos + booking WebView
-│   │   ├── data/              # appointment_model, appointments_repository
-│   │   ├── providers/         # appointmentsRepositoryProvider, upcomingAppointmentsProvider, pastAppointmentsProvider, appointmentsNotifierProvider
-│   │   └── presentation/
-│   │       ├── my_appointments_screen.dart
-│   │       ├── booking_webview_screen.dart   # WebView del link público
-│   │       ├── cancel_dialog.dart            # showCancelAppointmentDialog()
-│   │       └── widgets/
-│   │           ├── appointment_card.dart
-│   │           ├── appointment_status_chip.dart
-│   │           └── empty_state.dart
-│   ├── billboard/
-│   ├── branch_selection/      # selección de sucursal con BranchWithDistance
-│   ├── catalog/
-│   ├── convenios/             # convenios + redenciones
-│   ├── home/
-│   ├── occupancy/             # cola en vivo
-│   ├── onboarding/
-│   ├── org_selection/
-│   ├── points/
-│   ├── profile/
-│   ├── reviews/
-│   ├── rewards/
-│   └── visits/
+│   ├── onboarding/              # splash, welcome, login_phone, login_code, login_name, biometric_gate, utils/phone_format
+│   ├── branch_selection/        # branch_picker (onboarding y cambio de sucursal)
+│   ├── home/                    # home_screen + widgets (points_card, occupancy_mini_card)
+│   ├── appointments/            # data (booking_api, modelos, fechas), providers, my_appointments,
+│   │                            #   booking_wizard, appointment_detail, cancel_dialog
+│   ├── occupancy/               # lista y detalle de sucursal con fila en vivo
+│   ├── points/ rewards/ catalog/ reviews/ billboard/ convenios/ visits/
+│   ├── notifications/           # bandeja client_notifications + preferencias
+│   └── profile/                 # perfil, pin_setup, pin_verify, modo prueba (7 toques en la versión)
+├── firebase_options.dart        # PLACEHOLDER hasta `flutterfire configure`
 └── main.dart
 ```
 
-State management: **Riverpod** (sin codegen v1). Naming: `*Provider` suffix. Navigation: **go_router** (ShellRoute con LiquidDock para tabs principales).
+**Dock** (5): Inicio `/home` · Turnos `/turnos` · Sucursales `/occupancy` · Premios `/rewards` · Perfil `/profile`.
+Rutas fuera del shell: `/splash /welcome /login /login/codigo /login/nombre /biometric /pin /pin-setup
+/elegir-sucursal /turnos/reservar /turnos/:id /notificaciones /notificaciones/preferencias /branch/:id
+/points /catalog /reviews /review/:token /reward-qr/:id /billboard /convenios /convenio/:id /mis-canjes /visits`.
 
-## Auth model — `{phone}@monaco.internal` + device_secret
+## Auth — OTP por WhatsApp (`client-auth` v2)
 
-Los clientes se autentican vía Edge Function `client-auth` (en MonacoSmartBarber): registro/login con `phone + device_secret` (SHA256 de device_id + salt). Biométrica y PIN son **gates locales** sólo. OTP via Twilio queda diferido a v2.
+1. `/login` teléfono → `start` → si el dispositivo ya es conocido (login silencioso con
+   `device_secret`) → home; si no → `otp_sent`.
+2. `/login/codigo` (6 casillas, auto-submit, reenviar con `resend_in`) → si `client_known=false`
+   → `/login/nombre` ANTES de `verify` (el nombre viaja en `verify`).
+3. `verify` → sesión Supabase (`{phone}@monaco.internal` + `device_secret` como password).
+   Sesión persistida en **Keychain/EncryptedSharedPreferences** (`SecureLocalStorage`).
+4. `AuthStatus`: `initial → unauthenticated | needsBiometric | needsBranch | authenticated`.
+   `needsBranch` = hay sesión pero falta elegir sucursal (onboarding).
 
-`AuthState` (`core/auth/auth_provider.dart`) expone:
-- `clientId`, `selectedBranchId`, `selectedBranchName`
-- `selectedBranchOperationMode` (`walk_in | appointments | hybrid`)
-- `selectedBranchSlug` — necesario para WebView de booking público
-- Getters helper: `acceptsAppointments`, `acceptsWalkIn`
+Biometría y PIN son **gates locales** (PIN hasheado en SecureStorage; los RPC
+`set_client_pin/verify_client_pin` ya no se usan). Teléfonos de prueba (`AUTH_TEST_PHONES` en la
+edge function) no reciben WhatsApp: código fijo para reviewers y tests.
 
-Persistencia en `SecureStorageService` (Keychain iOS / EncryptedPrefs Android).
+`ArPhone` (`features/onboarding/utils/phone_format.dart`) sólo limpia y dibuja ("351 212-5249",
+máscara "+54 9 351 ••• 5249"); **la validez la decide el server**.
 
-## Sistema de turnos (v2.1, post-migración Supabase 119+)
+## Turnos — nativos vía `/api/mobile` (un solo motor)
 
-**Modelo de datos** (Supabase, ver `../MonacoSmartBarber/CLAUDE.md`):
-- `branches.operation_mode` enum (`walk_in | appointments | hybrid`).
-- `appointments.cancellation_token` — token UUID URL-safe que el cliente usa para cancelar **sin auth**.
-- RLS: cliente sólo ve `appointments` cuyo `client_id ∈ (SELECT id FROM clients WHERE auth_user_id = auth.uid())`.
+La app NO reimplementa disponibilidad ni reserva: todo pasa por route handlers del dashboard que
+llaman a `getAvailableSlots` / `createAppointment` / `cancelAppointment`.
 
-**Cancelación**: la app usa `cancel_appointment_by_token(token)` directamente, NO requiere auth en el RPC. Si la ventana de 2h ya pasó, el RPC devuelve `TOO_LATE` y la app muestra "Comunicate con la barbería". El helper `Appointment.canCancel` aplica el mismo gate de 2h del lado cliente para ocultar el botón cuando no aplica.
+| Endpoint | Uso |
+|---|---|
+| `GET /api/mobile/turnos/branches` | sucursales + `bookable`, `open_now`, `is_test`, `server_today` |
+| `GET /api/mobile/turnos/[slug]` | bootstrap del wizard (settings, servicios, barberos, branding, `client.upcoming`) |
+| `GET /api/mobile/turnos/[slug]/slots?date&service_ids&staff_id` | slots; **si el motor falla devuelve `error`, nunca `[]`** |
+| `POST /api/mobile/turnos/[slug]/book` | reserva; 409 `SLOT_TAKEN / PHONE_QUOTA_EXCEEDED / ALREADY_BOOKED_TODAY / TOO_LATE / …` |
+| `POST /api/mobile/turnos/cancel` | cancela (`ALREADY_CLOSED`, `TOO_LATE_TO_CANCEL`) |
+| `GET/POST /api/mobile/me` | validar sesión / renombrar |
+| `POST/DELETE /api/mobile/push/token` | alta/baja del token FCM por `(client_id, device_id)` |
 
-**Reserva**: la app NO bookea nativamente en v1; abre `BookingWebViewScreen` que carga `https://app.monacosmartbarber.com/turnos/{branch.slug}?phone=...&from=app`. La WebView detecta callback de confirmación leyendo URL (`/confirmation`, `?status=success`, `?booking=success`), invalida los providers de listado y cierra. `clearLocalStorage` + `clearCache` en dispose para no leakear sesiones entre orgs.
+Reglas: identidad por **JWT** (el server saca teléfono y `client_id` del Bearer, nunca del body);
+"hoy" es `server_today`, no `DateTime.now()`; `appointment_date + start_time` son hora de PARED de
+la sucursal y `Fechas` (`features/appointments/data/fechas.dart`) convierte con offset fijo UTC-3,
+nunca con la zona del teléfono ni con `toIso8601String()`.
 
-**Recordatorios push**: la edge function `appointment-reminders` (cada 1min vía pg_cron) consume `client_device_tokens` filtrado por `is_active=true` y envía via Expo Push API. Tokens `DeviceNotRegistered` se desactivan automáticamente.
+## Push — FCM
 
-**Modos por superficie en home**:
-| Modo | Sucursales en home | Tab "Mis turnos" | Cola visible |
-|---|---|---|---|
-| `walk_in` | ✅ | ❌ | ✅ |
-| `appointments` | ❌ | ✅ | ❌ |
-| `hybrid` | ✅ | ✅ | ✅ |
+`PushService` registra el token con `POST /api/mobile/push/token` (platform, device_id,
+app_version), lo refresca y lo da de baja en logout. Payload `data = { type, value?, deep_link?,
+notification_id? }`; `PushHandler` navega por `deep_link` (sólo paths internos que empiezan con
+`/`) o por `type` (`appointment_*→/turnos`, `reward→/rewards`, `points→/points`, default `/home`)
+y marca `client_notifications.read_at`. Canal Android `monaco_default`
+(`AppConstants.androidNotificationChannelId` == `@string/default_notification_channel_id` del manifest
+== `android.notification.channel_id` que manda la edge function `send-push`).
 
-`home_screen.dart` chequea `auth.acceptsAppointments`/`auth.acceptsWalkIn` y renderiza condicional. La ruta `/appointments` muestra info-state si no aplica (defensa en profundidad).
+**Todo el código tolera `Firebase.apps.isEmpty`**: mientras `firebase_options.dart` tenga
+placeholders, `main.dart` no inicializa Firebase y la app funciona sin push.
 
-## Branch model
+## Modo prueba
 
-`BranchWithDistance` (`features/branch_selection/models/`) extiende los datos del RPC `get_org_branch_signals` con:
-- `operation_mode` (default `'walk_in'` si el RPC no lo devuelve)
-- `slug` (nullable)
-- Getters `acceptsAppointments`, `acceptsWalkIn`
+`SecureStorageService.isTestModeEnabled()`: se activa con 7 toques sobre "Versión x.y.z" en Perfil.
+Con él, `branchesProvider` deja de esconder la sucursal `is_test` (slug `test`).
 
-El provider `branch_selection_provider` hace una **query parallel** a `branches` (con `inFilter('id', ids)`) para hidratar `operation_mode` + `slug` post-RPC, ya que `get_org_branch_signals` aún no los expone (TODO: extender el RPC en una migración futura).
+## Nativo — lo que está configurado y por qué (no deshacer)
 
-## Routing
+**iOS** (`ios/Runner/Info.plist`, `project.pbxproj`):
+- `CFBundleDisplayName`/`CFBundleName` = **Monaco**; `CFBundleDevelopmentRegion = es` +
+  `CFBundleLocalizations [es]` (la ficha dice español; `developmentRegion = es` en el pbxproj).
+- `TARGETED_DEVICE_FAMILY = 1` (sólo iPhone). Con `"1,2"` y sólo portrait el upload muere con
+  **ITMS-90474**; la UI (dock flotante) es phone-only.
+- `LSApplicationQueriesSchemes [https, mailto, whatsapp, tel]`: sin eso `canLaunchUrl` devuelve
+  false y los links de política/soporte del perfil no hacen nada.
+- `NSLocationDefaultAccuracyReduced = true` (alcanza para ordenar sucursales; coherente con
+  `CoarseLocation` en `PrivacyInfo.xcprivacy`). Sin usage strings de cámara/galería: no se usan.
+- `UIBackgroundModes [remote-notification]` + `RunnerRelease.entitlements` con `aps-environment
+  production`. Debug usa `Runner.entitlements` vacío a propósito (Personal Team no firma push).
+- `AppDelegate.swift` setea `UNUserNotificationCenter.current().delegate = self`
+  (flutter_local_notifications + firebase_messaging conviven así).
+- Splash: `LaunchScreen.storyboard` generado por flutter_native_splash (fondo #0A0A0A + logo);
+  el `backgroundColor` de la vista también es #0A0A0A para que no haya frame blanco.
+- `ITSAppUsesNonExemptEncryption = false`. Min iOS 14.0.
 
-`core/router/app_router.dart` usa `ShellRoute` para `/home`, `/occupancy`, `/rewards`, `/profile` con `LiquidDock`. Rutas planas para detail screens. Rutas nuevas:
+**Android** (`android/app/`):
+- `MainActivity : FlutterFragmentActivity` — **obligatorio** para `local_auth`
+  (con `FlutterActivity` la huella falla en silencio con `no_fragment_activity`).
+- `android:label="@string/app_name"` = Monaco; `allowBackup=false` (EncryptedSharedPreferences no
+  sobrevive a un restore en otro equipo); `enableOnBackInvokedCallback=true`.
+- Permisos explícitos: `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_COARSE/FINE_LOCATION`,
+  `POST_NOTIFICATIONS`, `VIBRATE`, `RECEIVE_BOOT_COMPLETED`, `USE_BIOMETRIC`.
+- `<queries>`: VIEW `https/mailto/tel/whatsapp` (+ PROCESS_TEXT del engine).
+- Meta-data FCM: `default_notification_channel_id = monaco_default`,
+  `default_notification_icon = @drawable/ic_notification` (silueta blanca generada desde
+  `assets/brand/app_icon_foreground.png`), `default_notification_color = @color/notification_accent`.
+- Receivers de `flutter_local_notifications` para notificaciones programadas.
+- `LaunchTheme`/`NormalTheme` **oscuros** (`Theme.Black.NoTitleBar`, `windowBackground =
+  @color/monaco_background`) en `values`, `values-night`, `values-v31`, `values-night-v31`: sin flash
+  blanco. Si se corre `flutter_native_splash:create` de nuevo, revisar que `NormalTheme` siga así.
+- `build.gradle.kts`: desugaring (`desugar_jdk_libs 2.1.4`, lo pide flutter_local_notifications),
+  `signingConfigs.release` desde `android/key.properties` con **fallback a debug** si no existe
+  (el build local no se rompe; el log avisa), `proguard-rules.pro` (GSON de
+  flutter_local_notifications), plugin `com.google.gms.google-services` declarado en
+  `settings.gradle.kts` y **aplicado sólo si existe `app/google-services.json`**.
+- `res/raw/keep.xml` evita que `shrinkResources` tire los drawables que se referencian desde Dart.
 
-```dart
-GoRoute(path: '/appointments',      builder: (_, __) => const MyAppointmentsScreen()),
-GoRoute(path: '/appointments/book', builder: (_, __) => const BookingWebViewScreen()),
-```
+## Tests (`test/`)
 
-## Conventions
+- `unit/mobile_api_test.dart` — MobileApi con `MockClient`: headers, URL, 2xx, mapeo de errores
+  (`SLOT_TAKEN`, 401, `HTTP_5xx`, `BAD_RESPONSE`), red (`NETWORK`), timeout con `fakeAsync`.
+- `unit/auth_state_test.dart`, `unit/constants_test.dart`, `unit/formatters_test.dart`,
+  `unit/fechas_test.dart`, `unit/phone_format_test.dart`, `unit/appointment_model_test.dart`.
+- `widget/occupancy_mini_card_test.dart` (carga Poppins real: con Ahem la pastilla desborda),
+  `widget/points_history_tile_test.dart`.
+- Las pantallas con animaciones en loop (LED que pulsa) no admiten `pumpAndSettle`: bombear frames.
 
-- **Idioma**: UI text + comentarios en **español rioplatense** (CLAUDE.md root convention).
-- **Locale**: `es`, `intl: ^0.19.0`. Fechas: `DateFormat("EEEE d 'de' MMMM", 'es')`. Currency: `NumberFormat.currency(locale: 'es_AR', symbol: r'$', decimalDigits: 0)`.
-- **Theme**: dark by default con `MonacoColors`. Accent verde `#22C55E`. Liquid Glass tokens consistentes.
-- **No codegen Riverpod** en v1.
-- **Sin tests obligatorios** en v1 (matchea convención del dashboard).
-- **withOpacity deprecated**: el código existente sigue usándolo; tests futuros pueden migrar a `withValues(alpha: …)` en su momento.
+## Convenciones
 
-## Environment & Build
+- UI y comentarios en español rioplatense; sin emojis en UI (íconos Material `_rounded`); sin `TODO` sin dueño.
+- Código nuevo: `withValues(alpha:)` (no `withOpacity`), `debugPrint('[modulo] …')` (no `print`).
+- Toda lista: skeleton / `LiquidEmptyState` / `LiquidErrorState` con reintentar / `RefreshIndicator`;
+  padding inferior 120 dentro del shell (el dock tapa).
+- Fechas: `Fechas.*` para turnos; `Formatters.*` para el resto; locale `es_AR`.
 
-- `--dart-define=SUPABASE_ANON_KEY=...` en build time.
-- iOS: configurar Universal Links si se quiere capturar `https://app.monacosmartbarber.com/booking-success` desde el WebView (v1.1).
-- Android: WebView usa `webview_flutter: ^4.10.0`.
+## Riesgos conocidos
 
-## Known Risks
-
-1. **Device secret loss on reinstall**: cliente pierde auth, debe re-registrarse. Recovery v2.
-2. **Single-device only**: dos teléfonos del mismo cliente generan dos device_secrets distintos (cada uno es una "cuenta"). Multi-device v2.
-3. **WebView cookies**: limpiamos cache/localStorage en dispose para no leakear, pero si dos orgs usan el mismo dominio, sesiones quedan aisladas por dispose. v2: agregar `Storage Access API` o pasar token como query param.
-4. **`get_org_branch_signals` no expone `operation_mode`/`slug`**: hidratamos vía query separada. Si la app crece a 1000s de branches, considerar extender el RPC para evitar el round-trip.
-5. **Push tokens stale**: si el usuario revoca permisos sin desinstalar, la edge function detecta `DeviceNotRegistered` y desactiva el token. Pero si el desinstall es completo + reinstall, se genera token nuevo y el viejo queda hasta que Expo lo rechace.
-6. **Cancelación sin auth via token**: el `cancellation_token` es UUID hex 48 chars, suficiente para ser no-guesseable. Si una org necesita más control, pueden rotar el token vía RPC custom.
+1. **Firebase a medias es peor que sin Firebase**: correr `flutterfire configure` sin subir la APNs
+   key y sin Developer Program deja el prompt de permiso prendido y el token nunca llega.
+2. Reinstalar la app regenera `device_secret`: el cliente vuelve a pasar por OTP (esperado).
+3. `FlutterFragmentActivity` + biometría hay que probarlos en un Android real (no hay emulador con huella).
+4. Los `defaultValue` de `AppConstants` apuntan a producción: un `flutter run` pelado pega a prod.
+5. El Personal Team `A3WAXVR55Z` no puede archivar para App Store ni firmar push: hace falta el
+   Apple Developer Program pago (ver `ENTREGA.md`).

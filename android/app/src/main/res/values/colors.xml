@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Fondo del ícono adaptativo (lo lee flutter_launcher_icons; no renombrar). -->
+    <color name="ic_launcher_background">#0A0A0A</color>
+    <!-- Fondo de la app (MonacoColors.background): ventana detrás de Flutter y splash. -->
+    <color name="monaco_background">#0A0A0A</color>
+    <!-- Acento de las notificaciones (MonacoColors.monacoGreen). -->
+    <color name="notification_accent">#22C55E</color>
+</resources>

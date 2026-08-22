@@ -1,138 +1,165 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:monaco_mobile/app/theme/monaco_colors.dart';
+import 'package:monaco_mobile/app/theme/monaco_theme.dart';
 import 'package:monaco_mobile/features/home/presentation/widgets/occupancy_mini_card.dart';
 
+/// La mini card tiene un LED que pulsa en loop (flutter_animate repeat), así
+/// que NO se puede usar pumpAndSettle: se bombea un par de frames a mano.
+///
+/// Se carga Poppins de verdad: con la fuente de prueba (Ahem, glifos cuadrados
+/// de 1 em) "Alta demanda" mide casi el doble y la pastilla desborda la card
+/// de 160 px — un falso positivo que no existe en el teléfono.
 void main() {
+  setUpAll(() async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    final loader = FontLoader('Poppins');
+    for (final f in ['Poppins-Regular', 'Poppins-Bold', 'Poppins-ExtraBold', 'Poppins-Black']) {
+      final bytes = await File('assets/fonts/$f.ttf').readAsBytes();
+      loader.addFont(Future.value(ByteData.sublistView(bytes)));
+    }
+    await loader.load();
+  });
+
   Widget buildSubject({
     required String branchName,
     required String occupancyLevel,
-    required int etaMinutes,
+    bool isOpen = true,
+    int totalBarbers = 1,
+    VoidCallback? onTap,
   }) {
     return MaterialApp(
+      theme: MonacoTheme.dark,
       home: Scaffold(
-        body: SizedBox(
-          width: 200,
-          height: 200,
+        backgroundColor: MonacoColors.background,
+        body: Center(
           child: OccupancyMiniCard(
             branchName: branchName,
             occupancyLevel: occupancyLevel,
-            etaMinutes: etaMinutes,
+            isOpen: isOpen,
+            totalBarbers: totalBarbers,
+            onTap: onTap,
           ),
         ),
       ),
     );
   }
 
+  Future<void> pumpFrames(WidgetTester tester) async {
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+  }
+
+  Color? labelColor(WidgetTester tester, String label) =>
+      tester.widget<Text>(find.text(label)).style?.color;
+
   group('OccupancyMiniCard', () {
-    testWidgets('shows branch name', (tester) async {
+    testWidgets('muestra el nombre de la sucursal', (tester) async {
       await tester.pumpWidget(buildSubject(
-        branchName: 'Sucursal Centro',
+        branchName: 'Rondeau',
         occupancyLevel: 'baja',
-        etaMinutes: 10,
       ));
-      // pump again for flutter_animate animations
-      await tester.pumpAndSettle();
-
-      expect(find.text('Sucursal Centro'), findsOneWidget);
+      await pumpFrames(tester);
+      expect(find.text('Rondeau'), findsOneWidget);
     });
 
-    testWidgets('shows ETA in minutes when etaMinutes > 0', (tester) async {
+    testWidgets('sin_espera → "Sin espera" en verde Monaco', (tester) async {
       await tester.pumpWidget(buildSubject(
-        branchName: 'Sucursal Norte',
-        occupancyLevel: 'baja',
-        etaMinutes: 15,
+        branchName: 'Parana',
+        occupancyLevel: 'sin_espera',
       ));
-      await tester.pumpAndSettle();
-
-      expect(find.text('~15 min'), findsOneWidget);
+      await pumpFrames(tester);
+      expect(find.text('Sin espera'), findsOneWidget);
+      expect(labelColor(tester, 'Sin espera'), MonacoColors.monacoGreen);
     });
 
-    testWidgets('shows "Sin espera" when etaMinutes is 0', (tester) async {
+    testWidgets('baja → "Espera corta" en lima', (tester) async {
       await tester.pumpWidget(buildSubject(
-        branchName: 'Sucursal Sur',
+        branchName: 'Parana',
         occupancyLevel: 'baja',
-        etaMinutes: 0,
       ));
-      await tester.pumpAndSettle();
+      await pumpFrames(tester);
+      expect(find.text('Espera corta'), findsOneWidget);
+      expect(labelColor(tester, 'Espera corta'), const Color(0xFF84CC16));
+    });
 
+    testWidgets('media → "Movimiento" en ámbar', (tester) async {
+      await tester.pumpWidget(buildSubject(
+        branchName: 'Parana',
+        occupancyLevel: 'media',
+      ));
+      await pumpFrames(tester);
+      expect(find.text('Movimiento'), findsOneWidget);
+      expect(labelColor(tester, 'Movimiento'), const Color(0xFFF59E0B));
+    });
+
+    testWidgets('alta → "Alta demanda" en rojo', (tester) async {
+      await tester.pumpWidget(buildSubject(
+        branchName: 'Parana',
+        occupancyLevel: 'alta',
+      ));
+      await pumpFrames(tester);
+      expect(find.text('Alta demanda'), findsOneWidget);
+      expect(labelColor(tester, 'Alta demanda'), const Color(0xFFEF4444));
+    });
+
+    testWidgets('el nivel no distingue mayúsculas', (tester) async {
+      await tester.pumpWidget(buildSubject(
+        branchName: 'Parana',
+        occupancyLevel: 'ALTA',
+      ));
+      await pumpFrames(tester);
+      expect(find.text('Alta demanda'), findsOneWidget);
+    });
+
+    testWidgets('un nivel desconocido cae en "Sin espera"', (tester) async {
+      await tester.pumpWidget(buildSubject(
+        branchName: 'Parana',
+        occupancyLevel: 'lo-que-sea',
+      ));
+      await pumpFrames(tester);
       expect(find.text('Sin espera'), findsOneWidget);
     });
 
-    testWidgets('renders green color and "Baja" label for baja occupancy',
+    testWidgets('cerrada → "Cerrado" en gris, aunque el nivel diga alta',
         (tester) async {
       await tester.pumpWidget(buildSubject(
-        branchName: 'Test Branch',
-        occupancyLevel: 'baja',
-        etaMinutes: 5,
-      ));
-      await tester.pumpAndSettle();
-
-      // Verify the level label text
-      expect(find.text('Baja'), findsOneWidget);
-
-      // Verify the label color is green
-      final labelWidget = tester.widget<Text>(find.text('Baja'));
-      expect(labelWidget.style?.color, const Color(0xFF22C55E));
-    });
-
-    testWidgets('renders amber color and "Media" label for media occupancy',
-        (tester) async {
-      await tester.pumpWidget(buildSubject(
-        branchName: 'Test Branch',
-        occupancyLevel: 'media',
-        etaMinutes: 20,
-      ));
-      await tester.pumpAndSettle();
-
-      // Verify the level label text
-      expect(find.text('Media'), findsOneWidget);
-
-      // Verify the label color is amber
-      final labelWidget = tester.widget<Text>(find.text('Media'));
-      expect(labelWidget.style?.color, const Color(0xFFF59E0B));
-    });
-
-    testWidgets('renders red color and "Alta" label for alta occupancy',
-        (tester) async {
-      await tester.pumpWidget(buildSubject(
-        branchName: 'Test Branch',
+        branchName: 'Caseros',
         occupancyLevel: 'alta',
-        etaMinutes: 45,
+        isOpen: false,
       ));
-      await tester.pumpAndSettle();
-
-      // Verify the level label text
-      expect(find.text('Alta'), findsOneWidget);
-
-      // Verify the label color is red
-      final labelWidget = tester.widget<Text>(find.text('Alta'));
-      expect(labelWidget.style?.color, const Color(0xFFEF4444));
+      await pumpFrames(tester);
+      expect(find.text('Cerrado'), findsOneWidget);
+      expect(find.text('Alta demanda'), findsNothing);
+      expect(labelColor(tester, 'Cerrado'), const Color(0xFF6B6B6B));
     });
 
-    testWidgets('occupancy level matching is case-insensitive', (tester) async {
-      await tester.pumpWidget(buildSubject(
-        branchName: 'Test Branch',
-        occupancyLevel: 'ALTA',
-        etaMinutes: 30,
-      ));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Alta'), findsOneWidget);
-    });
-
-    testWidgets('defaults to green/Baja for unknown occupancy level',
+    testWidgets('abierta pero sin barberos en turno también es "Cerrado"',
         (tester) async {
       await tester.pumpWidget(buildSubject(
-        branchName: 'Test Branch',
-        occupancyLevel: 'unknown',
-        etaMinutes: 10,
+        branchName: 'Caseros',
+        occupancyLevel: 'baja',
+        isOpen: true,
+        totalBarbers: 0,
       ));
-      await tester.pumpAndSettle();
+      await pumpFrames(tester);
+      expect(find.text('Cerrado'), findsOneWidget);
+    });
 
-      expect(find.text('Baja'), findsOneWidget);
-
-      final labelWidget = tester.widget<Text>(find.text('Baja'));
-      expect(labelWidget.style?.color, const Color(0xFF22C55E));
+    testWidgets('onTap se dispara al tocar la card', (tester) async {
+      var taps = 0;
+      await tester.pumpWidget(buildSubject(
+        branchName: 'Rondeau',
+        occupancyLevel: 'baja',
+        onTap: () => taps++,
+      ));
+      await pumpFrames(tester);
+      await tester.tap(find.text('Rondeau'));
+      await pumpFrames(tester);
+      expect(taps, 1);
     });
   });
 }

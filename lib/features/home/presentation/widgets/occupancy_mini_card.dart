@@ -119,13 +119,13 @@ class OccupancyMiniCard extends StatelessWidget {
                     height: 4,
                     decoration: BoxDecoration(
                       color: filled
-                          ? color.withOpacity(0.9)
-                          : Colors.white.withOpacity(0.08),
+                          ? color.withValues(alpha: 0.9)
+                          : Colors.white.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(3),
                       boxShadow: filled
                           ? [
                               BoxShadow(
-                                color: color.withOpacity(0.5),
+                                color: color.withValues(alpha: 0.5),
                                 blurRadius: 6,
                               )
                             ]

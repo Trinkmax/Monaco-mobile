@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-/// Paleta de colores barberOS
-/// Estética: negro puro, blanco puro — minimal tech
+/// Paleta de la app de Monaco Barber Studio.
+/// Estética: negro profundo + vidrio líquido + acento verde Monaco.
 class MonacoColors {
   MonacoColors._();
 
@@ -9,14 +9,13 @@ class MonacoColors {
   static const Color background = Color(0xFF0A0A0A);
   static const Color surface = Color(0xFF111111);
   static const Color surfaceVariant = Color(0xFF1A1A1A);
-  static const Color sidebar = Color(0xFF050505);
 
   // Foregrounds
   static const Color foreground = Color(0xFFFFFFFF);
   static const Color foregroundMuted = Color(0xFFA3A3A3);
   static const Color foregroundSubtle = Color(0xFF6B6B6B);
 
-  // Primary (blanco puro sobre negro — identidad barberOS)
+  // Primary (blanco sobre negro)
   static const Color primary = Color(0xFFFFFFFF);
   static const Color primaryForeground = Color(0xFF000000);
 
@@ -38,39 +37,27 @@ class MonacoColors {
   static const Color input = Color(0x1AFFFFFF); // white 10%
 
   // Status
-  static const Color success = Color(0xFF30A46C);
-  static const Color warning = Color(0xFFF5A623);
-  static const Color info = Color(0xFF0091FF);
+  static const Color success = Color(0xFF22C55E);
+  static const Color warning = Color(0xFFF59E0B);
+  static const Color info = Color(0xFF3B82F6);
 
-  // Occupancy indicators
-  static const Color occupancyLow = Color(0xFF30A46C);     // verde
-  static const Color occupancyMedium = Color(0xFFF5A623);   // amarillo
-  static const Color occupancyHigh = Color(0xFFE5484D);     // rojo
+  // Occupancy indicators (una sola paleta para toda la app)
+  static const Color occupancyNone = Color(0xFF22C55E); // sin espera
+  static const Color occupancyLow = Color(0xFF84CC16); // espera corta
+  static const Color occupancyMedium = Color(0xFFF59E0B); // movimiento
+  static const Color occupancyHigh = Color(0xFFEF4444); // alta demanda
+  static const Color occupancyClosed = Color(0xFF6B6B6B);
 
-  // Charts (5 levels grayscale)
-  static const Color chart1 = Color(0xFFFFFFFF);
-  static const Color chart2 = Color(0xFFBBBBBB);
-  static const Color chart3 = Color(0xFF888888);
-  static const Color chart4 = Color(0xFF444444);
-  static const Color chart5 = Color(0xFF222222);
-
-  // Card gradient overlay
-  static const LinearGradient cardGradient = LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-    colors: [Color(0xFF181818), Color(0xFF0D0D0D)],
-  );
-
-  // Accent (barberOS — blanco puro sobre negro profundo)
-  static const Color gold = Color(0xFFFFFFFF);
-  static const Color goldLight = Color(0xFFFFFFFF);
-
-  // ── Monaco brand (Liquid Glass iOS 26) ────────────────────────────────────
+  // ── Marca Monaco ──────────────────────────────────────────────────────────
   /// Verde Monaco — acento principal del lenguaje visual liquid glass.
   static const Color monacoGreen = Color(0xFF22C55E);
 
   /// Verde Monaco más profundo — para gradients y estados "activos".
   static const Color monacoGreenDeep = Color(0xFF16A34A);
+
+  /// Rojo de los corchetes del logotipo [ BARBER STUDIO ]. Sólo para detalles
+  /// de marca (no para estados: para eso está `destructive`).
+  static const Color brandRed = Color(0xFFE30613);
 
   /// Azul profundo — orbe secundario del backdrop animado.
   static const Color deepBlue = Color(0xFF1E3A8A);
@@ -87,4 +74,9 @@ class MonacoColors {
   static const Color textSecondary = foregroundMuted;
   static const Color textSubtle = foregroundSubtle;
   static const Color divider = border;
+
+  /// Alias histórico (era "gold" en la versión barberOS y siempre fue blanco).
+  /// Queda sólo para las pantallas que todavía no migraron a Liquid Glass.
+  @Deprecated('Usar MonacoColors.primary / monacoGreen según el caso')
+  static const Color gold = Color(0xFFFFFFFF);
 }

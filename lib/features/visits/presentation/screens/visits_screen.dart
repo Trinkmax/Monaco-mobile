@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -7,8 +6,15 @@ import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 import 'package:monaco_mobile/features/visits/providers/visits_provider.dart';
 
+/// Historial de visitas del cliente, agrupado por mes. Vive fuera del shell.
 class VisitsScreen extends ConsumerWidget {
   const VisitsScreen({super.key});
+
+  Future<void> _refresh(WidgetRef ref) async {
+    ref.invalidate(visitsHistoryProvider);
+    ref.invalidate(visitsSummaryProvider);
+    await ref.read(visitsHistoryProvider.future).then((_) {}, onError: (_) {});
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -21,22 +27,23 @@ class VisitsScreen extends ConsumerWidget {
       body: RefreshIndicator(
         color: Colors.white,
         backgroundColor: MonacoColors.surface,
-        onRefresh: () async {
-          ref.invalidate(visitsHistoryProvider);
-          ref.invalidate(visitsSummaryProvider);
-          await ref.read(visitsHistoryProvider.future);
-        },
+        onRefresh: () => _refresh(ref),
         child: async.when(
           loading: () => const _LoadingState(),
-          error: (e, _) => _ErrorState(
+          error: (e, _) => LiquidErrorState(
             error: e,
-            onRetry: () {
-              ref.invalidate(visitsHistoryProvider);
-              ref.invalidate(visitsSummaryProvider);
-            },
+            message: 'No pudimos cargar tus visitas. Probá en unos segundos.',
+            onRetry: () => _refresh(ref),
           ),
           data: (visits) {
-            if (visits.isEmpty) return const _EmptyState();
+            if (visits.isEmpty) {
+              return const LiquidEmptyState(
+                icon: Icons.content_cut_rounded,
+                title: 'Todavía no tenés visitas',
+                message:
+                    'Cuando pases por la barbería, tu historial aparecerá acá.',
+              );
+            }
             return _VisitsList(
               visits: visits,
               summary: asyncSummary.valueOrNull,
@@ -94,7 +101,7 @@ class _VisitsList extends StatelessWidget {
       decimalDigits: 0,
     );
 
-    // Flatten sections -> index-aware list for liquidEnter staggering.
+    // Aplanamos secciones → lista con índice para el stagger de liquidEnter.
     final children = <Widget>[];
     children.add(
       _SummaryCard(
@@ -118,13 +125,11 @@ class _VisitsList extends StatelessWidget {
       children.add(const SizedBox(height: 22));
     }
 
-    children.add(const SizedBox(height: 60));
-
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(
         parent: BouncingScrollPhysics(),
       ),
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 140),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 48),
       children: children,
     );
   }
@@ -239,6 +244,7 @@ class _VisitTile extends StatelessWidget {
 
     final serviceName = service?['name'] as String? ?? 'Corte';
     final barberName = staff?['full_name'] as String? ?? 'Barbero';
+    final barberAvatar = staff?['avatar_url'] as String?;
     final branchName = branch?['name'] as String? ?? 'Sucursal';
 
     final rawDate = visit['completed_at'] as String? ??
@@ -263,7 +269,7 @@ class _VisitTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _BarberAvatar(name: barberName),
+          LiquidAvatar(imageUrl: barberAvatar, name: barberName, size: 44),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -292,6 +298,7 @@ class _VisitTile extends StatelessWidget {
                         fontSize: 15,
                         fontWeight: FontWeight.w800,
                         letterSpacing: -0.2,
+                        fontFeatures: [FontFeature.tabularFigures()],
                       ),
                     ),
                   ],
@@ -332,54 +339,6 @@ class _VisitTile extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _BarberAvatar extends StatelessWidget {
-  const _BarberAvatar({required this.name});
-
-  final String name;
-
-  String get _initials {
-    final trimmed = name.trim();
-    if (trimmed.isEmpty) return '?';
-    final parts = trimmed.split(RegExp(r'\s+'));
-    if (parts.length == 1) return parts.first[0].toUpperCase();
-    return (parts.first[0] + parts[1][0]).toUpperCase();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 44,
-      height: 44,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.white.withValues(alpha: 0.22),
-            Colors.white.withValues(alpha: 0.08),
-          ],
-        ),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.28),
-          width: 1,
-        ),
-      ),
-      child: Center(
-        child: Text(
-          _initials,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 14,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.2,
-          ),
-        ),
       ),
     );
   }
@@ -452,191 +411,22 @@ class _SectionTitle extends StatelessWidget {
 class _LoadingState extends StatelessWidget {
   const _LoadingState();
 
-  Widget _shimmer({required double height, double radius = 16}) {
-    return Container(
-      height: height,
-      decoration: BoxDecoration(
-        color: MonacoColors.surface,
-        borderRadius: BorderRadius.circular(radius),
-      ),
-    )
-        .animate(onPlay: (c) => c.repeat())
-        .shimmer(duration: 1200.ms, color: Colors.white10);
-  }
-
   @override
   Widget build(BuildContext context) {
     return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 140),
-      children: [
-        _shimmer(height: 92, radius: 24),
-        const SizedBox(height: 26),
-        _shimmer(height: 18, radius: 8),
-        const SizedBox(height: 12),
-        _shimmer(height: 84),
-        const SizedBox(height: 10),
-        _shimmer(height: 84),
-        const SizedBox(height: 10),
-        _shimmer(height: 84),
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 48),
+      children: const [
+        LiquidSkeleton(height: 92, radius: 24),
+        SizedBox(height: 26),
+        LiquidSkeleton.line(width: 120, height: 14),
+        SizedBox(height: 12),
+        LiquidSkeleton(height: 270, radius: 24),
+        SizedBox(height: 22),
+        LiquidSkeleton.line(width: 100, height: 14),
+        SizedBox(height: 12),
+        LiquidSkeleton(height: 180, radius: 24),
       ],
     );
-  }
-}
-
-// ───────────────────────── Empty ─────────────────────────
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 90),
-      children: [
-        Center(
-          child: Container(
-            width: 96,
-            height: 96,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Colors.white.withValues(alpha: 0.18),
-                  Colors.white.withValues(alpha: 0.05),
-                ],
-              ),
-              border:
-                  Border.all(color: Colors.white.withValues(alpha: 0.22)),
-            ),
-            child: const Icon(
-              Icons.content_cut_rounded,
-              color: Colors.white,
-              size: 40,
-            ),
-          ),
-        ),
-        const SizedBox(height: 22),
-        const Text(
-          'Todavía no tenés visitas',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: MonacoColors.textPrimary,
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.3,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Cuando pases por la barbería, tu historial aparecerá acá.',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.55),
-            fontSize: 14,
-            height: 1.45,
-          ),
-        ),
-      ],
-    ).animate().fadeIn(duration: 400.ms);
-  }
-}
-
-// ───────────────────────── Error ─────────────────────────
-
-class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.error, required this.onRetry});
-
-  final Object error;
-  final VoidCallback onRetry;
-
-  bool get _isNetworkError {
-    final s = error.toString().toLowerCase();
-    return s.contains('socketexception') ||
-        s.contains('failed host lookup') ||
-        s.contains('clientexception') ||
-        s.contains('connection') ||
-        s.contains('timeout');
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final offline = _isNetworkError;
-    final icon =
-        offline ? Icons.wifi_off_rounded : Icons.error_outline_rounded;
-    final title = offline ? 'Sin conexión' : 'Algo salió mal';
-    final message = offline
-        ? 'Revisá tu conexión e intentá nuevamente.'
-        : 'No pudimos cargar tus visitas. Probá en unos segundos.';
-
-    return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 90),
-      children: [
-        Center(
-          child: Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [
-                  Colors.white.withValues(alpha: 0.18),
-                  Colors.white.withValues(alpha: 0.05),
-                ],
-              ),
-              border:
-                  Border.all(color: Colors.white.withValues(alpha: 0.22)),
-            ),
-            child: Icon(icon, color: Colors.white, size: 34),
-          ),
-        ),
-        const SizedBox(height: 20),
-        Text(
-          title,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: MonacoColors.textPrimary,
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          message,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.55),
-            fontSize: 14,
-          ),
-        ),
-        const SizedBox(height: 22),
-        Center(
-          child: LiquidPill(
-            onTap: onRetry,
-            padding:
-                const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.refresh_rounded, size: 18, color: Colors.white),
-                SizedBox(width: 8),
-                Text(
-                  'Reintentar',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    ).animate().fadeIn(duration: 400.ms);
   }
 }

@@ -2,42 +2,63 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
+import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 
-class _SlideData {
+import '../../providers/login_flow_provider.dart';
+import '../widgets/onboarding_scaffold.dart';
+
+class _Slide {
   final String title;
   final String subtitle;
-  final IconData? icon;
-  final String? imagePath;
+  final String imagePath;
+  final IconData icon;
+  final String badge;
 
-  const _SlideData({
+  const _Slide({
     required this.title,
     required this.subtitle,
-    this.icon,
-    this.imagePath,
+    required this.imagePath,
+    required this.icon,
+    required this.badge,
   });
 }
 
+/// Las ilustraciones vienen de la app anterior (se mantienen); el copy es el
+/// de Monaco. Ojo que los nombres de archivo no coinciden con lo que dibujan:
+/// `onboarding_reviews.png` muestra la moneda de puntos + ticket, y
+/// `onboarding_gifts.png` las cinco estrellas de la reseña.
 const _slides = [
-  _SlideData(
-    title: 'Tu barberia inteligente',
-    subtitle: 'Consulta la disponibilidad en tiempo real',
+  _Slide(
+    title: 'Tu barbería,\nen tu bolsillo',
+    subtitle:
+        'Mirá la fila en vivo de cada sucursal y llegá justo cuando te toca.',
     imagePath: 'assets/images/onboarding_barber.png',
+    icon: Icons.storefront_rounded,
+    badge: 'Fila en vivo',
   ),
-  _SlideData(
-    title: 'Acumula puntos',
-    subtitle: 'Ganas puntos por cada servicio y canjealos por premios',
+  _Slide(
+    title: 'Sumá puntos,\nllevate premios',
+    subtitle:
+        'Cada corte suma. Canjeá tus puntos por servicios, productos y beneficios.',
     imagePath: 'assets/images/onboarding_reviews.png',
+    icon: Icons.stars_rounded,
+    badge: 'Puntos y premios',
   ),
-  _SlideData(
-    title: 'Opina y mejoramos',
-    subtitle: 'Tu feedback nos ayuda a darte un mejor servicio',
+  _Slide(
+    title: 'Turnos en\ntres toques',
+    subtitle:
+        'Elegí barbero y horario, te confirmamos por WhatsApp y después nos contás cómo te fue.',
     imagePath: 'assets/images/onboarding_gifts.png',
+    icon: Icons.event_available_rounded,
+    badge: 'Turnos online',
   ),
 ];
 
+/// Tres slides de bienvenida. "Empezar" y "Ya tengo cuenta" van al mismo
+/// lugar (/login): el OTP resuelve si sos nuevo o no, así que no hay dos
+/// caminos. El link sirve para el que ya conoce la app y no quiere deslizar.
 class WelcomeScreen extends ConsumerStatefulWidget {
   const WelcomeScreen({super.key});
 
@@ -46,217 +67,279 @@ class WelcomeScreen extends ConsumerStatefulWidget {
 }
 
 class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
-  final _pageController = PageController();
-  int _currentPage = 0;
+  final _pageCtrl = PageController();
+  int _page = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Llegar acá es empezar de cero (primera vez o después de cerrar sesión):
+    // un flujo de código a medias del login anterior no tiene que sobrevivir,
+    // ni siquiera para precargar el teléfono de otra persona.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(loginFlowProvider.notifier).state = null;
+    });
+  }
 
   @override
   void dispose() {
-    _pageController.dispose();
+    _pageCtrl.dispose();
     super.dispose();
   }
 
-  void _onPageChanged(int index) {
-    setState(() => _currentPage = index);
-  }
+  void _goLogin() => context.go('/login');
 
-  void _goToLogin() => context.go('/select-org');
-
-  void _nextPage() {
-    if (_currentPage < _slides.length - 1) {
-      _pageController.nextPage(
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.easeInOut,
+  void _next() {
+    if (_page < _slides.length - 1) {
+      _pageCtrl.nextPage(
+        duration: const Duration(milliseconds: 420),
+        curve: Curves.easeOutCubic,
       );
+    } else {
+      _goLogin();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final isLastPage = _currentPage == _slides.length - 1;
+    final last = _page == _slides.length - 1;
+    final size = MediaQuery.sizeOf(context);
+    final compact = size.height < 720;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF1A1A1A),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // --- Skip button ---
-            Align(
-              alignment: Alignment.topRight,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 16, right: 24),
-                child: AnimatedOpacity(
-                  opacity: isLastPage ? 0.0 : 1.0,
-                  duration: const Duration(milliseconds: 250),
-                  child: TextButton(
-                    onPressed: isLastPage ? null : _goToLogin,
-                    child: Text(
-                      'Saltar',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.5),
-                        fontSize: 15,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-            // --- Page view ---
-            Expanded(
-              child: PageView.builder(
-                controller: _pageController,
-                onPageChanged: _onPageChanged,
-                itemCount: _slides.length,
-                itemBuilder: (context, index) {
-                  final slide = _slides[index];
-                  return _SlideWidget(
-                    key: ValueKey(index),
-                    slide: slide,
-                  );
-                },
-              ),
-            ),
-
-            // --- Page indicator ---
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: SmoothPageIndicator(
-                controller: _pageController,
-                count: _slides.length,
-                effect: ExpandingDotsEffect(
-                  activeDotColor: MonacoColors.gold,
-                  dotColor: Colors.white.withOpacity(0.2),
-                  dotHeight: 8,
-                  dotWidth: 8,
-                  expansionFactor: 3,
-                  spacing: 6,
-                ),
-              ),
-            ),
-
-            // --- Action button ---
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-              child: SizedBox(
-                width: double.infinity,
-                height: 54,
-                child: ElevatedButton(
-                  onPressed: isLastPage ? _goToLogin : _nextPage,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: MonacoColors.gold,
-                    foregroundColor: Colors.black,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 0,
-                  ),
-                  child: Text(
-                    isLastPage ? 'Comenzar' : 'Siguiente',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+    return OnboardingScaffold(
+      scrollable: false,
+      padding: EdgeInsets.zero,
+      topRight: const Padding(
+        padding: EdgeInsets.only(right: 4, top: 4),
+        child: MonacoLogo.wordmark(width: 132),
+      ),
+      footer: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _Dots(count: _slides.length, index: _page).liquidEnter(index: 3),
+          const SizedBox(height: 18),
+          OnboardingCta(
+            label: last ? 'Empezar' : 'Siguiente',
+            icon: last ? Icons.arrow_forward_rounded : null,
+            onPressed: _next,
+          ).liquidEnter(index: 4),
+          const SizedBox(height: 4),
+          OnboardingLink(
+            label: 'Ya tengo cuenta',
+            icon: Icons.login_rounded,
+            onTap: _goLogin,
+          ).liquidEnter(index: 5),
+        ],
+      ),
+      child: PageView.builder(
+        controller: _pageCtrl,
+        onPageChanged: (i) => setState(() => _page = i),
+        itemCount: _slides.length,
+        physics: const BouncingScrollPhysics(),
+        itemBuilder: (context, i) =>
+            _SlideView(key: ValueKey(i), slide: _slides[i], compact: compact),
       ),
     );
   }
 }
 
-class _SlideWidget extends StatelessWidget {
-  final _SlideData slide;
-
-  const _SlideWidget({super.key, required this.slide});
+class _SlideView extends StatelessWidget {
+  final _Slide slide;
+  final bool compact;
+  const _SlideView({super.key, required this.slide, required this.compact});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // --- Animated icon or image ---
-          (slide.imagePath != null)
-              ? SizedBox(
-                  width: 360, // Make the illustration much bigger as requested
-                  height: 360,
-                  child: Image.asset(
-                    slide.imagePath!,
-                    fit: BoxFit.contain,
-                  ),
-                )
-                  .animate()
-                  .fadeIn(duration: 500.ms)
-                  .scale(
-                    begin: const Offset(0.8, 0.8),
-                    end: const Offset(1.0, 1.0),
-                    duration: 500.ms,
-                    curve: Curves.easeOut,
-                  )
-              : Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    color: MonacoColors.gold.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    slide.icon,
-                    size: 56,
-                    color: MonacoColors.gold,
-                  ),
-                )
-                  .animate()
-                  .fadeIn(duration: 500.ms)
-                  .scale(
-                    begin: const Offset(0.8, 0.8),
-                    end: const Offset(1.0, 1.0),
-                    duration: 500.ms,
-                    curve: Curves.easeOut,
-                  ),
-
-          const SizedBox(height: 48),
-
-          // --- Title ---
-          Text(
-            slide.title,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
-              height: 1.2,
+    // La ilustración se adapta al alto que queda (teclados no hay, pero sí
+    // pantallas de 16:9 y el modo "texto grande"): entre 150 y 290 px, y
+    // si aun así no entra, el slide scrollea en vez de desbordar.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final h = constraints.maxHeight;
+        final imageSize = (h * 0.46).clamp(150.0, compact ? 230.0 : 290.0);
+        return SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: h),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Ilustración sobre un halo verde ──
+                Center(
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          Container(
+                            width: imageSize * 0.9,
+                            height: imageSize * 0.9,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: RadialGradient(
+                                colors: [
+                                  MonacoColors.monacoGreen.withValues(
+                                    alpha: 0.16,
+                                  ),
+                                  Colors.transparent,
+                                ],
+                              ),
+                            ),
+                          ),
+                          Image.asset(
+                            slide.imagePath,
+                            width: imageSize,
+                            height: imageSize,
+                            fit: BoxFit.contain,
+                            filterQuality: FilterQuality.medium,
+                          ),
+                        ],
+                      ),
+                    )
+                    .animate()
+                    .fadeIn(duration: 480.ms)
+                    .scale(
+                      begin: const Offset(0.86, 0.86),
+                      end: const Offset(1, 1),
+                      duration: 560.ms,
+                      curve: Curves.easeOutCubic,
+                    ),
+                SizedBox(height: compact ? 18 : 30),
+                _SlideCopy(slide: slide, compact: compact),
+              ],
             ),
-          )
-              .animate()
-              .fadeIn(delay: 200.ms, duration: 500.ms)
-              .slideY(begin: 0.15, end: 0, duration: 500.ms),
+          ),
+        );
+      },
+    );
+  }
+}
 
-          const SizedBox(height: 16),
+/// Badge + título + subtítulo de un slide, con entrada escalonada.
+class _SlideCopy extends StatelessWidget {
+  final _Slide slide;
+  final bool compact;
+  const _SlideCopy({required this.slide, required this.compact});
 
-          // --- Subtitle ---
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              slide.subtitle,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w400,
-                color: Colors.white.withOpacity(0.55),
-                height: 1.5,
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Badge ──
+        LiquidPill(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              tint: MonacoColors.monacoGreen,
+              tintOpacity: 0.14,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(slide.icon, size: 14, color: MonacoColors.monacoGreen),
+                  const SizedBox(width: 7),
+                  Text(
+                    slide.badge.toUpperCase(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.9,
+                    ),
+                  ),
+                ],
               ),
+            )
+            .animate()
+            .fadeIn(delay: 120.ms, duration: 420.ms)
+            .slideY(
+              begin: 0.2,
+              end: 0,
+              delay: 120.ms,
+              duration: 420.ms,
+              curve: Curves.easeOutCubic,
             ),
-          )
-              .animate()
-              .fadeIn(delay: 350.ms, duration: 500.ms)
-              .slideY(begin: 0.15, end: 0, duration: 500.ms),
-        ],
-      ),
+        const SizedBox(height: 14),
+
+        // ── Título ──
+        Text(
+              slide.title,
+              style: TextStyle(
+                color: MonacoColors.textPrimary,
+                fontSize: compact ? 30 : 34,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -1.3,
+                height: 1.05,
+              ),
+            )
+            .animate()
+            .fadeIn(delay: 200.ms, duration: 460.ms)
+            .slideY(
+              begin: 0.18,
+              end: 0,
+              delay: 200.ms,
+              duration: 460.ms,
+              curve: Curves.easeOutCubic,
+            ),
+        const SizedBox(height: 12),
+
+        // ── Subtítulo ──
+        Text(
+              slide.subtitle,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.6),
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+                height: 1.45,
+              ),
+            )
+            .animate()
+            .fadeIn(delay: 300.ms, duration: 460.ms)
+            .slideY(
+              begin: 0.18,
+              end: 0,
+              delay: 300.ms,
+              duration: 460.ms,
+              curve: Curves.easeOutCubic,
+            ),
+      ],
+    );
+  }
+}
+
+/// Indicador de páginas: pastilla activa verde que se estira.
+class _Dots extends StatelessWidget {
+  final int count;
+  final int index;
+  const _Dots({required this.count, required this.index});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(count, (i) {
+        final on = i == index;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 320),
+          curve: Curves.easeOutCubic,
+          width: on ? 26 : 8,
+          height: 8,
+          margin: const EdgeInsets.symmetric(horizontal: 3.5),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            color: on
+                ? MonacoColors.monacoGreen
+                : Colors.white.withValues(alpha: 0.22),
+            boxShadow: on
+                ? [
+                    BoxShadow(
+                      color: MonacoColors.monacoGreen.withValues(alpha: 0.45),
+                      blurRadius: 10,
+                      spreadRadius: -2,
+                    ),
+                  ]
+                : null,
+          ),
+        );
+      }),
     );
   }
 }

@@ -1,7 +1,7 @@
 name: monaco_mobile
-description: "barberOS - App de Clientes"
+description: "Monaco Barber Studio — app de clientes"
 publish_to: 'none'
-version: 1.0.0+1
+version: 2.0.0+20
 
 environment:
   sdk: ^3.10.3
@@ -9,16 +9,20 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
 
   # State management
   flutter_riverpod: ^2.6.1
-  riverpod_annotation: ^2.6.1
 
   # Navigation
   go_router: ^14.8.1
 
   # Supabase
   supabase_flutter: ^2.9.0
+
+  # HTTP (API mobile del dashboard)
+  http: ^1.2.2
 
   # Security & Auth
   flutter_secure_storage: ^9.2.4
@@ -28,43 +32,80 @@ dependencies:
   # Push Notifications
   firebase_core: ^3.12.1
   firebase_messaging: ^15.2.4
+  flutter_local_notifications: ^18.0.1
 
   # UI & Animations
-  google_fonts: ^6.2.1
   flutter_animate: ^4.5.2
-  shimmer: ^3.0.0
   qr_flutter: ^4.1.0
   cached_network_image: ^3.4.1
-  flutter_svg: ^2.0.17
-  lucide_icons: ^0.257.0
   smooth_page_indicator: ^1.2.0+3
 
-  # Geolocation
+  # Geolocation (orden por cercanía en la selección de sucursal)
   geolocator: ^13.0.2
 
   # Utilities
-  intl: ^0.19.0
+  intl: ^0.20.2
   url_launcher: ^6.3.1
   package_info_plus: ^8.1.3
-  connectivity_plus: ^6.1.3
   share_plus: ^10.1.2
 
   cupertino_icons: ^1.0.8
 
-  # WebView (booking flow turnos)
-  webview_flutter: ^4.10.0
-
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  integration_test:
+    sdk: flutter
   flutter_lints: ^6.0.0
-  riverpod_generator: ^2.6.3
-  build_runner: ^2.4.14
-  mocktail: ^1.0.4
+  flutter_launcher_icons: ^0.14.3
+  flutter_native_splash: ^2.4.4
 
 flutter:
   uses-material-design: true
 
   assets:
     - assets/images/
-    - assets/lottie/
+    - assets/brand/
+
+  fonts:
+    - family: Poppins
+      fonts:
+        - asset: assets/fonts/Poppins-Light.ttf
+          weight: 300
+        - asset: assets/fonts/Poppins-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Poppins-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Poppins-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Poppins-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Poppins-ExtraBold.ttf
+          weight: 800
+        - asset: assets/fonts/Poppins-Black.ttf
+          weight: 900
+
+# ── Ícono de la app (flutter_launcher_icons) ────────────────────────────────
+# Regenerar con: dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  image_path: assets/brand/app_icon.png
+  adaptive_icon_background: "#0A0A0A"
+  adaptive_icon_foreground: assets/brand/app_icon_foreground.png
+  adaptive_icon_monochrome: assets/brand/app_icon_foreground.png
+  min_sdk_android: 24
+
+# ── Splash nativo (flutter_native_splash) ───────────────────────────────────
+# Regenerar con: dart run flutter_native_splash:create
+flutter_native_splash:
+  color: "#0A0A0A"
+  image: assets/brand/splash_logo.png
+  android_12:
+    color: "#0A0A0A"
+    image: assets/brand/splash_logo.png
+    icon_background_color: "#0A0A0A"
+  ios: true
+  android: true
+  fullscreen: false

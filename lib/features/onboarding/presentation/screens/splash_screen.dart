@@ -1,11 +1,19 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
+import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 import 'package:monaco_mobile/core/auth/auth_provider.dart';
 
+import '../widgets/onboarding_scaffold.dart';
+
+/// Pantalla de arranque: monograma con entrada animada mientras el
+/// `AuthNotifier` resuelve la sesión. Navega UNA vez según `AuthStatus`
+/// (`initial` espera) y tiene un tope de seguridad para no quedar colgada.
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
@@ -14,93 +22,240 @@ class SplashScreen extends ConsumerStatefulWidget {
 }
 
 class _SplashScreenState extends ConsumerState<SplashScreen> {
-  // Tiempo mínimo que queremos mostrar el splash (para que no parpadee
-  // si el auth resuelve al instante).
-  static const _minDisplay = Duration(milliseconds: 1200);
-  // Fallback si el auth se cuelga — evita splash eterno.
-  static const _safetyTimeout = Duration(seconds: 6);
+  /// Mínimo en pantalla, para que la marca no parpadee si el auth resuelve
+  /// al instante.
+  static const _minDisplay = Duration(milliseconds: 1100);
+
+  /// Si el auth sigue en `initial` después de esto, mostramos "Reintentar".
+  /// (Navegar a /welcome no serviría: el router devuelve a /splash mientras
+  /// el estado sea `initial`.)
+  static const _safetyTimeout = Duration(seconds: 7);
 
   bool _minDisplayElapsed = false;
   bool _navigated = false;
+  bool _stuck = false;
+  Timer? _minTimer;
   Timer? _safetyTimer;
 
   @override
   void initState() {
     super.initState();
+    _armTimers();
+  }
 
-    Future.delayed(_minDisplay, () {
+  void _armTimers() {
+    _minTimer?.cancel();
+    _safetyTimer?.cancel();
+    _minDisplayElapsed = false;
+    _minTimer = Timer(_minDisplay, () {
       if (!mounted) return;
       _minDisplayElapsed = true;
       _maybeNavigate();
     });
-
     _safetyTimer = Timer(_safetyTimeout, () {
       if (!mounted || _navigated) return;
-      debugPrint('[splash] safety timeout — forcing /welcome');
-      _navigated = true;
-      context.go('/welcome');
+      debugPrint('[splash] auth sigue en initial después de $_safetyTimeout');
+      setState(() => _stuck = true);
     });
   }
 
   void _maybeNavigate() {
     if (!mounted || _navigated || !_minDisplayElapsed) return;
 
-    final authState = ref.read(authProvider);
-    if (authState.status == AuthStatus.initial) return;
+    final status = ref.read(authProvider).status;
+    if (status == AuthStatus.initial) return;
 
     _navigated = true;
     _safetyTimer?.cancel();
 
-    switch (authState.status) {
+    switch (status) {
       case AuthStatus.authenticated:
         context.go('/home');
       case AuthStatus.needsBiometric:
         context.go('/biometric');
+      case AuthStatus.needsBranch:
+        context.go('/elegir-sucursal?onboarding=1');
       case AuthStatus.unauthenticated:
       case AuthStatus.initial:
         context.go('/welcome');
     }
   }
 
+  void _retry() {
+    setState(() => _stuck = false);
+    // Recrea el notifier → vuelve a correr `_init`.
+    ref.invalidate(authProvider);
+    _armTimers();
+  }
+
   @override
   void dispose() {
+    _minTimer?.cancel();
     _safetyTimer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // Escuchar cambios del auth para navegar apenas deje de ser initial
-    // (por si el mínimo de display ya pasó).
     ref.listen<AuthState>(authProvider, (_, next) {
       if (next.status != AuthStatus.initial) _maybeNavigate();
     });
 
     return Scaffold(
       backgroundColor: MonacoColors.background,
-      body: Center(
-        child: ColorFiltered(
-          colorFilter: const ColorFilter.matrix([
-            //  R    G    B    A   offset
-               0,   0,   0,   0,  255,  // R → siempre blanco
-               0,   0,   0,   0,  255,  // G → siempre blanco
-               0,   0,   0,   0,  255,  // B → siempre blanco
-              -1,   0,   0,   1,    0,  // A = A_in - R_in (blanco→0, negro→255)
-          ]),
-          child: Image.asset(
-            'assets/images/bos_icon.png',
-            width: 220,
+      body: LiquidBackdrop(
+        orbColors: kOnboardingOrbs,
+        intensity: kOnboardingOrbIntensity,
+        child: SafeArea(
+          child: Stack(
+            children: [
+              // ── Marca centrada ──
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _GlowingMonogram()
+                        .animate()
+                        .fadeIn(duration: 520.ms, curve: Curves.easeOut)
+                        .scale(
+                          begin: const Offset(0.78, 0.78),
+                          end: const Offset(1, 1),
+                          duration: 760.ms,
+                          curve: Curves.easeOutBack,
+                        ),
+                    const SizedBox(height: 26),
+                    const MonacoLogo.wordmark(width: 176)
+                        .animate()
+                        .fadeIn(delay: 380.ms, duration: 520.ms)
+                        .slideY(
+                          begin: 0.25,
+                          end: 0,
+                          delay: 380.ms,
+                          duration: 520.ms,
+                          curve: Curves.easeOutCubic,
+                        ),
+                  ],
+                ),
+              ),
+
+              // ── Pie: indicador / reintento ──
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 28,
+                child: AnimatedSwitcher(
+                  duration: LiquidTokens.swap,
+                  child: _stuck
+                      ? _StuckFooter(onRetry: _retry)
+                      : const _LoadingDots(key: ValueKey('dots')),
+                ),
+              ),
+            ],
           ),
-        )
-            .animate()
-            .fadeIn(duration: 600.ms, curve: Curves.easeOut)
-            .scale(
-              begin: const Offset(0.7, 0.7),
-              end: const Offset(1.0, 1.0),
-              duration: 600.ms,
-              curve: Curves.easeOut,
-            ),
+        ),
       ),
     );
+  }
+}
+
+/// Monograma "M" sobre un halo verde muy tenue.
+class _GlowingMonogram extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Container(
+              width: 220,
+              height: 220,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    MonacoColors.monacoGreen.withValues(alpha: 0.22),
+                    MonacoColors.monacoGreen.withValues(alpha: 0.05),
+                    Colors.transparent,
+                  ],
+                  stops: const [0, 0.5, 1],
+                ),
+              ),
+            )
+            .animate(onPlay: (c) => c.repeat(reverse: true))
+            .scaleXY(begin: 0.92, end: 1.06, duration: 2200.ms),
+        const MonacoLogo.monogram(width: 116),
+      ],
+    );
+  }
+}
+
+class _LoadingDots extends StatelessWidget {
+  const _LoadingDots({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(3, (i) {
+        return Container(
+              width: 6,
+              height: 6,
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.55),
+              ),
+            )
+            .animate(onPlay: (c) => c.repeat(), delay: (i * 160).ms)
+            .fadeIn(duration: 400.ms)
+            .then()
+            .fadeOut(duration: 500.ms);
+      }),
+    ).animate().fadeIn(delay: 900.ms, duration: 400.ms);
+  }
+}
+
+class _StuckFooter extends StatelessWidget {
+  final VoidCallback onRetry;
+  const _StuckFooter({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Está tardando más de lo normal',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.6),
+              fontSize: 13.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 12),
+          LiquidPill(
+            onTap: onRetry,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.refresh_rounded, size: 18, color: Colors.white),
+                SizedBox(width: 8),
+                Text(
+                  'Reintentar',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ).animate().fadeIn(duration: 300.ms);
   }
 }

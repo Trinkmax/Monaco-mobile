@@ -5,11 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
-import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
+import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
+import 'package:monaco_mobile/core/auth/pin_service.dart';
+import 'package:monaco_mobile/features/onboarding/presentation/widgets/onboarding_scaffold.dart';
+import 'package:monaco_mobile/features/onboarding/presentation/widgets/pin_pad.dart';
 
-// ---------------------------------------------------------------------------
-// Screen
-// ---------------------------------------------------------------------------
+/// Alta / cambio del PIN local en dos pasos (elegir → confirmar). Guarda el
+/// hash en el dispositivo y prende el gate. Devuelve `true` al `pop` si quedó
+/// configurado, `false` si se quitó.
 class PinSetupScreen extends ConsumerStatefulWidget {
   const PinSetupScreen({super.key});
 
@@ -18,296 +21,300 @@ class PinSetupScreen extends ConsumerStatefulWidget {
 }
 
 class _PinSetupScreenState extends ConsumerState<PinSetupScreen> {
-  static const int _pinLength = 4;
+  int _step = 0; // 0 = elegir, 1 = confirmar
+  String _first = '';
+  String _input = '';
+  bool _error = false;
+  bool _busy = false;
+  bool _hadPin = false;
+  int _shakeSeed = 0;
 
-  int _step = 1; // 1 = enter, 2 = confirm
-  String _firstPin = '';
-  String _currentInput = '';
-  String? _error;
-  bool _loading = false;
-
-  // ---- Key handlers ----
-  void _onDigit(int digit) {
-    if (_currentInput.length >= _pinLength || _loading) return;
-    HapticFeedback.lightImpact();
-    setState(() {
-      _currentInput += digit.toString();
-      _error = null;
+  @override
+  void initState() {
+    super.initState();
+    PinService.hasPin().then((v) {
+      if (mounted) setState(() => _hadPin = v);
     });
+  }
+
+  void _onDigit(String d) {
+    if (_busy || _input.length >= PinService.length) return;
+    setState(() {
+      _input += d;
+      _error = false;
+    });
+    if (_input.length == PinService.length) _advance();
   }
 
   void _onDelete() {
-    if (_currentInput.isEmpty || _loading) return;
-    HapticFeedback.selectionClick();
+    if (_busy || _input.isEmpty) return;
     setState(() {
-      _currentInput = _currentInput.substring(0, _currentInput.length - 1);
-      _error = null;
+      _input = _input.substring(0, _input.length - 1);
+      _error = false;
     });
   }
 
-  Future<void> _onConfirm() async {
-    if (_currentInput.length < _pinLength || _loading) return;
-    HapticFeedback.mediumImpact();
-
-    if (_step == 1) {
-      // Save first PIN and go to confirmation
+  Future<void> _advance() async {
+    if (_step == 0) {
+      if (_isWeak(_input)) {
+        HapticFeedback.heavyImpact();
+        setState(() {
+          _error = true;
+          _shakeSeed++;
+        });
+        await Future.delayed(const Duration(milliseconds: 420));
+        if (!mounted) return;
+        setState(() {
+          _input = '';
+          _error = false;
+        });
+        showLiquidToast(
+          context,
+          'Elegí un PIN menos obvio (evitá 1234 o cuatro iguales).',
+          tone: LiquidToastTone.info,
+        );
+        return;
+      }
+      HapticFeedback.lightImpact();
+      await Future.delayed(const Duration(milliseconds: 180));
+      if (!mounted) return;
       setState(() {
-        _firstPin = _currentInput;
-        _currentInput = '';
-        _step = 2;
-      });
-      return;
-    }
-
-    // Step 2: validate match
-    if (_currentInput != _firstPin) {
-      setState(() {
-        _error = 'Los PIN no coinciden';
-        _currentInput = '';
-        _firstPin = '';
+        _first = _input;
+        _input = '';
         _step = 1;
       });
       return;
     }
 
-    // Match! Save to backend.
-    setState(() => _loading = true);
-    try {
-      final supabase = ref.read(supabaseClientProvider);
-      await supabase.rpc('set_client_pin', params: {'p_pin': _currentInput});
-
+    // Paso 2: confirmar.
+    if (_input != _first) {
+      HapticFeedback.heavyImpact();
+      setState(() {
+        _error = true;
+        _shakeSeed++;
+      });
+      await Future.delayed(const Duration(milliseconds: 420));
       if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('PIN configurado'),
-          backgroundColor: Colors.green.shade700,
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
+      setState(() {
+        _input = '';
+        _first = '';
+        _step = 0;
+        _error = false;
+      });
+      showLiquidToast(
+        context,
+        'Los PIN no coinciden. Empezá de nuevo.',
+        tone: LiquidToastTone.error,
       );
+      return;
+    }
 
-      context.pop();
+    setState(() => _busy = true);
+    try {
+      await PinService.setPin(_input);
+      if (!mounted) return;
+      HapticFeedback.mediumImpact();
+      showLiquidToast(
+        context,
+        _hadPin ? 'PIN actualizado' : 'PIN activado',
+        tone: LiquidToastTone.success,
+        icon: Icons.lock_rounded,
+      );
+      context.pop(true);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: $e'),
-          backgroundColor: Colors.red.shade700,
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
       setState(() {
-        _loading = false;
-        _currentInput = '';
-        _firstPin = '';
-        _step = 1;
+        _busy = false;
+        _input = '';
+        _first = '';
+        _step = 0;
       });
+      showLiquidToast(
+        context,
+        'No pudimos guardar el PIN. Probá de nuevo.',
+        tone: LiquidToastTone.error,
+      );
     }
+  }
+
+  /// 1234 / 0000 / 1111… no protegen nada.
+  static bool _isWeak(String pin) {
+    if (RegExp(r'^(\d)\1+$').hasMatch(pin)) return true;
+    const seqs = [
+      '0123',
+      '1234',
+      '2345',
+      '3456',
+      '4567',
+      '5678',
+      '6789',
+      '9876',
+      '8765',
+      '7654',
+      '6543',
+      '5432',
+      '4321',
+      '3210',
+    ];
+    return seqs.contains(pin);
+  }
+
+  Future<void> _remove() async {
+    final ok = await showLiquidDialog<bool>(
+      context,
+      title: '¿Quitar el PIN?',
+      message: 'La app va a dejar de pedirlo como respaldo de la biometría.',
+      icon: Icons.lock_open_rounded,
+      iconColor: MonacoColors.warning,
+      actions: const [
+        LiquidDialogAction(label: 'Cancelar', value: false),
+        LiquidDialogAction(label: 'Quitar PIN', value: true, destructive: true),
+      ],
+    );
+    if (ok != true || !mounted) return;
+    await PinService.removePin();
+    if (!mounted) return;
+    showLiquidToast(context, 'PIN quitado', tone: LiquidToastTone.neutral);
+    context.pop(false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final bottomPad = MediaQuery.of(context).padding.bottom;
+    final confirming = _step == 1;
+    final title = confirming
+        ? 'Confirmá tu PIN'
+        : (_hadPin ? 'Elegí tu nuevo PIN' : 'Elegí un PIN');
+    final subtitle = confirming
+        ? 'Repetilo para estar seguros.'
+        : 'Cuatro dígitos. Es el respaldo cuando la biometría no está disponible.';
 
-    return Scaffold(
-      backgroundColor: MonacoColors.background,
-      appBar: AppBar(
-        title: const Text('Configurar PIN',
-            style: TextStyle(fontWeight: FontWeight.w700)),
-        backgroundColor: MonacoColors.surface,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new),
-          onPressed: () => context.pop(),
-        ),
+    return OnboardingScaffold(
+      orbs: false,
+      showBack: true,
+      onBack: () => context.pop(),
+      centered: true,
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
+      topRight: _hadPin
+          ? OnboardingLink(
+              label: 'Quitar PIN',
+              icon: Icons.lock_open_rounded,
+              color: MonacoColors.destructive.withValues(alpha: 0.9),
+              onTap: _busy ? null : _remove,
+              dense: true,
+            )
+          : null,
+      footer: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PinPad(
+            enabled: !_busy,
+            onDigit: _onDigit,
+            onDelete: _onDelete,
+          ).liquidEnter(index: 2),
+          const SizedBox(height: 4),
+        ],
       ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            const Spacer(flex: 2),
-
-            // Title
-            Text(
-              _step == 1 ? 'Ingresa tu PIN' : 'Confirma tu PIN',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _StepBar(step: _step).liquidEnter(index: 0),
+          const SizedBox(height: 22),
+          AnimatedSwitcher(
+            duration: LiquidTokens.swap,
+            switchInCurve: Curves.easeOutCubic,
+            transitionBuilder: (child, anim) => FadeTransition(
+              opacity: anim,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0.08, 0),
+                  end: Offset.zero,
+                ).animate(anim),
+                child: child,
               ),
-            ).animate(key: ValueKey(_step)).fadeIn(duration: 300.ms),
-
-            const SizedBox(height: 8),
-
-            // Subtitle
-            Text(
-              _step == 1
-                  ? 'Elegí un PIN de $_pinLength dígitos'
-                  : 'Volvé a ingresar tu PIN',
-              style: const TextStyle(color: Colors.white54, fontSize: 14),
             ),
-
-            const SizedBox(height: 32),
-
-            // Dots
-            _buildDots(),
-
-            // Error
-            if (_error != null) ...[
-              const SizedBox(height: 16),
-              Text(
-                _error!,
-                style: const TextStyle(
-                    color: Colors.redAccent,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600),
-              )
-                  .animate()
-                  .fadeIn(duration: 200.ms)
-                  .shakeX(amount: 4, duration: 400.ms),
-            ],
-
-            // Loading
-            if (_loading) ...[
-              const SizedBox(height: 24),
-              const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                    color: MonacoColors.gold, strokeWidth: 2.5),
-              ),
-            ],
-
-            const Spacer(flex: 2),
-
-            // Numpad
-            _buildNumpad(),
-
-            SizedBox(height: bottomPad + 16),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ---- Dots ----
-  Widget _buildDots() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(_pinLength, (i) {
-        final filled = i < _currentInput.length;
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          margin: const EdgeInsets.symmetric(horizontal: 10),
-          width: filled ? 18 : 16,
-          height: filled ? 18 : 16,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color:
-                filled ? MonacoColors.gold : Colors.white.withOpacity(0.12),
-            border: Border.all(
-              color: filled
-                  ? MonacoColors.gold
-                  : Colors.white.withOpacity(0.2),
-              width: 2,
+            child: OnboardingTitle(
+              key: ValueKey(_step),
+              align: TextAlign.center,
+              title: title,
+              subtitle: subtitle,
             ),
-            boxShadow: filled
-                ? [
-                    BoxShadow(
-                      color: MonacoColors.gold.withOpacity(0.35),
-                      blurRadius: 8,
-                      spreadRadius: 1,
-                    )
-                  ]
-                : [],
           ),
-        );
-      }),
-    );
-  }
-
-  // ---- Numpad ----
-  Widget _buildNumpad() {
-    final keys = <_NumpadKey>[
-      _NumpadKey(label: '1', onTap: () => _onDigit(1)),
-      _NumpadKey(label: '2', onTap: () => _onDigit(2)),
-      _NumpadKey(label: '3', onTap: () => _onDigit(3)),
-      _NumpadKey(label: '4', onTap: () => _onDigit(4)),
-      _NumpadKey(label: '5', onTap: () => _onDigit(5)),
-      _NumpadKey(label: '6', onTap: () => _onDigit(6)),
-      _NumpadKey(label: '7', onTap: () => _onDigit(7)),
-      _NumpadKey(label: '8', onTap: () => _onDigit(8)),
-      _NumpadKey(label: '9', onTap: () => _onDigit(9)),
-      _NumpadKey(
-        icon: Icons.backspace_outlined,
-        onTap: _onDelete,
-      ),
-      _NumpadKey(label: '0', onTap: () => _onDigit(0)),
-      _NumpadKey(
-        icon: Icons.check_circle,
-        iconColor: _currentInput.length == _pinLength
-            ? MonacoColors.gold
-            : Colors.white24,
-        onTap: _onConfirm,
-      ),
-    ];
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 48),
-      child: GridView.count(
-        crossAxisCount: 3,
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 24,
-        childAspectRatio: 1.4,
-        children: keys.map((k) => _buildKey(k)).toList(),
-      ),
-    );
-  }
-
-  Widget _buildKey(_NumpadKey key) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(40),
-        onTap: key.onTap,
-        splashColor: MonacoColors.gold.withOpacity(0.15),
-        child: Center(
-          child: key.icon != null
-              ? Icon(key.icon,
-                  color: key.iconColor ?? Colors.white54, size: 26)
-              : Text(
-                  key.label!,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-        ),
+          const SizedBox(height: 34),
+          PinDots(
+            length: PinService.length,
+            filled: _input.length,
+            error: _error,
+            shakeKey: _shakeSeed,
+          ),
+          const SizedBox(height: 12),
+          AnimatedOpacity(
+            duration: LiquidTokens.swap,
+            opacity: _busy ? 1 : 0,
+            child: const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            ),
+          ).animate().fadeIn(),
+        ],
       ),
     );
   }
 }
 
-// ---------------------------------------------------------------------------
-// Numpad key model
-// ---------------------------------------------------------------------------
-class _NumpadKey {
-  final String? label;
-  final IconData? icon;
-  final Color? iconColor;
-  final VoidCallback onTap;
+/// Dos segmentos: "elegir" y "confirmar".
+class _StepBar extends StatelessWidget {
+  final int step;
+  const _StepBar({required this.step});
 
-  const _NumpadKey({
-    this.label,
-    this.icon,
-    this.iconColor,
-    required this.onTap,
-  });
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(2, (i) {
+            final on = i <= step;
+            return AnimatedContainer(
+              duration: LiquidTokens.swap,
+              curve: LiquidTokens.curveSwap,
+              width: 44,
+              height: 5,
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(999),
+                color: on
+                    ? MonacoColors.monacoGreen
+                    : Colors.white.withValues(alpha: 0.14),
+                boxShadow: on
+                    ? [
+                        BoxShadow(
+                          color: MonacoColors.monacoGreen.withValues(
+                            alpha: 0.4,
+                          ),
+                          blurRadius: 10,
+                          spreadRadius: -2,
+                        ),
+                      ]
+                    : null,
+              ),
+            );
+          }),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'Paso ${step + 1} de 2',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.5),
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.5,
+          ),
+        ),
+      ],
+    );
+  }
 }

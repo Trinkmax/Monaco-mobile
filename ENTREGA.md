@@ -1,185 +1,102 @@
-# Monaco Smart Barber — App Movil v1.0
+# Monaco — App de clientes · Entrega v2.0 (rediseño 2026-08)
 
-## Resumen de entrega
+## Resumen
 
-App Flutter para clientes de Monaco Smart Barber. Comparte backend Supabase con el dashboard web existente.
+App Flutter para los clientes de **Monaco Barber Studio** (identidad **Monaco**, antes
+"barberOS / Monaco Mobile"). Mono-organización, con elección de sucursal; Liquid Glass en todas
+las pantallas; login por **código de WhatsApp (OTP)**; **turnos nativos** reservados a través de
+la API mobile del dashboard (un solo motor de disponibilidad); **push FCM**; modo prueba para la
+sucursal Test. Comparte Supabase con `../MonacoSmartBarber`.
 
-| Metrica | Valor |
+| Métrica | Valor |
 |---|---|
-| Archivos Dart (lib/) | 41 |
-| Lineas de codigo | ~7,400 |
-| Tests | 95 (64 unit + 31 widget) |
-| Pantallas | 15 |
-| Errores de analisis | 0 |
-| Warnings | 0 |
-| Edge Functions nuevas | 1 (send-push) |
-| Funciones SQL usadas | 10 |
+| Versión | `2.0.0+20` (`pubspec.yaml`) |
+| Flutter / Dart | 3.38.4 / 3.10.3 |
+| Tests | 166 (unit + widget), `flutter test` en verde |
+| Plataformas | iOS 14+ sólo iPhone vertical · Android minSdk 24 / target 36 |
+| Nombre visible | Monaco (`CFBundleDisplayName`, `@string/app_name`) |
+| IDs | iOS `com.monacobarber.monacoMobile` · Android `com.monacobarber.monaco_mobile` (no cambiar después del primer upload) |
 
----
+## Qué incluye
 
-## Arquitectura
+### Flujo del cliente
+1. **Splash / Welcome / Login** — teléfono → `start` → login silencioso si el dispositivo ya es
+   conocido, o código de 6 dígitos por WhatsApp (`/login/codigo`), nombre si es cliente nuevo
+   (`/login/nombre`) → elegir sucursal (`/elegir-sucursal?onboarding=1`) → Home.
+2. **Home** — saludo, puntos, sucursal elegida (pill para cambiar), ocupación en vivo, próximo
+   turno, cartelera, convenios, accesos.
+3. **Turnos** (`/turnos`, `/turnos/reservar`, `/turnos/:id`) — listado próximos/anteriores,
+   wizard de reserva (servicio → día y hora → barbero opcional → confirmar), detalle con mapa,
+   cancelación con la misma regla de ventana que el server.
+4. **Sucursales** (`/occupancy`, `/branch/:id`) — fila en vivo, barberos, ETA.
+5. **Premios / Puntos / Catálogo / QR de canje / Mis canjes / Convenios / Reseñas / Cartelera / Visitas**.
+6. **Notificaciones** (`/notificaciones`, `/notificaciones/preferencias`) — bandeja
+   `client_notifications` en tiempo real + preferencias por tipo.
+7. **Perfil** — nombre, teléfono, sucursal, biometría y PIN local, notificaciones, legales,
+   soporte (mail / WhatsApp), eliminar cuenta (Apple 5.1.1(v)), versión (7 toques → modo prueba).
 
-```
-lib/
-  app/          → App root, theme (colors, typography, material theme)
-  core/
-    auth/       → AuthService, AuthProvider, BiometricService, PinService, SecureStorage
-    push/       → PushService (FCM), PushHandler (notification routing)
-    router/     → GoRouter con auth guards + ShellRoute (bottom nav)
-    supabase/   → SupabaseClient provider
-    utils/      → Constants, Formatters
-  features/
-    onboarding/ → Splash, Welcome, Login, BiometricGate
-    home/       → Dashboard (puntos, sucursales, cartelera, accesos rapidos)
-    occupancy/  → Lista de sucursales, detalle con realtime, barber status
-    points/     → Billetera global, historial de transacciones
-    rewards/    → Mis premios, QR display
-    reviews/    → Bandeja de resenas pendientes, flujo de resena
-    billboard/  → Cartelera fullscreen con auto-scroll
-    catalog/    → Catalogo de canjes por puntos
-    profile/    → Perfil, PIN setup, configuracion
-```
+### Backend que consume
+- **Supabase** (Auth + PostgREST + Realtime + Edge Functions): `client-auth` v2 (OTP WhatsApp),
+  `send-push` (FCM v1), `delete-client-account`. RLS "propia" por `auth.uid()` para clientes.
+- **API mobile** (`MonacoSmartBarber/src/app/api/mobile/**`, Bearer del cliente, rate-limit por
+  usuario): `turnos/branches`, `turnos/[slug]`, `turnos/[slug]/slots`, `turnos/[slug]/book`,
+  `turnos/cancel`, `me`, `push/token`. Errores siempre `{ error, message }` JSON.
 
-**State management:** Riverpod (FutureProvider, StreamProvider, StateNotifierProvider)
-**Navigation:** GoRouter con redirect guards segun AuthStatus
-**Design:** Dark theme coherente con dashboard web, gold accent (#D4A853)
+## Nativo y tiendas — qué quedó resuelto en esta entrega
 
----
-
-## Pantallas implementadas
-
-### Onboarding
-1. **SplashScreen** — Logo animado, redirige segun auth state
-2. **WelcomeScreen** — 3-slide PageView con smooth indicator
-3. **LoginScreen** — Ingreso por telefono (+54), nombre opcional
-4. **BiometricGateScreen** — Verificacion biometrica con fallback a PIN
-
-### Main (Bottom Nav)
-5. **HomeScreen** — Dashboard: puntos, resenas pendientes, sucursales horizontal, cartelera, accesos rapidos
-6. **OccupancyScreen** — Lista de sucursales con ocupacion en tiempo real
-7. **RewardsScreen** — Tabs Disponibles/Usados con cards de recompensas
-8. **ProfileScreen** — Nombre, telefono, biometria toggle, PIN, logout
-
-### Detail Screens
-9. **BranchDetailScreen** — Detalle de sucursal con fila realtime, barberos, ETA
-10. **PointsScreen** — Billetera global, por sucursal, historial
-11. **CatalogScreen** — Grid de items canjeables con confirmacion
-12. **ReviewsScreen** — Bandeja de resenas pendientes
-13. **ReviewFlowScreen** — Flujo completo: rating → accion segun estrellas
-14. **QrDisplayScreen** — QR fullscreen para canjear premio
-15. **BillboardScreen** — Cartelera fullscreen con PageView auto-scroll
-16. **PinSetupScreen** — Teclado numerico custom para PIN 4-6 digitos
-
----
-
-## Backend (Supabase)
-
-### Funciones SQL utilizadas (10)
-| Funcion | Uso |
+| Ítem | Estado |
 |---|---|
-| `get_client_global_points` | Saldo y total de puntos global |
-| `get_client_pending_reviews` | Resenas pendientes del cliente |
-| `get_client_wallet` | Recompensas del cliente con QR |
-| `get_client_branch_signals` | Sucursales con ocupacion |
-| `get_branch_open_status` | Estado abierto/cerrado |
-| `submit_client_review` | Enviar resena (con logica por rating) |
-| `set_client_pin` | Guardar PIN hasheado |
-| `verify_client_pin` | Verificar PIN |
-| `deduct_client_points` | Descontar puntos (cross-branch) |
-| `redeem_points_for_reward` | Canjear puntos por premio |
+| Nombre "Monaco" iOS/Android | Hecho (`Info.plist`, `strings.xml`) |
+| Íconos reales (iOS AppIcon 25 tamaños, Android mipmap + adaptive + monochrome) | Hecho — generados con `flutter_launcher_icons` desde `assets/brand/` |
+| Splash nativo negro #0A0A0A con logo (iOS storyboard, Android incl. API 31+) | Hecho — `flutter_native_splash`; `LaunchTheme`/`NormalTheme` oscuros, sin flash blanco |
+| Idioma de la ficha | `CFBundleDevelopmentRegion = es`, `CFBundleLocalizations [es]`, `developmentRegion = es` |
+| iPad (ITMS-90474) | `TARGETED_DEVICE_FAMILY = 1` (sólo iPhone) |
+| Links que "no hacían nada" (mailto/https/tel/whatsapp) | `LSApplicationQueriesSchemes` + `<queries>` Android |
+| Ubicación | `NSLocationDefaultAccuracyReduced = true`; texto de uso revisado; `PrivacyInfo` coherente (Coarse) |
+| Biometría Android rota | `MainActivity : FlutterFragmentActivity` |
+| Permisos Android explícitos | `INTERNET`, `POST_NOTIFICATIONS`, ubicación, biometría, boot/vibrate para notificaciones |
+| Push Android | canal `monaco_default`, ícono monocromo `ic_notification`, color de acento, receivers de notificaciones locales, desugaring + ProGuard |
+| Firma Android release | `signingConfigs.release` desde `android/key.properties` (+ `key.properties.example`), fallback a debug si no existe |
+| Firebase opcional en build | `google-services` aplicado sólo si existe `google-services.json`; iOS usa `firebase_options.dart` |
+| Backup Android | `allowBackup=false` (la sesión cifrada no sobrevive a un restore) |
+| Export compliance | `ITSAppUsesNonExemptEncryption = false` |
+| Legales / soporte | `AppConstants` → `…/privacidad`, `…/terminos` del dashboard, mail y WhatsApp reales |
+| Código muerto | WebView de reserva, selección de org, PIN remoto, `barberos_logo`/`bos_icon`, tests viejos |
 
-### Edge Functions (5 total, 1 nueva)
-| Function | Status | Descripcion |
-|---|---|---|
-| `client-auth` | ACTIVE | Login/registro por telefono |
-| `send-push` | ACTIVE | **NUEVO** — Push via FCM |
-| `meta-webhook` | ACTIVE | Webhook de Meta |
-| `send-message` | ACTIVE | Envio de mensajes |
-| `process-scheduled-messages` | ACTIVE | Mensajes programados |
-
-### Tablas principales usadas por la app
-- `clients`, `client_points`, `point_transactions`
-- `reward_catalog`, `client_rewards`
-- `review_requests`, `client_reviews`
-- `branches`, `branch_signals`, `queue_entries`, `staff`
-- `billboard_items`, `client_device_tokens`
-
----
-
-## Tests
-
-```
-test/
-  unit/
-    formatters_test.dart    → 39 tests (currency, date, time, points, eta, phone)
-    pin_service_test.dart   → 13 tests (validacion de formato PIN)
-    auth_state_test.dart    → 12 tests (AuthState model + AuthStatus enum)
-  widget/
-    points_history_tile_test.dart   → 9 tests (earned/redeemed visual)
-    occupancy_mini_card_test.dart   → 8 tests (branch, ETA, colores)
-    barber_status_tile_test.dart    → 14 tests (nombre, status, avatar)
-```
-
-Ejecutar: `flutter test`
-
----
-
-## Verificacion de calidad
-
-- `dart analyze lib/` → **0 errors, 0 warnings**
-- `flutter test` → **95/95 passing**
-- `npm run build` (MonacoSmartBarber) → **Build exitoso** (fix: excluir `supabase/` de tsconfig)
-- 10/10 funciones SQL verificadas en Supabase
-
----
-
-## Dependencias clave (pubspec.yaml)
-
-| Paquete | Version | Uso |
-|---|---|---|
-| flutter_riverpod | ^2.6.1 | State management |
-| go_router | ^14.8.1 | Navigation |
-| supabase_flutter | ^2.9.0 | Backend |
-| flutter_secure_storage | ^9.2.4 | Device secret, prefs |
-| local_auth | ^2.3.0 | Biometrics |
-| firebase_core | ^3.12.1 | FCM base |
-| firebase_messaging | ^15.2.4 | Push notifications |
-| flutter_animate | ^4.5.2 | Animaciones |
-| qr_flutter | ^4.1.0 | QR codes |
-| intl | ^0.19.0 | Formateo i18n |
-| url_launcher | ^6.3.1 | Google Maps redirect |
-
----
-
-## Para correr el proyecto
+## Verificación
 
 ```bash
-cd Monaco-mobile
-
-# Instalar dependencias
-flutter pub get
-
-# Correr en simulador (requiere SUPABASE_ANON_KEY)
-flutter run --dart-define=SUPABASE_ANON_KEY=<tu_key>
-
-# Analizar codigo
-dart analyze lib/
-
-# Correr tests
-flutter test
-
-# Build release
-flutter build ios --dart-define=SUPABASE_ANON_KEY=<tu_key>
-flutter build apk --dart-define=SUPABASE_ANON_KEY=<tu_key>
+dart analyze lib/ test/            # sin errores ni warnings en lo nativo/tests de esta entrega
+flutter test                       # 166 tests, todos en verde
+flutter build apk --debug          # compila lo nativo Android (FlutterFragmentActivity, gradle nuevo)
+flutter build ios --debug --no-codesign   # compila lo nativo iOS (AppDelegate, pods, assets)
 ```
 
----
+## Lo que falta y es del dueño (no es código)
 
-## Pendientes v2
+1. **Apple Developer Program** (USD 99/año). Hoy el Team `A3WAXVR55Z` es un Apple ID gratuito:
+   no hay TestFlight ni App Store ni firma de push. Con el programa: cambiar `DEVELOPMENT_TEAM`,
+   crear el App ID `com.monacobarber.monacoMobile` con Push, subir la **APNs key** a Firebase.
+2. **Firebase**: crear el proyecto, `flutterfire configure` (ver README), cargar
+   `FCM_SERVICE_ACCOUNT_JSON` en la edge function `send-push`. Mientras tanto la app funciona sin push.
+3. **Keystore Android**: generar `monaco-release.jks` (comando en `android/key.properties.example`),
+   guardarlo fuera del repo con backup, crear `android/key.properties`. Play App Signing al subir el AAB.
+4. **Template de WhatsApp `monaco_codigo_acceso`** aprobado en la WABA (categoría AUTHENTICATION)
+   y `AUTH_TEST_PHONES` con un teléfono de prueba para el reviewer de Apple/Google.
+5. **Fichas de tienda**: capturas, descripción, URL de privacidad
+   (`https://monaco-smart-barber.vercel.app/privacidad`) y términos (`/terminos` — publicar la
+   página en el dashboard si todavía no existe), email de soporte, cuestionario de privacidad
+   (Phone Number, Name, User ID, Device ID, Coarse Location, Purchase History, Product
+   Interaction, Other User Content, Customer Support — todos vinculados, sin tracking) y Data Safety
+   de Play con el mismo set.
+6. **Datos**: desactivar/ocultar la org `test` y la sucursal Test para usuarios comunes (la app ya
+   la esconde; el turnero web no), cargar `staff_schedules`/agenda de turnos de las sucursales
+   que se activen.
 
-- OTP SMS (Twilio) para onboarding
-- Multi-device support
-- Check-in remoto desde la app
-- Historial de cortes con fotos
-- Video en billboard
-- Notificaciones push admin por resenas negativas
+## Notas de revisión de tienda
+
+- La reserva de turnos es nativa (no hay WebView): no aplica Apple 4.2.
+- Eliminar cuenta: botón en Perfil → edge function `delete-client-account` (debe estar deployada
+  en prod antes de enviar a revisión).
+- Ubicación: opcional, sólo para ordenar sucursales; la app funciona igual si se niega.
+- Notificaciones: el permiso se pide después de explicar para qué (no en el primer arranque).

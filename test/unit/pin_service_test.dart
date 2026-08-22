@@ -1,64 +1,64 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Validates PIN format constraints independently of Supabase.
-/// PIN must be 4-6 numeric digits.
-bool isValidPin(String pin) {
-  if (pin.length < 4 || pin.length > 6) return false;
-  return RegExp(r'^\d+$').hasMatch(pin);
-}
+import 'package:monaco_mobile/core/auth/pin_service.dart';
+import 'package:monaco_mobile/core/auth/secure_storage.dart';
 
 void main() {
-  group('PIN validation', () {
-    test('accepts 4-digit PIN', () {
-      expect(isValidPin('1234'), isTrue);
-    });
+  TestWidgetsFlutterBinding.ensureInitialized();
 
-    test('accepts 5-digit PIN', () {
-      expect(isValidPin('12345'), isTrue);
-    });
+  setUp(() {
+    // Storage en memoria: sin Keychain en el runner de tests.
+    FlutterSecureStorage.setMockInitialValues({});
+  });
 
-    test('accepts 6-digit PIN', () {
-      expect(isValidPin('123456'), isTrue);
-    });
+  test('sin PIN: hasPin/isEnabled false, verify falla', () async {
+    expect(await PinService.hasPin(), isFalse);
+    expect(await PinService.isEnabled(), isFalse);
+    expect(await PinService.verifyPin('1234'), isFalse);
+  });
 
-    test('rejects 3-digit PIN', () {
-      expect(isValidPin('123'), isFalse);
-    });
+  test('setPin guarda un hash (no el PIN) y prende el gate', () async {
+    await PinService.setPin('2580');
+    final stored = await SecureStorageService.getLocalPinHash();
+    expect(stored, isNotNull);
+    expect(stored, isNot(contains('2580')));
+    expect(stored!.length, 64); // sha256 hex
+    expect(await PinService.hasPin(), isTrue);
+    expect(await PinService.isEnabled(), isTrue);
+    expect(await SecureStorageService.isPinEnabled(), isTrue);
+  });
 
-    test('rejects 7-digit PIN', () {
-      expect(isValidPin('1234567'), isFalse);
-    });
+  test('verifyPin acepta el correcto y rechaza el resto', () async {
+    await PinService.setPin('2580');
+    expect(await PinService.verifyPin('2580'), isTrue);
+    expect(await PinService.verifyPin('2581'), isFalse);
+    expect(await PinService.verifyPin('258'), isFalse);
+    expect(await PinService.verifyPin('abcd'), isFalse);
+  });
 
-    test('rejects letters', () {
-      expect(isValidPin('abcd'), isFalse);
-    });
+  test('el hash depende del device_id (sal)', () async {
+    await PinService.setPin('2580');
+    final a = await SecureStorageService.getLocalPinHash();
+    // Dispositivo distinto → device_id distinto → hash distinto.
+    FlutterSecureStorage.setMockInitialValues({});
+    await PinService.setPin('2580');
+    final b = await SecureStorageService.getLocalPinHash();
+    expect(a, isNot(equals(b)));
+  });
 
-    test('rejects empty string', () {
-      expect(isValidPin(''), isFalse);
-    });
+  test('removePin borra y apaga', () async {
+    await PinService.setPin('2580');
+    await PinService.removePin();
+    expect(await PinService.hasPin(), isFalse);
+    expect(await PinService.isEnabled(), isFalse);
+    expect(await PinService.verifyPin('2580'), isFalse);
+  });
 
-    test('rejects mixed alphanumeric', () {
-      expect(isValidPin('12a4'), isFalse);
-    });
-
-    test('rejects special characters', () {
-      expect(isValidPin('12@4'), isFalse);
-    });
-
-    test('rejects spaces', () {
-      expect(isValidPin('12 4'), isFalse);
-    });
-
-    test('rejects single digit', () {
-      expect(isValidPin('1'), isFalse);
-    });
-
-    test('accepts all zeros', () {
-      expect(isValidPin('0000'), isTrue);
-    });
-
-    test('accepts all nines', () {
-      expect(isValidPin('9999'), isTrue);
-    });
+  test('isValidFormat', () {
+    expect(PinService.isValidFormat('1234'), isTrue);
+    expect(PinService.isValidFormat('123'), isFalse);
+    expect(PinService.isValidFormat('12a4'), isFalse);
+    expect(() => PinService.setPin('12'), throwsArgumentError);
   });
 }

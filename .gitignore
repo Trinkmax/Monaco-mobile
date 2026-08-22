@@ -75,3 +75,9 @@ app.*.map.json
 *.freezed.dart
 *.mocks.dart
 *.config.dart
+
+# Firma Android (nunca commitear el keystore ni sus passwords; *.jks/*.keystore ya están arriba)
+/android/key.properties
+
+# Backup temporal que deja scripts/instalar-en-iphone.sh si se lo mata a la fuerza
+*.bak-instalador

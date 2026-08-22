@@ -25,6 +25,84 @@ String? _redemptionStatusFor(
   return row?['status']?.toString();
 }
 
+/// Pastilla verde con el descuento ("20% OFF", "2x1"…).
+class _DiscountPill extends StatelessWidget {
+  final String text;
+  final double fontSize;
+  const _DiscountPill({required this.text, this.fontSize = 12});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: fontSize * 0.85, vertical: 5),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [MonacoColors.monacoGreen, MonacoColors.monacoGreenDeep],
+        ),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.22), width: 0.8),
+        boxShadow: [
+          BoxShadow(
+            color: MonacoColors.monacoGreen.withValues(alpha: 0.45),
+            blurRadius: 12,
+            spreadRadius: -2,
+          ),
+        ],
+      ),
+      child: Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+          fontSize: fontSize,
+          letterSpacing: 0.1,
+        ),
+      ),
+    );
+  }
+}
+
+/// Imagen del beneficio con placeholder/fallback en vidrio.
+class _BenefitImage extends StatelessWidget {
+  final String? imageUrl;
+  final double iconSize;
+  const _BenefitImage({required this.imageUrl, this.iconSize = 28});
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withValues(alpha: 0.12),
+            Colors.white.withValues(alpha: 0.03),
+          ],
+        ),
+      ),
+      child: Center(
+        child: Icon(
+          Icons.local_offer_outlined,
+          color: Colors.white.withValues(alpha: 0.45),
+          size: iconSize,
+        ),
+      ),
+    );
+    if (imageUrl == null || imageUrl!.isEmpty) return fallback;
+    return CachedNetworkImage(
+      imageUrl: imageUrl!,
+      fit: BoxFit.cover,
+      placeholder: (_, _) => fallback,
+      errorWidget: (_, _, _) => fallback,
+    );
+  }
+}
+
 /// Card horizontal para carrusel del home — lámina glass con imagen arriba.
 class ConvenioHomeCard extends ConsumerWidget {
   final Map<String, dynamic> benefit;
@@ -65,25 +143,8 @@ class ConvenioHomeCard extends ConsumerWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  if (imageUrl != null && imageUrl.isNotEmpty)
-                    CachedNetworkImage(
-                      imageUrl: imageUrl,
-                      fit: BoxFit.cover,
-                      placeholder: (_, _) =>
-                          Container(color: MonacoColors.surfaceVariant),
-                      errorWidget: (_, _, _) => Container(
-                        color: MonacoColors.surfaceVariant,
-                        child: const Icon(Icons.image_not_supported_outlined,
-                            color: MonacoColors.foregroundSubtle, size: 28),
-                      ),
-                    )
-                  else
-                    Container(
-                      color: MonacoColors.surfaceVariant,
-                      child: const Icon(Icons.local_offer_outlined,
-                          color: MonacoColors.foregroundSubtle, size: 32),
-                    ),
-                  // Hairline ámbar-crema arriba para legibilidad del discount
+                  _BenefitImage(imageUrl: imageUrl, iconSize: 32),
+                  // Sombra superior para que el descuento se lea sobre la foto
                   Positioned(
                     top: 0,
                     left: 0,
@@ -96,7 +157,7 @@ class ConvenioHomeCard extends ConsumerWidget {
                             begin: Alignment.topCenter,
                             end: Alignment.bottomCenter,
                             colors: [
-                              Colors.black.withOpacity(0.35),
+                              Colors.black.withValues(alpha: 0.35),
                               Colors.transparent,
                             ],
                           ),
@@ -108,37 +169,7 @@ class ConvenioHomeCard extends ConsumerWidget {
                     Positioned(
                       top: 10,
                       left: 10,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              LiquidTokens.monacoGreen,
-                              LiquidTokens.monacoGreenDeep,
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(999),
-                          boxShadow: [
-                            BoxShadow(
-                              color: LiquidTokens.monacoGreen.withOpacity(0.45),
-                              blurRadius: 12,
-                              spreadRadius: -2,
-                            ),
-                          ],
-                        ),
-                        child: Text(
-                          discount,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 12,
-                            letterSpacing: 0.1,
-                          ),
-                        ),
-                      ),
+                      child: _DiscountPill(text: discount),
                     ),
                   Positioned(
                     top: 10,
@@ -174,7 +205,7 @@ class ConvenioHomeCard extends ConsumerWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.55),
+                        color: Colors.white.withValues(alpha: 0.55),
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
                       ),
@@ -190,7 +221,7 @@ class ConvenioHomeCard extends ConsumerWidget {
   }
 }
 
-/// Card vertical para lista de convenios (pantalla completa).
+/// Card horizontal para la lista de convenios (pantalla completa).
 class ConvenioListCard extends ConsumerWidget {
   final Map<String, dynamic> benefit;
   final VoidCallback onTap;
@@ -212,120 +243,84 @@ class ConvenioListCard extends ConsumerWidget {
     final redemptionStatus = _redemptionStatusFor(benefit, ref);
     final validUntil = _parseValidUntil(benefit);
 
-    return GestureDetector(
+    return LiquidGlass(
       onTap: onTap,
-      child: Container(
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          color: MonacoColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: MonacoColors.border),
-        ),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 110,
-              height: 110,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (imageUrl != null && imageUrl.isNotEmpty)
-                    CachedNetworkImage(
-                      imageUrl: imageUrl,
-                      fit: BoxFit.cover,
-                      placeholder: (_, __) =>
-                          Container(color: MonacoColors.surfaceVariant),
-                      errorWidget: (_, __, ___) => Container(
-                        color: MonacoColors.surfaceVariant,
-                        child: const Icon(Icons.image_not_supported_outlined,
-                            color: MonacoColors.foregroundSubtle),
-                      ),
-                    )
-                  else
-                    Container(
-                      color: MonacoColors.surfaceVariant,
-                      child: const Icon(Icons.local_offer_outlined,
-                          color: MonacoColors.foregroundSubtle, size: 28),
-                    ),
-                ],
-              ),
+      padding: const EdgeInsets.all(10),
+      borderRadius: 20,
+      tintOpacity: 0.07,
+      showVignette: false,
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: SizedBox(
+              width: 92,
+              height: 92,
+              child: _BenefitImage(imageUrl: imageUrl),
             ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Row(
                   children: [
-                    Row(
-                      children: [
-                        if (discount != null && discount.isNotEmpty)
-                          Flexible(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: MonacoColors.primary,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                discount,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: MonacoColors.primaryForeground,
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ),
-                          ),
-                        const Spacer(),
-                        RedemptionStatusChip(
-                          redemptionStatus: redemptionStatus,
-                          validUntil: validUntil,
-                        ),
-                      ],
+                    if (discount != null && discount.isNotEmpty)
+                      Flexible(child: _DiscountPill(text: discount, fontSize: 11)),
+                    const Spacer(),
+                    RedemptionStatusChip(
+                      redemptionStatus: redemptionStatus,
+                      validUntil: validUntil,
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: MonacoColors.textPrimary,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        height: 1.25,
-                      ),
-                    ),
-                    if (partnerName.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          const Icon(Icons.storefront_outlined,
-                              size: 12, color: MonacoColors.foregroundSubtle),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              partnerName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: MonacoColors.textSecondary,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
                   ],
                 ),
-              ),
+                const SizedBox(height: 7),
+                Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: MonacoColors.textPrimary,
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.2,
+                    height: 1.25,
+                  ),
+                ),
+                if (partnerName.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(Icons.storefront_rounded,
+                          size: 12, color: Colors.white.withValues(alpha: 0.5)),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          partnerName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.55),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
             ),
-          ],
-        ),
+          ),
+          const SizedBox(width: 6),
+          Icon(
+            Icons.chevron_right_rounded,
+            color: Colors.white.withValues(alpha: 0.35),
+            size: 22,
+          ),
+        ],
       ),
     );
   }

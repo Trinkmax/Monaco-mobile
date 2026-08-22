@@ -1,106 +1,160 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:monaco_mobile/core/auth/auth_provider.dart';
+
+import 'package:monaco_mobile/core/auth/secure_storage.dart';
 import 'package:monaco_mobile/core/location/location_provider.dart';
 import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
+import 'package:monaco_mobile/core/utils/constants.dart';
+
 import '../models/branch_with_distance.dart';
 
-/// Sucursales de la org seleccionada, con señales y distancia, ordenadas por cercanía.
+/// Modo prueba (muestra la sucursal Test). Se prende desde Perfil con 7 toques
+/// sobre la versión; quien lo cambie debe `ref.invalidate(testModeProvider)`
+/// (o de `branchesProvider`) para que la lista lo refleje sin reabrir.
+final testModeProvider = FutureProvider<bool>((ref) async {
+  return SecureStorageService.isTestModeEnabled();
+});
+
+/// TODAS las sucursales activas de Monaco (incluida Test) con señales en vivo
+/// y `operation_mode`/`slug` hidratados. Sin distancia: la ubicación se cruza
+/// aparte para no bloquear la lista esperando al GPS.
 ///
-/// El RPC `get_org_branch_signals` no expone `operation_mode` ni `slug`, así
-/// que hacemos una query parallel a `branches` filtrada por id-list para
-/// hidratar esos campos. Si la query falla por algún motivo (RLS, etc.), las
-/// sucursales quedan con default `walk_in` y `slug` null — la app sigue
-/// funcionando, solo que oculta el flujo de turnos.
-final nearbyBranchesProvider =
-    FutureProvider<List<BranchWithDistance>>((ref) async {
-  final authState = ref.watch(authProvider);
-  final orgId = authState.selectedOrgId;
-  if (orgId == null) return [];
+/// `autoDispose`: cada vez que se abre la pantalla se vuelve a pedir el estado
+/// en vivo, que es justamente lo que el cliente quiere ver fresco.
+final allBranchesProvider = FutureProvider.autoDispose<List<BranchWithDistance>>(
+  (ref) async {
+    const orgId = AppConstants.organizationId;
+    final client = ref.read(supabaseClientProvider);
 
-  final client = ref.read(supabaseClientProvider);
-  final locationService = ref.read(locationServiceProvider);
-
-  // Llamar al RPC que devuelve branches con señales para la org
-  final response = await client.rpc(
-    'get_org_branch_signals',
-    params: {'p_org_id': orgId},
-  );
-  final rows = response as List<dynamic>;
-
-  // Ubicación es best-effort
-  Position? position;
-  try {
-    position = await ref.watch(userLocationProvider.future);
-  } catch (_) {}
-
-  final branches = rows.map((b) {
-    final lat = (b['branch_latitude'] as num?)?.toDouble();
-    final lng = (b['branch_longitude'] as num?)?.toDouble();
-
-    double? distance;
-    if (position != null && lat != null && lng != null) {
-      distance = locationService.distanceKm(
-        position.latitude,
-        position.longitude,
-        lat,
-        lng,
-      );
-    }
-
-    return BranchWithDistance(
-      id: b['branch_id'] as String,
-      name: b['branch_name'] as String? ?? 'Sucursal',
-      address: b['branch_address'] as String?,
-      latitude: lat,
-      longitude: lng,
-      distanceKm: distance,
-      occupancyLevel: (b['occupancy_level'] ?? 'baja').toString(),
-      isOpen: (b['is_open'] ?? true) as bool,
-      etaMinutes: (b['eta_minutes'] ?? 0) as int,
-      waitingCount: (b['waiting_count'] ?? 0) as int,
-      availableBarbers: (b['available_barbers'] ?? 0) as int,
+    final response = await client.rpc(
+      'get_org_branch_signals',
+      params: {'p_org_id': orgId},
     );
-  }).toList();
+    final rows = (response as List?) ?? const [];
 
-  // ── Enriquecer con operation_mode + slug desde `branches` ───────────────
-  // El RPC no los expone. Hacemos una query parallel filtered por id-list.
-  if (branches.isNotEmpty) {
-    try {
-      final ids = branches.map((b) => b.id).toList();
-      final extras = await client
-          .from('branches')
-          .select('id, operation_mode, slug')
-          .inFilter('id', ids);
+    var branches = rows
+        .map(
+          (r) => BranchWithDistance.fromSignalRow(
+            Map<String, dynamic>.from(r as Map),
+          ),
+        )
+        .toList();
 
-      final byId = <String, Map<String, dynamic>>{};
-      for (final row in (extras as List)) {
-        final m = Map<String, dynamic>.from(row as Map);
-        byId[m['id'] as String] = m;
+    // ── operation_mode + slug + is_active desde `branches` ─────────────────
+    // El RPC no los expone. Si la query falla (RLS, red) dejamos los defaults:
+    // la app sigue, sólo que sin el chip de turnos y sin slug.
+    if (branches.isNotEmpty) {
+      try {
+        final ids = branches.map((b) => b.id).toList();
+        final extras = await client
+            .from('branches')
+            .select('id, operation_mode, slug, is_active')
+            .inFilter('id', ids);
+
+        final byId = <String, Map<String, dynamic>>{};
+        for (final row in (extras as List)) {
+          final m = Map<String, dynamic>.from(row as Map);
+          byId[m['id'] as String] = m;
+        }
+
+        branches = branches.where((b) => byId[b.id]?['is_active'] != false).map(
+          (b) {
+            final extra = byId[b.id];
+            if (extra == null) return b;
+            return b.copyWith(
+              operationMode: (extra['operation_mode'] as String?) ?? 'walk_in',
+              slug: extra['slug'] as String?,
+            );
+          },
+        ).toList();
+      } catch (e) {
+        debugPrint('[branches] no se pudo hidratar operation_mode/slug: $e');
+      }
+    }
+
+    branches.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
+    return branches;
+  },
+);
+
+/// Sucursales visibles: esconde Test salvo en modo prueba (§6.6 del contrato).
+final branchesProvider = FutureProvider.autoDispose<List<BranchWithDistance>>((
+  ref,
+) async {
+  final all = await ref.watch(allBranchesProvider.future);
+  final testMode = await ref.watch(testModeProvider.future);
+  if (testMode) return all;
+  return all.where((b) => !b.isTest).toList();
+});
+
+/// Sucursales visibles + distancia al usuario, ordenadas por cercanía.
+///
+/// No espera a la ubicación: mientras el GPS resuelve, la lista sale sin
+/// distancias y ordenada por nombre; cuando llega la posición, se reordena.
+final branchesWithDistanceProvider =
+    Provider.autoDispose<AsyncValue<List<BranchWithDistance>>>((ref) {
+      final branches = ref.watch(branchesProvider);
+      final location = ref.watch(userLocationProvider);
+      final service = ref.read(locationServiceProvider);
+
+      final Position? position = location.whenOrNull(data: (p) => p);
+
+      List<BranchWithDistance> withDistances(List<BranchWithDistance> list) {
+        final withDistance = list.map((b) {
+          if (position == null || !b.hasCoordinates) {
+            return b.copyWith(clearDistance: true);
+          }
+          return b.copyWith(
+            distanceKm: service.distanceKm(
+              position.latitude,
+              position.longitude,
+              b.latitude!,
+              b.longitude!,
+            ),
+          );
+        }).toList();
+
+        withDistance.sort((a, b) {
+          // Test siempre al final.
+          if (a.isTest != b.isTest) return a.isTest ? 1 : -1;
+          final da = a.distanceKm;
+          final db = b.distanceKm;
+          if (da != null && db != null) return da.compareTo(db);
+          if (da != null) return -1;
+          if (db != null) return 1;
+          return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        });
+        return withDistance;
       }
 
-      for (var i = 0; i < branches.length; i++) {
-        final extra = byId[branches[i].id];
-        if (extra == null) continue;
-        branches[i] = branches[i].copyWith(
-          operationMode: (extra['operation_mode'] as String?) ?? 'walk_in',
-          slug: extra['slug'] as String?,
+      // `whenData` pierde el valor previo durante un refresh (devuelve un
+      // AsyncLoading pelado) y la lista parpadearía a skeleton en cada
+      // pull-to-refresh. Conservamos el dato anterior a mano.
+      final previous = branches.valueOrNull;
+      if (previous != null) {
+        final data = AsyncData<List<BranchWithDistance>>(
+          withDistances(previous),
         );
+        if (branches.isLoading) {
+          return const AsyncLoading<List<BranchWithDistance>>()
+              .copyWithPrevious(data);
+        }
+        if (branches.hasError) {
+          return AsyncError<List<BranchWithDistance>>(
+            branches.error!,
+            branches.stackTrace ?? StackTrace.current,
+          ).copyWithPrevious(data);
+        }
+        return data;
       }
-    } catch (_) {
-      // Si falla, dejamos los defaults — no rompemos la lista.
-    }
-  }
+      return branches.whenData(withDistances);
+    });
 
-  // Ordenar: con distancia primero (por cercanía), sin distancia al final
-  branches.sort((a, b) {
-    if (a.distanceKm != null && b.distanceKm != null) {
-      return a.distanceKm!.compareTo(b.distanceKm!);
-    }
-    if (a.distanceKm != null) return -1;
-    if (b.distanceKm != null) return 1;
-    return a.name.compareTo(b.name);
-  });
-
-  return branches;
+/// `true` mientras el GPS todavía no contestó (para el hint "Buscando tu
+/// ubicación…" sin bloquear nada).
+final locationPendingProvider = Provider.autoDispose<bool>((ref) {
+  return ref.watch(userLocationProvider).isLoading;
 });

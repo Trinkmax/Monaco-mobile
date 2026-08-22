@@ -1,123 +1,99 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/features/points/presentation/widgets/points_history_tile.dart';
 
 void main() {
   Widget buildSubject(Map<String, dynamic> transaction) {
     return MaterialApp(
       home: Scaffold(
+        backgroundColor: MonacoColors.background,
         body: PointsHistoryTile(transaction: transaction),
       ),
     );
   }
 
   group('PointsHistoryTile', () {
-    testWidgets('renders green up-arrow and + prefix for earned transactions',
-        (tester) async {
+    testWidgets('puntos ganados: flecha arriba verde y prefijo +', (tester) async {
       await tester.pumpWidget(buildSubject({
         'points': 50,
-        'description': 'Earned from visit',
+        'description': 'Corte en Rondeau',
         'created_at': DateTime.now().toIso8601String(),
       }));
 
-      // Verify the up-arrow icon is present
       final iconFinder = find.byIcon(Icons.arrow_upward_rounded);
       expect(iconFinder, findsOneWidget);
-
-      // Verify the icon color is the success green
-      final icon = tester.widget<Icon>(iconFinder);
-      expect(icon.color, const Color(0xFF30A46C));
-
-      // Verify the points text shows + prefix
-      expect(find.text('+50 pts'), findsOneWidget);
+      expect(tester.widget<Icon>(iconFinder).color, MonacoColors.monacoGreen);
+      expect(find.text('+50'), findsOneWidget);
+      expect(find.text('pts'), findsOneWidget);
+      expect(tester.widget<Text>(find.text('+50')).style?.color,
+          MonacoColors.monacoGreen);
     });
 
-    testWidgets('renders red down-arrow and no + prefix for redeemed transactions',
+    testWidgets('puntos canjeados: flecha abajo roja y sin prefijo +',
         (tester) async {
       await tester.pumpWidget(buildSubject({
         'points': -30,
-        'description': 'Redeemed for discount',
+        'description': 'Canje de premio',
         'created_at': DateTime.now().toIso8601String(),
       }));
 
-      // Verify the down-arrow icon is present
       final iconFinder = find.byIcon(Icons.arrow_downward_rounded);
       expect(iconFinder, findsOneWidget);
-
-      // Verify the icon color is the destructive red
-      final icon = tester.widget<Icon>(iconFinder);
-      expect(icon.color, const Color(0xFFE5484D));
-
-      // Verify the points text shows negative value without extra + prefix
-      expect(find.text('-30 pts'), findsOneWidget);
+      expect(tester.widget<Icon>(iconFinder).color, MonacoColors.destructive);
+      expect(find.text('-30'), findsOneWidget);
+      expect(tester.widget<Text>(find.text('-30')).style?.color,
+          MonacoColors.destructive);
     });
 
-    testWidgets('shows the description text', (tester) async {
+    testWidgets('el tipo elige el ícono aunque el delta sea negativo',
+        (tester) async {
+      await tester.pumpWidget(buildSubject({
+        'points': -300,
+        'type': 'redeemed',
+        'description': 'Canje',
+      }));
+      expect(find.byIcon(Icons.card_giftcard_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.arrow_downward_rounded), findsNothing);
+    });
+
+    testWidgets('muestra la descripción', (tester) async {
       await tester.pumpWidget(buildSubject({
         'points': 100,
-        'description': 'Bonus points for referral',
+        'description': 'Bono por referido',
         'created_at': DateTime.now().toIso8601String(),
       }));
-
-      expect(find.text('Bonus points for referral'), findsOneWidget);
+      expect(find.text('Bono por referido'), findsOneWidget);
     });
 
-    testWidgets('shows formatted points value for earned', (tester) async {
-      await tester.pumpWidget(buildSubject({
-        'points': 250,
-        'description': 'Big reward',
-      }));
+    testWidgets('sin descripción usa un texto según el tipo', (tester) async {
+      await tester.pumpWidget(buildSubject({'points': 10, 'type': 'visit'}));
+      expect(find.text('Puntos por tu visita'), findsOneWidget);
 
-      expect(find.text('+250 pts'), findsOneWidget);
+      await tester.pumpWidget(buildSubject({'points': -10, 'type': 'redeemed'}));
+      expect(find.text('Canje de premio'), findsOneWidget);
+
+      await tester.pumpWidget(buildSubject({'points': 10}));
+      expect(find.text('Movimiento de puntos'), findsOneWidget);
     });
 
-    testWidgets('shows formatted points value for redeemed', (tester) async {
-      await tester.pumpWidget(buildSubject({
-        'points': -75,
-        'description': 'Used points',
-      }));
-
-      expect(find.text('-75 pts'), findsOneWidget);
-    });
-
-    testWidgets('handles zero points as not earned (down arrow)', (tester) async {
+    testWidgets('cero puntos se muestra como +0 (no es un canje)', (tester) async {
       await tester.pumpWidget(buildSubject({
         'points': 0,
-        'description': 'Zero transaction',
+        'description': 'Movimiento nulo',
       }));
-
-      // Zero is not > 0, so isEarned = false -> down arrow
-      expect(find.byIcon(Icons.arrow_downward_rounded), findsOneWidget);
-      expect(find.text('0 pts'), findsOneWidget);
+      expect(find.byIcon(Icons.arrow_upward_rounded), findsOneWidget);
+      expect(find.text('+0'), findsOneWidget);
     });
 
-    testWidgets('handles missing description gracefully', (tester) async {
-      await tester.pumpWidget(buildSubject({
-        'points': 10,
-      }));
-
-      // Description defaults to empty string; widget still renders
-      expect(find.text('+10 pts'), findsOneWidget);
+    testWidgets('sin descripción ni fecha igual renderiza', (tester) async {
+      await tester.pumpWidget(buildSubject({'points': 10}));
+      expect(find.text('+10'), findsOneWidget);
     });
 
-    testWidgets('earned points text uses success color', (tester) async {
-      await tester.pumpWidget(buildSubject({
-        'points': 20,
-        'description': 'Test',
-      }));
-
-      final textWidget = tester.widget<Text>(find.text('+20 pts'));
-      expect(textWidget.style?.color, const Color(0xFF30A46C));
-    });
-
-    testWidgets('redeemed points text uses destructive color', (tester) async {
-      await tester.pumpWidget(buildSubject({
-        'points': -20,
-        'description': 'Test',
-      }));
-
-      final textWidget = tester.widget<Text>(find.text('-20 pts'));
-      expect(textWidget.style?.color, const Color(0xFFE5484D));
+    testWidgets('points como num decimal se redondea a entero', (tester) async {
+      await tester.pumpWidget(buildSubject({'points': 25.0, 'description': 'x'}));
+      expect(find.text('+25'), findsOneWidget);
     });
   });
 }

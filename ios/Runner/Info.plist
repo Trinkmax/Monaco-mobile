@@ -2,18 +2,23 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Identidad -->
 	<key>CFBundleDevelopmentRegion</key>
-	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<string>es</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>es</string>
+	</array>
 	<key>CFBundleDisplayName</key>
-	<string>Monaco Mobile</string>
+	<string>Monaco</string>
+	<key>CFBundleName</key>
+	<string>Monaco</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>monaco_mobile</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -24,31 +29,52 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+
+	<!-- Arranque: storyboard negro (#0A0A0A) con el logo, generado por flutter_native_splash -->
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+	<key>UIStatusBarHidden</key>
+	<false/>
+
+	<!-- Sólo iPhone y sólo vertical (TARGETED_DEVICE_FAMILY = 1 en el proyecto) -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-	</array>
+
+	<!-- Permisos. La cámara y la galería NO se usan: no declarar sus usage strings. -->
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Usamos tu ubicación para mostrarte las sucursales más cercanas y estimar tiempos de espera. Podés denegar este permiso; la app funciona igual.</string>
+	<string>Usamos tu ubicación aproximada para ordenar las sucursales por cercanía. Es opcional: si no la compartís, la app funciona igual.</string>
+	<key>NSLocationDefaultAccuracyReduced</key>
+	<true/>
 	<key>NSFaceIDUsageDescription</key>
-	<string>Usamos Face ID para proteger el acceso a tu cuenta, tus puntos y tus canjes. El reconocimiento ocurre solo en tu dispositivo.</string>
+	<string>Usamos Face ID para proteger el acceso a tu cuenta, tus puntos y tus canjes. El reconocimiento ocurre sólo en tu dispositivo.</string>
+
+	<!-- Esquemas que la app consulta con canLaunchUrl (url_launcher): sin esta lista, los
+	     links a la política de privacidad, soporte por mail, WhatsApp y teléfono no abren. -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>https</string>
+		<string>mailto</string>
+		<string>whatsapp</string>
+		<string>tel</string>
+	</array>
+
+	<!-- Push (FCM sobre APNs). Requiere el Apple Developer Program pago y la
+	     capability declarada en RunnerRelease.entitlements (aps-environment). -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
 	</array>
+
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+
+	<!-- Export compliance: sólo HTTPS estándar, no hay que subir documentación de cifrado -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 </dict>

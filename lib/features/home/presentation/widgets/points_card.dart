@@ -94,7 +94,7 @@ class _PointsCardState extends State<PointsCard>
                   Text(
                     'Ver detalle',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.88),
+                      color: Colors.white.withValues(alpha: 0.88),
                       fontSize: 12.5,
                       fontWeight: FontWeight.w700,
                     ),
@@ -103,7 +103,7 @@ class _PointsCardState extends State<PointsCard>
                   Icon(
                     Icons.arrow_forward_ios_rounded,
                     size: 10,
-                    color: Colors.white.withOpacity(0.88),
+                    color: Colors.white.withValues(alpha: 0.88),
                   ),
                 ],
               ),
@@ -140,20 +140,20 @@ class _PointsCardState extends State<PointsCard>
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [
-                        Colors.white.withOpacity(0.18),
-                        Colors.white.withOpacity(0.08),
+                        Colors.white.withValues(alpha: 0.18),
+                        Colors.white.withValues(alpha: 0.08),
                       ],
                     ),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: Colors.white.withOpacity(0.22),
+                      color: Colors.white.withValues(alpha: 0.22),
                       width: 0.8,
                     ),
                   ),
                   child: Text(
                     'pts',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.85),
+                      color: Colors.white.withValues(alpha: 0.85),
                       fontSize: 13,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.5,
@@ -169,13 +169,13 @@ class _PointsCardState extends State<PointsCard>
               Icon(
                 Icons.trending_up_rounded,
                 size: 13,
-                color: Colors.white.withOpacity(0.55),
+                color: Colors.white.withValues(alpha: 0.55),
               ),
               const SizedBox(width: 5),
               Text(
                 'Acumulados: ${widget.totalEarned} pts',
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.6),
+                  color: Colors.white.withValues(alpha: 0.6),
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
                 ),
@@ -205,12 +205,12 @@ class _NeutralBadge extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Colors.white.withOpacity(0.22),
-            Colors.white.withOpacity(0.08),
+            Colors.white.withValues(alpha: 0.22),
+            Colors.white.withValues(alpha: 0.08),
           ],
         ),
         borderRadius: BorderRadius.circular(11),
-        border: Border.all(color: Colors.white.withOpacity(0.22), width: 0.8),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.22), width: 0.8),
       ),
       child: Icon(icon, color: Colors.white, size: 17),
     );
