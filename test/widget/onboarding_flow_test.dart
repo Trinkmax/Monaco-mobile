@@ -59,13 +59,13 @@ void main() {
     await t.pump(Duration(milliseconds: ms));
   }
 
-  testWidgets('welcome: tres slides, Empezar lleva a /login', (t) async {
+  testWidgets('welcome: tres slides, "Ingresar con mi número" lleva a /login', (t) async {
     await t.pumpWidget(harness(initial: '/welcome'));
     await settle(t);
 
     expect(find.textContaining('Tu barbería'), findsOneWidget);
     expect(find.text('Siguiente'), findsOneWidget);
-    expect(find.text('Ya tengo cuenta'), findsOneWidget);
+    expect(find.text('Ya soy cliente, ingresar'), findsOneWidget);
 
     await t.tap(find.text('Siguiente'));
     await settle(t);
@@ -74,9 +74,10 @@ void main() {
     await t.tap(find.text('Siguiente'));
     await settle(t);
     expect(find.textContaining('Turnos en'), findsOneWidget);
-    expect(find.text('Empezar'), findsOneWidget);
+    expect(find.text('Ingresar con mi número'), findsOneWidget);
+    expect(find.text('¿Aún no sos cliente?'), findsOneWidget);
 
-    await t.tap(find.text('Empezar'));
+    await t.tap(find.text('Ingresar con mi número'));
     await settle(t);
     expect(find.text('Ingresá tu número'), findsOneWidget);
   });

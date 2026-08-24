@@ -15,6 +15,7 @@ import 'package:monaco_mobile/core/utils/constants.dart';
 import '../../providers/login_flow_provider.dart';
 import '../../utils/phone_format.dart';
 import '../widgets/legal_footer.dart';
+import '../widgets/no_cliente_sheet.dart';
 import '../widgets/onboarding_scaffold.dart';
 
 /// Paso 1 del login: el número. `start` decide si la sesión ya está lista
@@ -204,6 +205,16 @@ class _LoginPhoneScreenState extends ConsumerState<LoginPhoneScreen> {
             'Probá más tarde.',
           ),
         );
+      case 'CLIENT_NOT_FOUND':
+        // La app no crea cuentas: el cliente nace en la tablet del local.
+        setState(
+          () => _banner = _Banner(
+            'Este número todavía no está registrado como cliente. La cuenta se '
+            'crea en tu primera visita, registrándote en la tablet del local.',
+            actionLabel: '¿Cómo es?',
+            onAction: () => showNoClienteSheet(context),
+          ),
+        );
       default:
         setState(() => _banner = _Banner(e.message));
     }
@@ -315,6 +326,15 @@ class _LoginPhoneScreenState extends ConsumerState<LoginPhoneScreen> {
           ),
           const SizedBox(height: 18),
           const _WhatsappHint().liquidEnter(index: 2),
+          const SizedBox(height: 6),
+          Center(
+            child: OnboardingLink(
+              label: '¿Aún no sos cliente?',
+              icon: Icons.help_outline_rounded,
+              dense: true,
+              onTap: () => showNoClienteSheet(context),
+            ),
+          ).liquidEnter(index: 3),
         ],
       ),
     );
@@ -423,8 +443,8 @@ class _WhatsappHint extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Un código de 6 dígitos al mismo número. Si ya entraste desde '
-                  'este teléfono, pasás directo.',
+                  'Un código de 6 dígitos al mismo número (el que registraste en '
+                  'la barbería). Si ya entraste desde este teléfono, pasás directo.',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.55),
                     fontSize: 12.5,

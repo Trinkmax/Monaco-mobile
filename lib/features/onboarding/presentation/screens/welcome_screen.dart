@@ -7,6 +7,7 @@ import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 
 import '../../providers/login_flow_provider.dart';
+import '../widgets/no_cliente_sheet.dart';
 import '../widgets/onboarding_scaffold.dart';
 
 class _Slide {
@@ -119,16 +120,25 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
           _Dots(count: _slides.length, index: _page).liquidEnter(index: 3),
           const SizedBox(height: 18),
           OnboardingCta(
-            label: last ? 'Empezar' : 'Siguiente',
+            label: last ? 'Ingresar con mi número' : 'Siguiente',
             icon: last ? Icons.arrow_forward_rounded : null,
             onPressed: _next,
           ).liquidEnter(index: 4),
           const SizedBox(height: 4),
-          OnboardingLink(
-            label: 'Ya tengo cuenta',
-            icon: Icons.login_rounded,
-            onTap: _goLogin,
-          ).liquidEnter(index: 5),
+          // La app no crea cuentas (la cuenta nace en la tablet del local):
+          // en la última lámina el enlace explica eso; en las anteriores,
+          // atajo al login para el que ya es cliente.
+          last
+              ? OnboardingLink(
+                  label: '¿Aún no sos cliente?',
+                  icon: Icons.help_outline_rounded,
+                  onTap: () => showNoClienteSheet(context),
+                ).liquidEnter(index: 5)
+              : OnboardingLink(
+                  label: 'Ya soy cliente, ingresar',
+                  icon: Icons.login_rounded,
+                  onTap: _goLogin,
+                ).liquidEnter(index: 5),
         ],
       ),
       child: PageView.builder(
