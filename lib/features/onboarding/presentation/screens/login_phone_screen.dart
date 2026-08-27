@@ -132,7 +132,7 @@ class _LoginPhoneScreenState extends ConsumerState<LoginPhoneScreen> {
 
       if (res.sessionReady) {
         // Dispositivo conocido: la sesión ya está y el router redirige solo
-        // (unauthenticated → needsBranch/authenticated). No navegamos a mano
+        // (unauthenticated → authenticated). No navegamos a mano
         // y dejamos el CTA en "cargando" hasta que la pantalla desaparezca.
         _done = true;
         ref.read(loginFlowProvider.notifier).state = null;

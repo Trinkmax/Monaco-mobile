@@ -18,7 +18,7 @@ class QrDisplayScreen extends ConsumerWidget {
     if (context.canPop()) {
       context.pop();
     } else {
-      context.go('/rewards');
+      context.go('/mis-premios');
     }
   }
 
@@ -55,7 +55,7 @@ class QrDisplayScreen extends ConsumerWidget {
           final rewardName = reward['reward_name'] as String? ?? 'Premio';
           final description =
               (reward['reward_description'] as String?)?.trim();
-          final type = reward['reward_type']?.toString() ?? '';
+          final etiquetaTipo = _etiquetaDe(reward);
           final qrCode = reward['qr_code'] as String? ?? '';
           final expiresRaw = reward['expires_at'] as String?;
           final expiresAt =
@@ -75,7 +75,7 @@ class QrDisplayScreen extends ConsumerWidget {
           return _QrBody(
             rewardName: rewardName,
             description: description,
-            type: type,
+            etiquetaTipo: etiquetaTipo,
             qrCode: qrCode,
             expiresAt: expiresAt,
             onClose: () => _close(context),
@@ -89,7 +89,7 @@ class QrDisplayScreen extends ConsumerWidget {
 class _QrBody extends StatelessWidget {
   final String rewardName;
   final String? description;
-  final String type;
+  final String etiquetaTipo;
   final String qrCode;
   final DateTime? expiresAt;
   final VoidCallback onClose;
@@ -97,7 +97,7 @@ class _QrBody extends StatelessWidget {
   const _QrBody({
     required this.rewardName,
     required this.description,
-    required this.type,
+    required this.etiquetaTipo,
     required this.qrCode,
     required this.expiresAt,
     required this.onClose,
@@ -141,7 +141,7 @@ class _QrBody extends StatelessWidget {
               height: 1.15,
             ),
           ).liquidEnter(index: 0),
-          if (type.isNotEmpty) ...[
+          if (etiquetaTipo.isNotEmpty) ...[
             const SizedBox(height: 10),
             Center(
               child: Container(
@@ -160,7 +160,7 @@ class _QrBody extends StatelessWidget {
                   ),
                 ),
                 child: Text(
-                  _typeLabel(type),
+                  etiquetaTipo,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.78),
                     fontSize: 11.5,
@@ -287,21 +287,6 @@ class _QrBody extends StatelessWidget {
       ),
     );
   }
-
-  static String _typeLabel(String type) {
-    switch (type) {
-      case 'free_service':
-        return 'Servicio gratis';
-      case 'discount':
-        return 'Descuento';
-      case 'points_redemption':
-        return 'Canje por puntos';
-      case 'product':
-        return 'Producto';
-      default:
-        return type.replaceAll('_', ' ');
-    }
-  }
 }
 
 class _Loading extends StatelessWidget {
@@ -322,5 +307,32 @@ class _Loading extends StatelessWidget {
         LiquidSkeleton(height: 52, radius: 16),
       ],
     );
+  }
+}
+
+/// Qué ES el premio, en criollo.
+///
+/// El mapeo anterior traducía `free_service`, `discount` y `product`, que **no
+/// existen** en el enum `reward_type` (`spin_prize | return_discount |
+/// milestone_free | manual | points_redemption`): la pantalla terminaba
+/// imprimiendo "spin prize" y "milestone free" tal cual. Manda lo que el
+/// premio hace; el tipo sólo desempata. Misma regla que `MisPremiosScreen`.
+String _etiquetaDe(Map<String, dynamic> r) {
+  if (r['is_free_service'] == true) return 'Servicio gratis';
+  final pct = (r['discount_pct'] as num?)?.toInt() ?? 0;
+  if (pct > 0) return '$pct% de descuento';
+  switch (r['reward_type']?.toString() ?? '') {
+    case 'points_redemption':
+      return 'Canje por puntos';
+    case 'return_discount':
+      return 'Descuento de bienvenida';
+    case 'milestone_free':
+      return 'Premio por fidelidad';
+    case 'spin_prize':
+      return 'Premio de la ruleta';
+    case 'manual':
+      return 'Premio especial';
+    default:
+      return 'Premio';
   }
 }

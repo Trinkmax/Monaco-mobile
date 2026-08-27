@@ -41,7 +41,7 @@ class AppConstants {
   /// web. Override: --dart-define=API_BASE_URL=https://...
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://monaco-smart-barber.vercel.app',
+    defaultValue: 'https://monacobarber.vercel.app',
   );
 
   // ── Auth ───────────────────────────────────────────────────────────────

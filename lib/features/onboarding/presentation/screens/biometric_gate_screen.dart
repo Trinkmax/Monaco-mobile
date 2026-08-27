@@ -87,7 +87,7 @@ class _BiometricGateScreenState extends ConsumerState<BiometricGateScreen> {
     switch (outcome) {
       case BiometricOutcome.success:
         ref.read(authProvider.notifier).completeBiometric();
-        // El router redirige solo (needsBiometric → authenticated/needsBranch).
+        // El router redirige solo (needsBiometric → authenticated).
         return;
       case BiometricOutcome.cancelled:
         // Decisión del usuario: no gritamos.

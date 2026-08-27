@@ -11,8 +11,6 @@ void main() {
       expect(state.clientPhone, isNull);
       expect(state.error, isNull);
       expect(state.isNewClient, isFalse);
-      expect(state.selectedBranchId, isNull);
-      expect(state.hasBranch, isFalse);
       expect(state.isAuthenticated, isFalse);
     });
 
@@ -24,10 +22,6 @@ void main() {
         clientPhone: '3512125249',
         error: 'algo',
         isNewClient: true,
-        selectedBranchId: 'b1',
-        selectedBranchName: 'Rondeau',
-        selectedBranchSlug: 'rondeau',
-        selectedBranchOperationMode: 'hybrid',
       );
       expect(state.status, AuthStatus.authenticated);
       expect(state.clientId, 'abc-123');
@@ -35,11 +29,6 @@ void main() {
       expect(state.clientPhone, '3512125249');
       expect(state.error, 'algo');
       expect(state.isNewClient, isTrue);
-      expect(state.selectedBranchId, 'b1');
-      expect(state.selectedBranchName, 'Rondeau');
-      expect(state.selectedBranchSlug, 'rondeau');
-      expect(state.selectedBranchOperationMode, 'hybrid');
-      expect(state.hasBranch, isTrue);
       expect(state.isAuthenticated, isTrue);
     });
 
@@ -49,35 +38,25 @@ void main() {
         clientId: '123',
         clientName: 'Test',
         clientPhone: '111',
-        selectedBranchId: 'b1',
-        selectedBranchSlug: 'rondeau',
       );
       final copied = state.copyWith(error: 'error nuevo');
       expect(copied.status, AuthStatus.authenticated);
       expect(copied.clientId, '123');
       expect(copied.clientName, 'Test');
       expect(copied.clientPhone, '111');
-      expect(copied.selectedBranchId, 'b1');
-      expect(copied.selectedBranchSlug, 'rondeau');
       expect(copied.error, 'error nuevo');
     });
 
-    test('copyWith pisa status, clientId, isNewClient y sucursal', () {
+    test('copyWith pisa status, clientId e isNewClient', () {
       const state = AuthState(clientId: 'old', isNewClient: false);
       final copied = state.copyWith(
-        status: AuthStatus.needsBranch,
+        status: AuthStatus.authenticated,
         clientId: 'new',
         isNewClient: true,
-        selectedBranchId: 'b2',
-        selectedBranchName: 'Caseros',
-        selectedBranchOperationMode: 'walk_in',
       );
-      expect(copied.status, AuthStatus.needsBranch);
+      expect(copied.status, AuthStatus.authenticated);
       expect(copied.clientId, 'new');
       expect(copied.isNewClient, isTrue);
-      expect(copied.selectedBranchId, 'b2');
-      expect(copied.selectedBranchName, 'Caseros');
-      expect(copied.selectedBranchOperationMode, 'walk_in');
     });
 
     test('copyWith sin error lo limpia (es deliberado: error no se arrastra)',
@@ -88,32 +67,6 @@ void main() {
       );
       final copied = state.copyWith(status: AuthStatus.unauthenticated);
       expect(copied.error, isNull);
-    });
-
-    group('acceptsAppointments / acceptsWalkIn', () {
-      test('walk_in: sólo fila', () {
-        const s = AuthState(selectedBranchOperationMode: 'walk_in');
-        expect(s.acceptsAppointments, isFalse);
-        expect(s.acceptsWalkIn, isTrue);
-      });
-
-      test('appointments: sólo turnos', () {
-        const s = AuthState(selectedBranchOperationMode: 'appointments');
-        expect(s.acceptsAppointments, isTrue);
-        expect(s.acceptsWalkIn, isFalse);
-      });
-
-      test('hybrid: las dos', () {
-        const s = AuthState(selectedBranchOperationMode: 'hybrid');
-        expect(s.acceptsAppointments, isTrue);
-        expect(s.acceptsWalkIn, isTrue);
-      });
-
-      test('sin modo conocido se asume walk_in (las sucursales viejas)', () {
-        const s = AuthState();
-        expect(s.acceptsAppointments, isFalse);
-        expect(s.acceptsWalkIn, isTrue);
-      });
     });
 
     group('firstName', () {
@@ -142,14 +95,22 @@ void main() {
   });
 
   group('AuthStatus', () {
-    test('tiene los 5 estados del contrato, en orden', () {
+    test('tiene los 4 estados del contrato, en orden', () {
       expect(AuthStatus.values, [
         AuthStatus.initial,
         AuthStatus.unauthenticated,
         AuthStatus.needsBiometric,
-        AuthStatus.needsBranch,
         AuthStatus.authenticated,
       ]);
+    });
+
+    test(
+        'no existe needsBranch: la app no tiene sucursal global desde el '
+        'rediseño de ago/2026 (se elige en el paso 1 de la reserva)', () {
+      expect(
+        AuthStatus.values.map((e) => e.name),
+        isNot(contains('needsBranch')),
+      );
     });
   });
 

@@ -136,15 +136,9 @@ void main() {
       }
     }
 
-    // ── Elegir sucursal (onboarding) ──────────────────────────────────
-    final hayPicker = await esperar(tester, texto('¿A qué sucursal vas?'), timeout: const Duration(seconds: 25));
-    if (!hayPicker) notas.add('No llegó al selector de sucursal (¿login falló?)');
-    await pausa(tester, 2500); // señales + ubicación
-    await shot(binding, tester, 'branch_picker');
-    // Elegimos Test (reservable y seguro para crear/cancelar un turno).
-    if (!await tapSi(tester, texto('Test'), 'sucursal Test')) {
-      await tapSi(tester, texto('Rondeau'), 'sucursal Rondeau');
-    }
+    // Ya no hay paso de "elegir sucursal" en el onboarding: desde el rediseño
+    // de ago/2026 el login entra directo al Home y la sucursal se elige en el
+    // paso 1 de la reserva (ver el bloque de turnos más abajo).
 
     // ── Home ──────────────────────────────────────────────────────────
     await esperar(tester, textoQueContiene('Hola'), timeout: const Duration(seconds: 20));
@@ -165,7 +159,19 @@ void main() {
     // ── Wizard de reserva ─────────────────────────────────────────────
     await tapSi(tester, texto('Reservar'), 'FAB Reservar');
     await pausa(tester, 3500);
-    await shot(binding, tester, 'wizard_step1');
+    await shot(binding, tester, 'wizard_step1_sucursal');
+
+    // Paso 1: sucursal. Elegimos Test (reservable y segura para crear/cancelar
+    // un turno de prueba); si no aparece —modo prueba apagado— vamos a Rondeau.
+    if (!await esperar(tester, texto('¿Dónde querés reservar?'),
+        timeout: const Duration(seconds: 15))) {
+      notas.add('El wizard no arrancó en el paso de sucursal');
+    }
+    if (!await tapSi(tester, texto('Test'), 'sucursal Test')) {
+      await tapSi(tester, texto('Rondeau'), 'sucursal Rondeau');
+    }
+    await pausa(tester, 3500);
+    await shot(binding, tester, 'wizard_step2_servicios');
 
     // Servicios del bootstrap de Test → tocar el primero.
     final boot = await apiGet('/api/mobile/turnos/test');
@@ -293,10 +299,32 @@ void main() {
       }
     }
 
-    // ── Premios ───────────────────────────────────────────────────────
+    // ── Premios (catálogo unificado + chips + tira "listos para usar") ─
     await tapSi(tester, texto('Premios'), 'dock Premios');
     await pausa(tester, 2500);
     await shot(binding, tester, 'premios');
+    // Chips de categoría: sólo aparecen si hay más de una categoría con datos.
+    for (final chip in const ['Cortes', 'Merch', 'Marcas']) {
+      if (await tapSi(tester, texto(chip), 'chip $chip',
+          timeout: const Duration(seconds: 3))) {
+        await pausa(tester, 900);
+        await shot(binding, tester, 'premios_${chip.toLowerCase()}');
+        await tapSi(tester, texto('Todo'), 'chip Todo',
+            timeout: const Duration(seconds: 3));
+        await pausa(tester, 600);
+      }
+    }
+    // Billetera (sólo si el cliente tiene algún premio canjeado).
+    if (await tapSi(tester, texto('Ver todos'), 'Ver todos (listos para usar)',
+        timeout: const Duration(seconds: 3))) {
+      await pausa(tester, 2000);
+      await shot(binding, tester, 'mis_premios');
+      final b = find.byIcon(Icons.arrow_back_ios_new_rounded);
+      if (b.evaluate().isNotEmpty) {
+        await tester.tap(b.first, warnIfMissed: false);
+        await pausa(tester, 900);
+      }
+    }
 
     // ── Perfil ────────────────────────────────────────────────────────
     await tapSi(tester, texto('Perfil'), 'dock Perfil');
@@ -369,26 +397,19 @@ void main() {
       }
     }
 
-    // ── Home: catálogo, convenios, cambiar sucursal ───────────────────
+    // ── Home: carrusel de premios ─────────────────────────────────────
+    // El acceso rápido "Catálogo" ya no existe: el catálogo ES el tab Premios,
+    // y el Home lo linkea desde "Canjeá tus puntos → Ver todos".
+    // (La pill de sucursal del Home tampoco: la app es de Monaco entera.)
     await tapSi(tester, texto('Inicio'), 'dock Inicio');
     await pausa(tester, 2000);
-    if (await tapSi(tester, texto('Catálogo'), 'Catálogo', timeout: const Duration(seconds: 5))) {
-      await pausa(tester, 2500);
-      await shot(binding, tester, 'catalogo');
-      final b = find.byIcon(Icons.arrow_back_ios_new_rounded);
-      if (b.evaluate().isNotEmpty) {
-        await tester.tap(b.first, warnIfMissed: false);
-        await pausa(tester, 900);
-      }
-    }
-    // Pill de sucursal → cambiar sucursal
-    if (await tapSi(tester, texto('Test'), 'pill sucursal', timeout: const Duration(seconds: 5))) {
-      await pausa(tester, 2500);
-      await shot(binding, tester, 'cambiar_sucursal');
-      await tapSi(tester, texto('Rondeau'), 'elegir Rondeau', timeout: const Duration(seconds: 5));
-      await pausa(tester, 2000);
-      await shot(binding, tester, 'home_rondeau');
-    }
+    await tester.drag(find.byType(SingleChildScrollView).first,
+        const Offset(0, -700), warnIfMissed: false);
+    await pausa(tester, 900);
+    await shot(binding, tester, 'home_carrusel_premios');
+    await tester.drag(find.byType(SingleChildScrollView).first,
+        const Offset(0, 900), warnIfMissed: false);
+    await pausa(tester, 400);
 
     // ── Cerrar sesión ─────────────────────────────────────────────────
     await tapSi(tester, texto('Perfil'), 'dock Perfil (2)');

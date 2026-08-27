@@ -86,9 +86,10 @@ probar, no para Play). La versión sale de `pubspec.yaml` (`version: x.y.z+build
 ```
 lib/
 ├── app/            # MonacoApp, tema (MonacoColors/Typography/Theme), widgets Liquid Glass
-├── core/           # api (MobileApi), auth (OTP + sesión segura), push, router, supabase, utils
-└── features/       # onboarding, branch_selection, home, appointments, occupancy, points,
-                    # rewards, catalog, reviews, billboard, convenios, visits, notifications, profile
+├── core/           # api (MobileApi), auth (OTP + sesión segura), branch (modo prueba),
+│                   #   location, push, router, supabase, utils
+└── features/       # onboarding, home, appointments, occupancy, points, rewards,
+                    #   reviews, billboard, convenios, visits, notifications, profile
 ```
 
 Más detalle en `CLAUDE.md` (arquitectura, contratos, trampas) y `ENTREGA.md` (estado de entrega,

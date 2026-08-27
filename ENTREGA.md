@@ -3,16 +3,17 @@
 ## Resumen
 
 App Flutter para los clientes de **Monaco Barber Studio** (identidad **Monaco**, antes
-"barberOS / Monaco Mobile"). Mono-organización, con elección de sucursal; Liquid Glass en todas
-las pantallas; login por **código de WhatsApp (OTP)**; **turnos nativos** reservados a través de
-la API mobile del dashboard (un solo motor de disponibilidad); **push FCM**; modo prueba para la
-sucursal Test. Comparte Supabase con `../MonacoSmartBarber`.
+"barberOS / Monaco Mobile"). Mono-organización y **sin sucursal**: es la app de Monaco entera y la
+sucursal se elige en el paso 1 de la reserva. Liquid Glass en todas las pantallas; login por
+**código de WhatsApp (OTP)**; **turnos nativos** reservados a través de la API mobile del dashboard
+(un solo motor de disponibilidad); **push FCM**; modo prueba para la sucursal Test. Comparte
+Supabase con `../MonacoSmartBarber`.
 
 | Métrica | Valor |
 |---|---|
 | Versión | `2.0.0+20` (`pubspec.yaml`) |
 | Flutter / Dart | 3.38.4 / 3.10.3 |
-| Tests | 166 (unit + widget), `flutter test` en verde |
+| Tests | 225 (unit + widget), `flutter test` en verde |
 | Plataformas | iOS 14+ sólo iPhone vertical · Android minSdk 24 / target 36 |
 | Nombre visible | Monaco (`CFBundleDisplayName`, `@string/app_name`) |
 | IDs | iOS `com.monacobarber.monacoMobile` · Android `com.monacobarber.monaco_mobile` (no cambiar después del primer upload) |
@@ -22,17 +23,21 @@ sucursal Test. Comparte Supabase con `../MonacoSmartBarber`.
 ### Flujo del cliente
 1. **Splash / Welcome / Login** — teléfono → `start` → login silencioso si el dispositivo ya es
    conocido, o código de 6 dígitos por WhatsApp (`/login/codigo`), nombre si es cliente nuevo
-   (`/login/nombre`) → elegir sucursal (`/elegir-sucursal?onboarding=1`) → Home.
-2. **Home** — saludo, puntos, sucursal elegida (pill para cambiar), ocupación en vivo, próximo
-   turno, cartelera, convenios, accesos.
+   (`/login/nombre`) → Home. **Ya no hay paso de sucursal**: se elige en el paso 1 de la reserva.
+2. **Home — billetera** — marca + campana con badge, saludo, **tarjeta de puntos** (vidrio) con el
+   progreso hacia el próximo premio del catálogo, tiles de reservar / próximo turno, *Espera ahora*
+   (fila en vivo de las tres sucursales) y el carrusel *Canjeá tus puntos*.
 3. **Turnos** (`/turnos`, `/turnos/reservar`, `/turnos/:id`) — listado próximos/anteriores,
-   wizard de reserva (servicio → día y hora → barbero opcional → confirmar), detalle con mapa,
-   cancelación con la misma regla de ventana que el server.
+   wizard de reserva de **tres pasos (sucursal → servicio → día y hora**, barbero opcional),
+   detalle con mapa, cancelación con la misma regla de ventana que el server.
 4. **Sucursales** (`/occupancy`, `/branch/:id`) — fila en vivo, barberos, ETA.
-5. **Premios / Puntos / Catálogo / QR de canje / Mis canjes / Convenios / Reseñas / Cartelera / Visitas**.
+5. **Premios** (`/rewards`) — una sola pantalla: tira "listos para usar" con el QR + grilla de
+   2 columnas con chips **Todo / Cortes / Merch / Marcas**, que unifica el catálogo por puntos y
+   los convenios con comercios (estos con pastilla GRATIS). `/mis-premios` es la billetera
+   completa. Además: **Puntos / QR de canje / Mis canjes / Convenios / Reseñas / Cartelera / Visitas**.
 6. **Notificaciones** (`/notificaciones`, `/notificaciones/preferencias`) — bandeja
    `client_notifications` en tiempo real + preferencias por tipo.
-7. **Perfil** — nombre, teléfono, sucursal, biometría y PIN local, notificaciones, legales,
+7. **Perfil** — nombre, teléfono, biometría y PIN local, notificaciones, legales,
    soporte (mail / WhatsApp), eliminar cuenta (Apple 5.1.1(v)), versión (7 toques → modo prueba).
 
 ### Backend que consume

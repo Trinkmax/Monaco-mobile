@@ -2,7 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:monaco_mobile/core/utils/constants.dart';
 import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
-import 'package:monaco_mobile/features/branch_selection/providers/branch_selection_provider.dart';
+import 'package:monaco_mobile/core/branch/test_mode_provider.dart';
 
 // ── Branch Signals (one-shot) ──────────────────────────────────────────────
 

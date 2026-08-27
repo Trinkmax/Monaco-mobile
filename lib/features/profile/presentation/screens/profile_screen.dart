@@ -196,15 +196,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
               onEditName: _editName,
             ).liquidEnter(index: 0),
 
-            const SizedBox(height: 14),
-
-            // ── Tu sucursal ────────────────────────────────────────────
-            _BranchCard(
-              name: auth.selectedBranchName,
-              operationMode: auth.selectedBranchOperationMode,
-              onChange: () => context.push('/elegir-sucursal'),
-            ).liquidEnter(index: 1),
-
             const SizedBox(height: 26),
 
             // ── Notificaciones ─────────────────────────────────────────
@@ -304,9 +295,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   onTap: () => context.push('/points'),
                 ),
                 LiquidListTile(
+                  icon: Icons.card_giftcard_rounded,
+                  title: 'Mis premios',
+                  subtitle: 'Los que tenés para usar y los que ya usaste',
+                  onTap: () => context.push('/mis-premios'),
+                ),
+                LiquidListTile(
                   icon: Icons.local_offer_rounded,
                   title: 'Mis canjes',
-                  subtitle: 'Códigos activados y canjeados',
+                  subtitle: 'Códigos de convenios activados y usados',
                   onTap: () => context.push('/mis-canjes'),
                 ),
               ],
@@ -883,136 +880,6 @@ class _ProfileCard extends StatelessWidget {
     final national = ArPhone.normalizeTyped(raw);
     if (national.length != ArPhone.nationalLength) return raw;
     return ArPhone.formatInternational(national);
-  }
-}
-
-class _BranchCard extends StatelessWidget {
-  final String? name;
-  final String? operationMode;
-  final VoidCallback onChange;
-
-  const _BranchCard({
-    required this.name,
-    required this.operationMode,
-    required this.onChange,
-  });
-
-  String get _modeLabel => switch (operationMode) {
-    'appointments' => 'Atiende sólo con turno',
-    'hybrid' => 'Con turno o por orden de llegada',
-    _ => 'Por orden de llegada',
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final hasBranch = name != null && name!.trim().isNotEmpty;
-    return LiquidGlass(
-      onTap: onChange,
-      padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
-      borderRadius: LiquidTokens.radiusCard,
-      tintOpacity: 0.08,
-      showVignette: false,
-      scalePressed: 0.985,
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(13),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  MonacoColors.monacoGreen.withValues(alpha: 0.28),
-                  MonacoColors.monacoGreen.withValues(alpha: 0.10),
-                ],
-              ),
-              border: Border.all(
-                color: MonacoColors.monacoGreen.withValues(alpha: 0.36),
-                width: 0.8,
-              ),
-            ),
-            child: const Icon(
-              Icons.storefront_rounded,
-              size: 21,
-              color: MonacoColors.monacoGreen,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'TU SUCURSAL',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.45),
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.1,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  hasBranch ? name! : 'Elegí tu sucursal',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: MonacoColors.textPrimary,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.3,
-                  ),
-                ),
-                if (hasBranch) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    _modeLabel,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.5),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(999),
-              color: Colors.white.withValues(alpha: 0.08),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.16),
-                width: 0.8,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  hasBranch ? 'Cambiar' : 'Elegir',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.92),
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(width: 3),
-                Icon(
-                  Icons.chevron_right_rounded,
-                  size: 16,
-                  color: Colors.white.withValues(alpha: 0.7),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 

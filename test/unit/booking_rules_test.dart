@@ -165,6 +165,51 @@ void main() {
     });
   });
 
+  group('BookingWizardState — los tres pasos del wizard', () {
+    // Desde ago/2026 la sucursal es el paso 1: la app no guarda ninguna, así
+    // que reservar SIEMPRE empieza eligiendo dónde.
+    test('pickBranch es el paso 1 y se llama "Sucursal"', () {
+      const s = BookingWizardState(phase: WizardPhase.pickBranch);
+      expect(s.stepIndex, 1);
+      expect(s.stepLabel, 'Sucursal');
+    });
+
+    test('services es el paso 2', () {
+      const s = BookingWizardState(phase: WizardPhase.services);
+      expect(s.stepIndex, 2);
+      expect(s.stepLabel, 'Servicio');
+    });
+
+    test('slot es el paso 3', () {
+      const s = BookingWizardState(phase: WizardPhase.slot);
+      expect(s.stepIndex, 3);
+      expect(s.stepLabel, 'Día y horario');
+    });
+
+    test('loading y failed no inventan un paso: caen en el 1', () {
+      expect(const BookingWizardState(phase: WizardPhase.loading).stepIndex, 1);
+      expect(const BookingWizardState(phase: WizardPhase.failed).stepIndex, 1);
+    });
+
+    test('copyWith(bootstrap: null) SÍ borra el bootstrap (centinela _unset)',
+        () {
+      // De esto depende que "atrás" desde Servicios devuelva el título del
+      // header a "Reservar turno" en vez de dejar la sucursal anterior.
+      final conBoot = const BookingWizardState().copyWith(
+        phase: WizardPhase.services,
+        slug: 'rondeau',
+      );
+      final volvio = conBoot.copyWith(
+        phase: WizardPhase.pickBranch,
+        bootstrap: null,
+        slug: '',
+      );
+      expect(volvio.bootstrap, isNull);
+      expect(volvio.slug, '');
+      expect(volvio.phase, WizardPhase.pickBranch);
+    });
+  });
+
   group('computeSlotGrid (réplica de slot-step.tsx §6.e)', () {
     SlotGroup g(String id, String name, List<(String, bool)> slots) => SlotGroup(
           staffId: id,

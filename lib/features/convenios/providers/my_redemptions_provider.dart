@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:monaco_mobile/core/auth/auth_provider.dart';
 import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
 import 'package:monaco_mobile/features/convenios/providers/redemption_provider.dart';
 
@@ -7,8 +8,10 @@ import 'package:monaco_mobile/features/convenios/providers/redemption_provider.d
 /// Usa la RPC `list_my_redemptions` (SECURITY DEFINER) para incluir beneficios
 /// que la RLS de `partner_benefits` normalmente ocultaría (archivados, vencidos,
 /// rechazados, pausados).
+/// Atado al `clientId`: ver la nota en `rewards_provider.dart`.
 final myRedemptionsProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
+  if (ref.watch(authProvider.select((a) => a.clientId)) == null) return const [];
   final supabase = ref.read(supabaseClientProvider);
   final res = await supabase.rpc('list_my_redemptions');
   if (res is! List) return [];

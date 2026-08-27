@@ -16,12 +16,14 @@ import 'widgets/slot_step.dart';
 import 'widgets/step_progress.dart';
 import 'widgets/wizard_footer.dart';
 
-/// Wizard nativo de reserva: Servicio → Día y horario → confirmación.
+/// Wizard nativo de reserva: **Sucursal → Servicio → Día y horario** →
+/// confirmación.
 ///
 /// La identidad no se pide (el cliente está logueado; el server la saca del
-/// JWT). La sucursal es `branchSlug ?? authState.selectedBranchSlug`; si no
-/// toma turnos online (o no hay slug), se muestra un selector de sucursales
-/// reservables.
+/// JWT). La sucursal es el paso 1: la app no guarda ninguna. El único atajo es
+/// el deep-link `?branch=<slug>` (QR del local, push, link compartido), que
+/// entra directo al paso 2; si ese slug no toma turnos online, el selector
+/// aparece igual y lo explica.
 class BookingWizardScreen extends ConsumerStatefulWidget {
   final String? branchSlug;
   const BookingWizardScreen({super.key, this.branchSlug});
@@ -106,7 +108,13 @@ class _BookingWizardScreenState extends ConsumerState<BookingWizardScreen> {
     final needsName = knownName.isEmpty;
 
     final enConfirmacion = state.phase == WizardPhase.confirmation;
-    final conPasos = state.phase == WizardPhase.services || state.phase == WizardPhase.slot;
+    // La barra de pasos incluye el selector de sucursal (es el paso 1); el
+    // footer NO: el selector confirma al tocar la tarjeta, y un CTA
+    // "Continuar" permanentemente deshabilitado se lee como una pantalla rota.
+    final conPasos = state.phase == WizardPhase.pickBranch ||
+        state.phase == WizardPhase.services ||
+        state.phase == WizardPhase.slot;
+    final conFooter = state.phase == WizardPhase.services || state.phase == WizardPhase.slot;
     final titulo = state.bootstrap?.branch.name ?? 'Reservar turno';
 
     return PopScope(
@@ -142,17 +150,18 @@ class _BookingWizardScreenState extends ConsumerState<BookingWizardScreen> {
                     padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
                     child: StepProgress(
                       current: state.stepIndex,
-                      total: 2,
-                      label: state.phase == WizardPhase.slot ? 'Día y horario' : 'Servicio',
+                      total: 3,
+                      label: state.stepLabel,
                     ),
                   ),
                 Expanded(child: _body(state, ctrl, auth)),
-                if (conPasos)
+                if (conFooter)
                   WizardFooter(
                     state: state,
                     needsName: needsName,
                     canProceed: ctrl.canProceed,
-                    showBack: state.phase == WizardPhase.slot,
+                    showBack: state.phase == WizardPhase.slot ||
+                        state.phase == WizardPhase.services,
                     onBack: _back,
                     onNext: _onNext,
                     onPolicy: ctrl.setPolicyAccepted,
@@ -205,7 +214,6 @@ class _BookingWizardScreenState extends ConsumerState<BookingWizardScreen> {
           branches: state.branches,
           loading: state.branchesLoading,
           originalNotBookable: state.originalNotBookable,
-          originalBranchName: auth.selectedBranchName,
           onPick: ctrl.pickBranch,
         );
       case WizardPhase.services:

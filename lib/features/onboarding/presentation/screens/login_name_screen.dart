@@ -87,7 +87,8 @@ class _LoginNameScreenState extends ConsumerState<LoginNameScreen> {
           .read(authProvider.notifier)
           .verifyCode(flow.phone, flow.code!, name: name);
       if (!mounted) return;
-      // Sesión lista: el router manda a /elegir-sucursal?onboarding=1. El CTA
+      // Sesión lista: el router manda directo a /home (la sucursal ya no se
+      // elige en el onboarding: se elige al reservar). El CTA
       // queda en "cargando" hasta que esta pantalla desaparezca.
       _done = true;
       ref.read(loginFlowProvider.notifier).state = null;

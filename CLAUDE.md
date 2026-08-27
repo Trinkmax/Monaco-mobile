@@ -6,9 +6,17 @@ Guía para Claude Code al trabajar en `Monaco-mobile/`. El contrato compartido d
 ## Qué es
 
 App **mono-organización** de Monaco Barber Studio (`organization_id a0eebc99-…-6bb9bd380a11`,
-slug `monaco`). El cliente elige **sucursal** (Rondeau, Parana, Caseros; `test` sólo en modo
-prueba). Comparte Supabase (`gzsfoqpxvnwmvngfoqqk`) con `../MonacoSmartBarber` y consume sus
+slug `monaco`). Comparte Supabase (`gzsfoqpxvnwmvngfoqqk`) con `../MonacoSmartBarber` y consume sus
 route handlers `/api/mobile/**` en `https://monaco-smart-barber.vercel.app`.
+
+**La app NO tiene sucursal** (rediseño del 24/ago/2026). Es la app de Monaco entera: el Home
+saluda sin nombrar un local, la fila en vivo muestra las tres y los puntos ya eran globales. La
+sucursal se elige **una sola vez y donde importa**: el paso 1 de la reserva de turno. Antes había
+un gate de onboarding "¿a qué sucursal vas?" (`AuthStatus.needsBranch`), una pill para cambiarla en
+el Home y una tarjeta en Perfil; los tres se eliminaron junto con `features/branch_selection/`, los
+4 campos `selectedBranch*` de `AuthState` y sus keys del Keychain (que `_init()` borra una vez).
+Lo único que sobrevivió de esa feature es `testModeProvider`, que se mudó a
+`core/branch/test_mode_provider.dart`.
 
 ```
 package: monaco_mobile · Flutter 3.38.4 / Dart 3.10.3 · Riverpod (sin codegen) · go_router
@@ -19,7 +27,7 @@ package: monaco_mobile · Flutter 3.38.4 / Dart 3.10.3 · Riverpod (sin codegen)
 ```bash
 flutter pub get
 dart analyze lib/ test/                  # flutter analyze crashea a veces; este es el confiable
-flutter test                             # 166 tests
+flutter test                             # 225 tests
 flutter run [--dart-define=API_BASE_URL=http://localhost:3000]
 dart run flutter_launcher_icons          # regenerar íconos desde assets/brand/
 dart run flutter_native_splash:create    # regenerar splash nativo
@@ -69,20 +77,22 @@ lib/
 │   ├── api/mobile_api.dart      # MobileApi (Bearer del cliente, timeout 15 s, MobileApiException tipada)
 │   ├── auth/                    # AuthNotifier/AuthState (OTP), auth_service (client-auth), secure_storage,
 │   │                            #   secure_local_storage (sesión Supabase en Keychain), biometric, pin local
-│   ├── branch/                  # selectedBranch*Provider
-│   ├── location/                # geolocator best-effort (ordenar sucursales)
+│   ├── branch/                  # test_mode_provider (único resto de branch_selection)
+│   ├── location/                # geolocator best-effort (ordena el paso 1 del wizard, opt-in)
 │   ├── push/                    # push_service (token → /api/mobile/push/token), push_handler (deep links)
 │   ├── router/app_router.dart   # rutas + redirect por AuthStatus + shell con LiquidDock
 │   ├── supabase/                # supabaseClientProvider
 │   └── utils/                   # constants, formatters
 ├── features/
 │   ├── onboarding/              # splash, welcome, login_phone, login_code, login_name, biometric_gate, utils/phone_format
-│   ├── branch_selection/        # branch_picker (onboarding y cambio de sucursal)
-│   ├── home/                    # home_screen + widgets (points_card, occupancy_mini_card)
+│   ├── home/                    # home_screen + widgets (home_header, wallet_points_card,
+│   │                            #   turno_tiles, occupancy_mini_card)
 │   ├── appointments/            # data (booking_api, modelos, fechas), providers, my_appointments,
-│   │                            #   booking_wizard, appointment_detail, cancel_dialog
+│   │                            #   booking_wizard (paso 1 = sucursal), appointment_detail, cancel_dialog
 │   ├── occupancy/               # lista y detalle de sucursal con fila en vivo
-│   ├── points/ rewards/ catalog/ reviews/ billboard/ convenios/ visits/
+│   ├── rewards/                 # data/premio_item, providers/premios_provider,
+│   │                            #   premios_screen (tab), mis_premios_screen, qr_display
+│   ├── points/ reviews/ billboard/ convenios/ visits/
 │   ├── notifications/           # bandeja client_notifications + preferencias
 │   └── profile/                 # perfil, pin_setup, pin_verify, modo prueba (7 toques en la versión)
 ├── firebase_options.dart        # PLACEHOLDER hasta `flutterfire configure`
@@ -91,8 +101,12 @@ lib/
 
 **Dock** (5): Inicio `/home` · Turnos `/turnos` · Sucursales `/occupancy` · Premios `/rewards` · Perfil `/profile`.
 Rutas fuera del shell: `/splash /welcome /login /login/codigo /login/nombre /biometric /pin /pin-setup
-/elegir-sucursal /turnos/reservar /turnos/:id /notificaciones /notificaciones/preferencias /branch/:id
-/points /catalog /reviews /review/:token /reward-qr/:id /billboard /convenios /convenio/:id /mis-canjes /visits`.
+/turnos/reservar /turnos/:id /notificaciones /notificaciones/preferencias /branch/:id
+/points /mis-premios /reviews /review/:token /reward-qr/:id /billboard /convenios /convenio/:id /mis-canjes /visits`.
+
+Rutas que **ya no existen**: `/elegir-sucursal` (no hay sucursal global) y `/catalog` (el catálogo
+ES el tab `/rewards`). Si aparece un `context.push` a una de las dos, go_router pinta su pantalla de
+error en runtime — no es un error de compilación.
 
 ## Auth — OTP por WhatsApp (`client-auth` v2)
 
@@ -102,8 +116,8 @@ Rutas fuera del shell: `/splash /welcome /login /login/codigo /login/nombre /bio
    → `/login/nombre` ANTES de `verify` (el nombre viaja en `verify`).
 3. `verify` → sesión Supabase (`{phone}@monaco.internal` + `device_secret` como password).
    Sesión persistida en **Keychain/EncryptedSharedPreferences** (`SecureLocalStorage`).
-4. `AuthStatus`: `initial → unauthenticated | needsBiometric | needsBranch | authenticated`.
-   `needsBranch` = hay sesión pero falta elegir sucursal (onboarding).
+4. `AuthStatus`: `initial → unauthenticated | needsBiometric | authenticated`. **No hay
+   `needsBranch`**: tras `verify` (o el gate local) se entra directo a `/home`.
 
 Biometría y PIN son **gates locales** (PIN hasheado en SecureStorage; los RPC
 `set_client_pin/verify_client_pin` ya no se usan). Teléfonos de prueba (`AUTH_TEST_PHONES` en la
@@ -131,6 +145,114 @@ Reglas: identidad por **JWT** (el server saca teléfono y `client_id` del Bearer
 "hoy" es `server_today`, no `DateTime.now()`; `appointment_date + start_time` son hora de PARED de
 la sucursal y `Fechas` (`features/appointments/data/fechas.dart`) convierte con offset fijo UTC-3,
 nunca con la zona del teléfono ni con `toIso8601String()`.
+
+### El wizard son TRES pasos: **Sucursal → Servicio → Día y horario**
+
+`WizardPhase.pickBranch` era un fallback ("la sucursal que elegiste no toma turnos online"); desde
+que la app no guarda sucursal es el paso 1 y siempre se pasa por él. `_init()` sólo lo saltea con el
+deep-link `?branch=<slug>` (QR del local, push, link compartido); si ese slug no es reservable, el
+selector aparece igual con el copy que lo explica (`originalNotBookable`).
+
+- El índice y la etiqueta viven en `BookingWizardState.stepIndex` / `.stepLabel`, no en la pantalla.
+- **`conPasos` incluye `pickBranch`, `conFooter` no**: el selector confirma al tocar la tarjeta, y un
+  CTA "Continuar" permanentemente deshabilitado (`canProceed` es false en esa fase) se lee como una
+  pantalla rota.
+- `goBack()` desde Servicios **borra el bootstrap y el slug**: si sólo cambiara de fase, el título
+  del header y el paso de horarios seguirían mostrando la sucursal anterior.
+- `_loadBranches` no muestra skeleton si ya tiene la lista, y un refresco fallido no tira al cliente
+  a la pantalla de error: se queda con lo que tenía.
+- `BranchPickerStep` ordena **abiertas primero** y ofrece "Ordenar por cercanía" como pill opt-in:
+  la ubicación se pide sólo si el cliente la toca (un prompt del sistema en medio de una reserva,
+  sin haberlo pedido, se lee como que la app espía). Es el único consumidor que queda de
+  `geolocator`.
+- El Home decide si ofrece "Reservar" con `hayTurnosOnlineProvider`, que **falla abierto**: mostrar
+  el CTA de más lleva, en el peor caso, a "por ahora no hay turnos online"; de menos, deja al
+  cliente sin forma de reservar y sin explicación.
+
+## Premios — una sola pantalla (rediseño 24/ago/2026)
+
+El tab `/rewards` (`PremiosScreen`) es **la tienda**: grilla de 2 columnas, chips de categoría y,
+arriba, una tira con los premios que el cliente ya canjeó y tiene que mostrar en el local. Antes
+eran dos pantallas separadas —`/rewards` (billetera) y `/catalog` (canjear)— y el cliente podía
+canjear dos veces lo mismo porque no encontraba lo que ya tenía. `/catalog` se eliminó;
+`/mis-premios` (`MisPremiosScreen`, con las solapas Para usar / Usados) es el "ver todos" de la tira.
+
+**`PremioItem` (`features/rewards/data/premio_item.dart`) unifica dos tablas.** Un premio del
+catálogo (`reward_catalog`, cuesta puntos, se canjea con `redeem_points_for_reward`) y un convenio
+(`partner_benefits`, **gratis**, se activa con `issue_benefit_redemption`) se dibujan con la misma
+tarjeta; la diferencia la trae el modelo, no el widget. Los convenios muestran **GRATIS** en vez de
+un precio: ponerles puntos sería mentir sobre el modelo de negocio.
+
+**Las tres categorías se DERIVAN**, no están en la base:
+
+| Categoría | Regla | Acento |
+|---|---|---|
+| Cortes | `is_free_service` o `discount_pct > 0` | verde Monaco |
+| Merch | el resto de `reward_catalog` | blanco |
+| Marcas | todo `partner_benefits` | azul `#3B82F6` |
+
+`reward_catalog.category` (migración 194, nullable, `cortes|merch`) es el **override manual** desde
+`/dashboard/app-movil` → Premios → "Categoría en la app". NULL = derivada. No se backfilleó a
+propósito: escribir hoy la heurística en la columna la congelaría.
+
+Cosas que no hay que "arreglar" ingenuamente:
+
+- **El acento por categoría existe porque no hay fotos.** `image_url` está en la tabla y el
+  dashboard tiene el input, pero **cero filas lo tienen cargado**: la grilla real son seis tarjetas
+  con un ícono. Con un solo color, las seis se leen como una mancha (verificado en el simulador).
+- **Los chips salen de los datos** (`categoriasConPremiosProvider`) y van **sin ícono**: con cuatro
+  chips + ícono, "Marcas" se salía de la pantalla en un iPhone de 390 pt.
+- **`PremioCard.altoPara(ancho)` es la única fuente del alto.** La grilla la usa vía
+  `aspectoGrilla()` y el carrusel del Home como `height`. Cuando cada pantalla tenía su número a
+  ojo, la tarjeta desbordaba 7–15 px según el ancho. `test/widget/wallet_widgets_test.dart` lo
+  fija: los casos de medida real fallan si alguien toca la proporción sin tocar `altoPara`.
+- **El orden de la grilla es "lo que podés usar primero", el del carrusel del Home es
+  "catálogo primero".** Son distintos a propósito: la sección del Home se llama *Canjeá tus puntos*
+  y con el orden de la grilla un cliente con 0 puntos abría con tres tarjetas GRATIS.
+- **`redeem_points_for_reward` devuelve `{success:false, error}` con HTTP 200.** El código viejo no
+  lo miraba: un canje rechazado por stock o por saldo le decía "Premio canjeado" al cliente y lo
+  mandaba a una billetera vacía. `canje.dart` chequea `success` y traduce el error.
+- **`get_client_wallet` devuelve `image_url`, `points_cost` y `category`** desde la mig 194 (antes
+  sólo texto, así que la tira no podía ilustrarse).
+- Los convenios **vencidos** no entran a la grilla (la pantalla `/convenios` los sigue mostrando).
+
+## Home — billetera
+
+`HomeHeader` (wordmark + campana con badge de `unreadNotificationsCountProvider`) → saludo →
+**`WalletPointsCard`** → `TurnoTiles` → *Espera ahora* → *Canjeá tus puntos* → Cartelera.
+
+- La tarjeta de puntos es **vidrio gris**, como el resto de la app. Se probó blanca sólida (era lo
+  que mostraba el mockup) y **el dueño la rechazó**: la lámina clara rompe el lenguaje Liquid Glass
+  y el Home parecía de otra app. La jerarquía la sostienen el tamaño del número y el único elemento
+  claro de la tarjeta —el botón circular de regalo, que va a Premios—, no el fondo. El test
+  `wallet_widgets_test.dart` fija que el número y el pie sean claros, para que el blanco no vuelva
+  por accidente.
+- Donde sí hay superficie blanca sólida es en `PastillaSolida` (chip de categoría seleccionado y
+  pastilla de saldo de Premios): ahí "seleccionado" tiene que leerse de un vistazo, y un
+  `LiquidPill` con tint blanco no alcanza — su degradado termina en 55 % del tint y el texto oscuro
+  pierde contraste en la esquina inferior derecha.
+- El pie de la tarjeta sale del catálogo REAL (`proximoPremioProvider` /
+  `premiosCanjeablesProvider`): "A 60 pts de Corte gratis" → "Ya podés canjear 2 premios" → "Sumás
+  puntos en cada visita" si no hay catálogo. Nunca se inventa un umbral: `rewards_config` está
+  vacía en prod.
+- `TurnoTiles`: **con** turno, dos tiles (reservar + próximo con hora grande); **sin** turno, un CTA
+  ancho. Un tile "Próximo turno · —" ocupa media pantalla para decir que no hay nada.
+  El countdown sólo se dibuja si falta menos de 24 h: más lejos, `Fechas.cuentaRegresiva` devuelve
+  "Jue 27 ago · 18:30", que repite la línea de arriba y la hora que ya está en 29 px.
+- *Espera ahora* mantiene `OccupancyMiniCard` tal cual (decisión del dueño: ese diseño ya estaba
+  bien). Los accesos rápidos se eliminaron: el dock y las secciones cubren todo, y `/visits` y
+  `/mis-canjes` siguen en Perfil.
+
+**Vista previa visual sin login ni red** — el banco de pruebas del diseño:
+
+```bash
+QA_SHOTS_DIR=build/wallet-shots flutter drive --driver=test_driver/integration_test.dart \
+  --target=integration_test/wallet_preview_test.dart -d <udid-simulador>
+```
+
+Pinta Home (con turno / sin turno / saldo 0) y Premios (con chips) con datos fijos. **Los tres
+overflows del rediseño salieron de acá y no de `flutter test`**: una tarjeta sin constraint de alto
+crece lo que necesita y nunca desborda en un widget test.
 
 ## Push — FCM
 
@@ -197,9 +319,19 @@ Con él, `branchesProvider` deja de esconder la sucursal `is_test` (slug `test`)
   (`SLOT_TAKEN`, 401, `HTTP_5xx`, `BAD_RESPONSE`), red (`NETWORK`), timeout con `fakeAsync`.
 - `unit/auth_state_test.dart`, `unit/constants_test.dart`, `unit/formatters_test.dart`,
   `unit/fechas_test.dart`, `unit/phone_format_test.dart`, `unit/appointment_model_test.dart`.
+- `unit/premio_item_test.dart` — la derivación de categoría, el override de `category`, el shape de
+  convenios (nombre = comercio, subtítulo = beneficio) y `alcanza/faltan/progreso`.
+- `unit/booking_rules_test.dart` — además de la ventana de fechas y la grilla, los **tres pasos**
+  del wizard y que `copyWith(bootstrap: null)` sí borra el bootstrap.
 - `widget/occupancy_mini_card_test.dart` (carga Poppins real: con Ahem la pastilla desborda),
   `widget/points_history_tile_test.dart`.
+- `widget/wallet_widgets_test.dart` — la tarjeta de puntos, `PremioCard` y `PremioListoCard`. Los
+  casos "entra en la celda de la grilla" / "entra en el carrusel" usan `PremioCard.altoPara()`:
+  son la red contra los overflows, y **hay que darles el alto real** — sin constraint la tarjeta
+  crece lo que necesita y el test pasa siempre.
 - Las pantallas con animaciones en loop (LED que pulsa) no admiten `pumpAndSettle`: bombear frames.
+- `DateFormat('es')` tira `LocaleDataException` dentro del `build`: los tests que rendericen fechas
+  necesitan `initializeDateFormatting('es')` en el `setUpAll` (en la app lo hace `main.dart`).
 
 ## Convenciones
 

@@ -13,12 +13,16 @@ import 'pin_service.dart';
 /// Estados del ciclo de auth.
 ///
 /// - `needsBiometric`: hay sesión pero el cliente activó el gate local.
-/// - `needsBranch`: hay sesión pero todavía no eligió sucursal (onboarding).
+///
+/// **No hay `needsBranch`.** La app es de Monaco entera, no de una sucursal: el
+/// cliente entra directo al home y la sucursal se elige recién cuando importa
+/// —en el primer paso de la reserva de turno—. Antes había un gate de
+/// onboarding "¿a qué sucursal vas?" y una sucursal pegada al perfil que
+/// filtraba media app; eso se eliminó (24/ago/2026).
 enum AuthStatus {
   initial,
   unauthenticated,
   needsBiometric,
-  needsBranch,
   authenticated,
 }
 
@@ -30,12 +34,6 @@ class AuthState {
   final String? clientPhone;
   final String? error;
   final bool isNewClient;
-  final String? selectedBranchId;
-  final String? selectedBranchName;
-  final String? selectedBranchSlug;
-
-  /// `walk_in | appointments | hybrid` de la sucursal elegida.
-  final String? selectedBranchOperationMode;
 
   const AuthState({
     this.status = AuthStatus.initial,
@@ -44,25 +42,9 @@ class AuthState {
     this.clientPhone,
     this.error,
     this.isNewClient = false,
-    this.selectedBranchId,
-    this.selectedBranchName,
-    this.selectedBranchSlug,
-    this.selectedBranchOperationMode,
   });
 
-  bool get hasBranch => selectedBranchId != null;
   bool get isAuthenticated => status == AuthStatus.authenticated;
-
-  /// La sucursal elegida acepta reservas online (`appointments` o `hybrid`).
-  bool get acceptsAppointments =>
-      selectedBranchOperationMode == 'appointments' ||
-      selectedBranchOperationMode == 'hybrid';
-
-  /// La sucursal elegida acepta walk-ins (`walk_in` o `hybrid`).
-  bool get acceptsWalkIn =>
-      selectedBranchOperationMode == null ||
-      selectedBranchOperationMode == 'walk_in' ||
-      selectedBranchOperationMode == 'hybrid';
 
   /// Primer nombre para saludar ("Hola, Nacho"). Si el nombre es sólo
   /// dígitos (cuenta vieja sin nombre) devuelve "".
@@ -79,10 +61,6 @@ class AuthState {
     String? clientPhone,
     String? error,
     bool? isNewClient,
-    String? selectedBranchId,
-    String? selectedBranchName,
-    String? selectedBranchSlug,
-    String? selectedBranchOperationMode,
   }) {
     return AuthState(
       status: status ?? this.status,
@@ -91,11 +69,6 @@ class AuthState {
       clientPhone: clientPhone ?? this.clientPhone,
       error: error,
       isNewClient: isNewClient ?? this.isNewClient,
-      selectedBranchId: selectedBranchId ?? this.selectedBranchId,
-      selectedBranchName: selectedBranchName ?? this.selectedBranchName,
-      selectedBranchSlug: selectedBranchSlug ?? this.selectedBranchSlug,
-      selectedBranchOperationMode:
-          selectedBranchOperationMode ?? this.selectedBranchOperationMode,
     );
   }
 }
@@ -162,27 +135,20 @@ class AuthNotifier extends StateNotifier<AuthState> {
       }
       final name = await SecureStorageService.getClientName();
       final phone = await SecureStorageService.getClientPhone();
-      final branchId = await SecureStorageService.getSelectedBranchId();
-      final branchName = await SecureStorageService.getSelectedBranchName();
-      final branchSlug = await SecureStorageService.getSelectedBranchSlug();
-      final branchMode =
-          await SecureStorageService.getSelectedBranchOperationMode();
+      // Residuo de la sucursal global (app <= ago/2026): se borra una vez y no
+      // se vuelve a leer. Sin esto quedaría escrito en el Keychain de todos los
+      // instalados para siempre.
+      unawaited(SecureStorageService.clearSelectedBranch());
       // Gate local: biometría o PIN (cualquiera de los dos lo pide al abrir).
       final bioEnabled = await SecureStorageService.isBiometricEnabled();
       final pinEnabled = await PinService.isEnabled();
       state = AuthState(
         status: (bioEnabled || pinEnabled)
             ? AuthStatus.needsBiometric
-            : (branchId == null
-                ? AuthStatus.needsBranch
-                : AuthStatus.authenticated),
+            : AuthStatus.authenticated,
         clientId: clientId,
         clientName: name,
         clientPhone: phone,
-        selectedBranchId: branchId,
-        selectedBranchName: branchName,
-        selectedBranchSlug: branchSlug,
-        selectedBranchOperationMode: branchMode,
       );
     } catch (e, st) {
       debugPrint('[auth] _init error: $e\n$st');
@@ -228,21 +194,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final clientId = await SecureStorageService.getClientId();
     final name = await SecureStorageService.getClientName();
     final phone = await SecureStorageService.getClientPhone();
-    final branchId = await SecureStorageService.getSelectedBranchId();
-    final branchName = await SecureStorageService.getSelectedBranchName();
-    final branchSlug = await SecureStorageService.getSelectedBranchSlug();
-    final branchMode =
-        await SecureStorageService.getSelectedBranchOperationMode();
     state = AuthState(
-      status: branchId == null ? AuthStatus.needsBranch : AuthStatus.authenticated,
+      status: AuthStatus.authenticated,
       clientId: clientId,
       clientName: name,
       clientPhone: phone,
       isNewClient: !res.clientKnown,
-      selectedBranchId: branchId,
-      selectedBranchName: branchName,
-      selectedBranchSlug: branchSlug,
-      selectedBranchOperationMode: branchMode,
     );
   }
 
@@ -253,9 +210,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   void completeBiometric() {
-    state = state.copyWith(
-      status: state.hasBranch ? AuthStatus.authenticated : AuthStatus.needsBranch,
-    );
+    state = state.copyWith(status: AuthStatus.authenticated);
   }
 
   Future<void> logout() async {
@@ -270,29 +225,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
       state = const AuthState(status: AuthStatus.unauthenticated);
     }
     return err;
-  }
-
-  Future<void> setSelectedBranch(
-    String branchId,
-    String branchName, {
-    String? operationMode,
-    String? slug,
-  }) async {
-    await SecureStorageService.saveSelectedBranch(
-      branchId: branchId,
-      branchName: branchName,
-      operationMode: operationMode,
-      slug: slug,
-    );
-    state = state.copyWith(
-      status: state.status == AuthStatus.needsBranch
-          ? AuthStatus.authenticated
-          : state.status,
-      selectedBranchId: branchId,
-      selectedBranchName: branchName,
-      selectedBranchOperationMode: operationMode,
-      selectedBranchSlug: slug,
-    );
   }
 
   /// Actualiza el nombre en el estado + storage local (la persistencia remota

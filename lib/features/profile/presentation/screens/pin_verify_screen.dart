@@ -79,7 +79,7 @@ class _PinVerifyScreenState extends ConsumerState<PinVerifyScreen> {
     if (ok) {
       HapticFeedback.mediumImpact();
       ref.read(authProvider.notifier).completeBiometric();
-      // El router redirige (needsBiometric → authenticated/needsBranch).
+      // El router redirige (needsBiometric → authenticated).
       setState(() => _busy = false);
       return;
     }

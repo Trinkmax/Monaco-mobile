@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:monaco_mobile/core/api/mobile_api.dart';
 import 'package:monaco_mobile/core/auth/auth_provider.dart';
-import 'package:monaco_mobile/features/branch_selection/providers/branch_selection_provider.dart';
+import 'package:monaco_mobile/core/branch/test_mode_provider.dart';
 
 import '../data/booking_api.dart';
 import '../data/fechas.dart';
@@ -25,19 +25,17 @@ final mobileBranchesProvider = FutureProvider<List<MobileBranch>>((ref) async {
   return res.branches.where((b) => !b.isTest).toList();
 });
 
-/// `true`/`false` si ya sabemos si la sucursal elegida toma turnos online;
-/// `null` mientras carga o si falló (los consumidores caen a
-/// `auth.acceptsAppointments`).
-final selectedBranchBookableProvider = Provider<bool?>((ref) {
-  final branchId = ref.watch(authProvider.select((a) => a.selectedBranchId));
-  if (branchId == null) return null;
+/// ¿Hay AL MENOS UNA sucursal tomando turnos online? Lo mira el Home para
+/// decidir si ofrece "Reservar turno".
+///
+/// **Falla abierto (`true`)** mientras carga o si la API no contesta: mostrar
+/// el CTA de más lleva, en el peor caso, a un selector que dice "por ahora no
+/// hay turnos online"; mostrarlo de menos deja al cliente sin forma de
+/// reservar y sin explicación. Antes esto miraba la sucursal *elegida* en el
+/// onboarding, que ya no existe.
+final hayTurnosOnlineProvider = Provider<bool>((ref) {
   final branches = ref.watch(mobileBranchesProvider);
-  return branches.whenOrNull(data: (list) {
-    for (final b in list) {
-      if (b.id == branchId) return b.bookable;
-    }
-    return null;
-  });
+  return branches.whenOrNull(data: (list) => list.any((b) => b.bookable)) ?? true;
 });
 
 /// Bootstrap del wizard por slug (para pantallas que sólo necesitan leer la
@@ -275,7 +273,19 @@ class BookingWizardState {
 
   bool get nameInputValid => nameInput.trim().length >= 2;
 
-  int get stepIndex => phase == WizardPhase.slot ? 2 : 1;
+  /// 1-based sobre los TRES pasos visibles: Sucursal → Servicio → Día y hora.
+  int get stepIndex => switch (phase) {
+        WizardPhase.slot => 3,
+        WizardPhase.services => 2,
+        _ => 1,
+      };
+
+  /// Etiqueta del paso actual, para el `StepProgress`.
+  String get stepLabel => switch (phase) {
+        WizardPhase.slot => 'Día y horario',
+        WizardPhase.services => 'Servicio',
+        _ => 'Sucursal',
+      };
 }
 
 // ── Ventana de fechas (réplica de `ventana.ts`) ────────────────────────────
@@ -359,15 +369,16 @@ class BookingWizardController extends StateNotifier<BookingWizardState> {
 
   // ── Carga inicial ──────────────────────────────────────────────────────
 
+  /// Paso 1 = sucursal, SIEMPRE — salvo deep-link con `?branch=<slug>`, que es
+  /// el único caso en que ya sabemos dónde quiere reservar (QR del local, push,
+  /// link compartido). La app no tiene sucursal guardada: elegirla es parte de
+  /// reservar, no del onboarding.
   Future<void> _init() async {
-    final slug = requestedSlug.isNotEmpty
-        ? requestedSlug
-        : (_ref.read(authProvider).selectedBranchSlug ?? '');
-    if (slug.isEmpty) {
+    if (requestedSlug.isEmpty) {
       await _loadBranches(originalNotBookable: false);
       return;
     }
-    await _loadBootstrap(slug, fromPicker: false);
+    await _loadBootstrap(requestedSlug, fromPicker: false);
   }
 
   Future<void> retryLoad() async {
@@ -421,10 +432,14 @@ class BookingWizardController extends StateNotifier<BookingWizardState> {
   }
 
   Future<void> _loadBranches({required bool originalNotBookable}) async {
+    // El skeleton sólo si NO tenemos lista: al volver del paso 2 al 1 ya la
+    // tenemos, y parpadear en gris una lista que el cliente acaba de ver se
+    // siente como que la app se reinició. Igual se refresca por debajo
+    // (`open_now` cambia durante el día).
     state = state.copyWith(
       phase: WizardPhase.pickBranch,
       originalNotBookable: originalNotBookable,
-      branchesLoading: true,
+      branchesLoading: state.branches.isEmpty,
       loadError: null,
     );
     try {
@@ -437,20 +452,26 @@ class BookingWizardController extends StateNotifier<BookingWizardState> {
       state = state.copyWith(branches: list, branchesLoading: false);
     } on MobileApiException catch (e) {
       if (!mounted) return;
-      state = state.copyWith(
-        phase: WizardPhase.failed,
-        branchesLoading: false,
-        loadError: e.message,
-      );
+      _branchesFallaron(e.message);
     } catch (e) {
       if (!mounted) return;
       debugPrint('[turnos] branches falló: $e');
-      state = state.copyWith(
-        phase: WizardPhase.failed,
-        branchesLoading: false,
-        loadError: 'No pudimos cargar las sucursales. Probá de nuevo.',
-      );
+      _branchesFallaron('No pudimos cargar las sucursales. Probá de nuevo.');
     }
+  }
+
+  /// Si YA teníamos la lista (volvimos al paso 1), un refresco fallido no puede
+  /// tirar al cliente a la pantalla de error: se queda con la lista que tenía.
+  void _branchesFallaron(String mensaje) {
+    if (state.branches.isNotEmpty) {
+      state = state.copyWith(branchesLoading: false);
+      return;
+    }
+    state = state.copyWith(
+      phase: WizardPhase.failed,
+      branchesLoading: false,
+      loadError: mensaje,
+    );
   }
 
   /// El cliente eligió una sucursal del selector.
@@ -515,10 +536,46 @@ class BookingWizardController extends StateNotifier<BookingWizardState> {
       case WizardPhase.slot:
         state = state.copyWith(phase: WizardPhase.services, error: null);
         return true;
-      case WizardPhase.pickBranch:
       case WizardPhase.services:
+        // Volver al paso 1 tiene que OLVIDAR la sucursal: si sólo cambiáramos
+        // de fase, el título del header y el paso de horarios seguirían
+        // mostrando la sucursal anterior. `slug: ''` además hace que
+        // `retryLoad` reintente la lista de sucursales y no un bootstrap.
+        state = state.copyWith(
+          phase: WizardPhase.pickBranch,
+          bootstrap: null,
+          slug: '',
+          selectedServiceIds: const [],
+          selectedDate: null,
+          slotsByDate: const {},
+          fullDates: const {},
+          unknownDates: const {},
+          suggestions: const [],
+          selectedSlot: null,
+          staffFilter: null,
+          policyAccepted: false,
+          error: null,
+        );
+        unawaited(_loadBranches(originalNotBookable: false));
+        return true;
       case WizardPhase.loading:
       case WizardPhase.failed:
+        // Si ya listamos sucursales, atrás vuelve al paso 1 en vez de cerrar el
+        // wizard. Sin esto, elegir sucursal es un camino de ida: si el bootstrap
+        // de la que tocó tarda o falla, el único botón que hay reintenta SIEMPRE
+        // la misma (`retryLoad` ramifica por `state.slug`) y el atrás sale de la
+        // pantalla. Cuando el selector era un fallback raro daba igual; ahora es
+        // el paso 1 de toda reserva.
+        if (state.branches.isEmpty) return false;
+        state = state.copyWith(
+          phase: WizardPhase.pickBranch,
+          bootstrap: null,
+          slug: '',
+          loadError: null,
+          error: null,
+        );
+        return true;
+      case WizardPhase.pickBranch:
       case WizardPhase.confirmation:
         return false;
     }

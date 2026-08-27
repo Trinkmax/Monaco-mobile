@@ -1,8 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:monaco_mobile/core/auth/auth_provider.dart';
 import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
+
+/// Los tres providers de este archivo son datos PERSONALES y globales (sin
+/// `autoDispose`): se atan al `clientId` de la sesión para no seguir sirviendo
+/// el saldo del cliente anterior después de un cierre de sesión. Ver la nota
+/// larga en `rewards_provider.dart`.
 
 /// Resolves the client record ID from the auth user ID.
 final _clientIdProvider = FutureProvider<String?>((ref) async {
+  ref.watch(authProvider.select((a) => a.clientId));
   final supabase = ref.read(supabaseClientProvider);
   final authId = supabase.auth.currentUser?.id;
   if (authId == null) return null;
@@ -16,6 +23,9 @@ final _clientIdProvider = FutureProvider<String?>((ref) async {
 
 /// Global points balance for the authenticated client.
 final globalPointsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
+  if (ref.watch(authProvider.select((a) => a.clientId)) == null) {
+    return const {'total_balance': 0, 'total_earned': 0, 'total_redeemed': 0};
+  }
   final supabase = ref.read(supabaseClientProvider);
   final response = await supabase.rpc('get_client_global_points');
   // RPC returns TABLE → List with one row

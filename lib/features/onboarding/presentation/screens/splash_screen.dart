@@ -73,8 +73,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
         context.go('/home');
       case AuthStatus.needsBiometric:
         context.go('/biometric');
-      case AuthStatus.needsBranch:
-        context.go('/elegir-sucursal?onboarding=1');
       case AuthStatus.unauthenticated:
       case AuthStatus.initial:
         context.go('/welcome');

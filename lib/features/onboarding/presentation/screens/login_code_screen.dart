@@ -131,7 +131,7 @@ class _LoginCodeScreenState extends ConsumerState<LoginCodeScreen> {
     try {
       await ref.read(authProvider.notifier).verifyCode(flow.phone, code);
       if (!mounted) return;
-      // Sesión lista: el router redirige (needsBranch / authenticated). El CTA
+      // Sesión lista: el router redirige a /home. El CTA
       // queda en "cargando" hasta que esta pantalla desaparezca.
       _done = true;
       ref.read(loginFlowProvider.notifier).state = null;

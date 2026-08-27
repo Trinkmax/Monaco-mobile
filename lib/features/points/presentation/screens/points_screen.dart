@@ -63,7 +63,7 @@ class PointsScreen extends ConsumerWidget {
                   ).liquidEnter(index: 0),
                   const SizedBox(height: 14),
                   LiquidButton(
-                    onPressed: () => context.push('/catalog'),
+                    onPressed: () => context.go('/rewards'),
                     padding: const EdgeInsets.symmetric(vertical: 15),
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,

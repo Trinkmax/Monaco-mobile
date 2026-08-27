@@ -101,40 +101,12 @@ class SecureStorageService {
       ? _storage.delete(key: _keyLocalPinHash)
       : _storage.write(key: _keyLocalPinHash, value: hash);
 
-  // Selected branch
-  static Future<void> saveSelectedBranch({
-    required String branchId,
-    required String branchName,
-    String? operationMode,
-    String? slug,
-  }) async {
-    final ops = <Future<void>>[
-      _storage.write(key: _keySelectedBranchId, value: branchId),
-      _storage.write(key: _keySelectedBranchName, value: branchName),
-    ];
-    if (operationMode != null) {
-      ops.add(_storage.write(
-          key: _keySelectedBranchOperationMode, value: operationMode));
-    } else {
-      ops.add(_storage.delete(key: _keySelectedBranchOperationMode));
-    }
-    if (slug != null) {
-      ops.add(_storage.write(key: _keySelectedBranchSlug, value: slug));
-    } else {
-      ops.add(_storage.delete(key: _keySelectedBranchSlug));
-    }
-    await Future.wait(ops);
-  }
-
-  static Future<String?> getSelectedBranchId() =>
-      _storage.read(key: _keySelectedBranchId);
-  static Future<String?> getSelectedBranchName() =>
-      _storage.read(key: _keySelectedBranchName);
-  static Future<String?> getSelectedBranchOperationMode() =>
-      _storage.read(key: _keySelectedBranchOperationMode);
-  static Future<String?> getSelectedBranchSlug() =>
-      _storage.read(key: _keySelectedBranchSlug);
-
+  // ── Sucursal elegida — LEGADO ────────────────────────────────────────────
+  // La app dejó de tener sucursal global (24/ago/2026): la sucursal se elige en
+  // el primer paso de la reserva y no se persiste. Estas 4 keys ya no se
+  // escriben ni se leen; lo único que queda es borrarlas, y se hace una vez en
+  // `AuthNotifier._init()` para no dejar residuo en el Keychain de los equipos
+  // que ya tenían la app instalada.
   static Future<void> clearSelectedBranch() async {
     await Future.wait([
       _storage.delete(key: _keySelectedBranchId),

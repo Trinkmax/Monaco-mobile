@@ -10,17 +10,16 @@ import '../../features/onboarding/presentation/screens/login_phone_screen.dart';
 import '../../features/onboarding/presentation/screens/login_code_screen.dart';
 import '../../features/onboarding/presentation/screens/login_name_screen.dart';
 import '../../features/onboarding/presentation/screens/biometric_gate_screen.dart';
-import '../../features/branch_selection/presentation/screens/branch_picker_screen.dart';
 import '../../features/home/presentation/screens/home_screen.dart';
 import '../../features/occupancy/presentation/screens/occupancy_screen.dart';
 import '../../features/occupancy/presentation/screens/branch_detail_screen.dart';
 import '../../features/points/presentation/screens/points_screen.dart';
-import '../../features/rewards/presentation/screens/rewards_screen.dart';
+import '../../features/rewards/presentation/screens/premios_screen.dart';
+import '../../features/rewards/presentation/screens/mis_premios_screen.dart';
 import '../../features/rewards/presentation/screens/qr_display_screen.dart';
 import '../../features/reviews/presentation/screens/reviews_screen.dart';
 import '../../features/reviews/presentation/screens/review_flow_screen.dart';
 import '../../features/billboard/presentation/screens/billboard_screen.dart';
-import '../../features/catalog/presentation/screens/catalog_screen.dart';
 import '../../features/convenios/presentation/screens/convenios_list_screen.dart';
 import '../../features/convenios/presentation/screens/convenio_detail_screen.dart';
 import '../../features/convenios/presentation/screens/my_redemptions_screen.dart';
@@ -76,7 +75,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       final isWelcome = path == '/welcome';
       final isLogin = _loginPaths.contains(path);
       final isGate = path == '/biometric' || path == '/pin';
-      final isPicker = path == '/elegir-sucursal';
 
       switch (status) {
         case AuthStatus.unauthenticated:
@@ -85,9 +83,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         case AuthStatus.needsBiometric:
           if (isGate) return null;
           return '/biometric';
-        case AuthStatus.needsBranch:
-          if (isPicker) return null;
-          return '/elegir-sucursal?onboarding=1';
         case AuthStatus.authenticated:
           if (isWelcome || isLogin || isGate || path == '/splash') return '/home';
           return null;
@@ -103,13 +98,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/login/nombre', builder: (_, _) => const LoginNameScreen()),
       GoRoute(path: '/biometric', builder: (_, _) => const BiometricGateScreen()),
       GoRoute(path: '/pin', builder: (_, _) => const PinVerifyScreen()),
-      GoRoute(
-        path: '/elegir-sucursal',
-        builder: (_, state) => BranchPickerScreen(
-          onboarding: state.uri.queryParameters['onboarding'] == '1',
-        ),
-      ),
-
       // ── App principal con dock flotante ──────────────────────────────
       ShellRoute(
         navigatorKey: _shellNavigatorKey,
@@ -131,7 +119,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/rewards',
-            pageBuilder: (_, _) => const NoTransitionPage(child: RewardsScreen()),
+            pageBuilder: (_, _) => const NoTransitionPage(child: PremiosScreen()),
           ),
           GoRoute(
             path: '/profile',
@@ -167,7 +155,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             BranchDetailScreen(branchId: state.pathParameters['id']!),
       ),
       GoRoute(path: '/points', builder: (_, _) => const PointsScreen()),
-      GoRoute(path: '/catalog', builder: (_, _) => const CatalogScreen()),
+      GoRoute(path: '/mis-premios', builder: (_, _) => const MisPremiosScreen()),
       GoRoute(path: '/reviews', builder: (_, _) => const ReviewsScreen()),
       GoRoute(
         path: '/review/:token',
