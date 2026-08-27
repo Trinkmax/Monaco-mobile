@@ -52,13 +52,14 @@ class _BarberSheetBody extends StatelessWidget {
               shape: BoxShape.circle,
               gradient: LinearGradient(
                 colors: [
-                  MonacoColors.monacoGreen.withValues(alpha: 0.28),
-                  MonacoColors.monacoGreen.withValues(alpha: 0.10),
+                  MonacoColors.seleccion.withValues(alpha: 0.22),
+                  MonacoColors.seleccion.withValues(alpha: 0.08),
                 ],
               ),
-              border: Border.all(color: MonacoColors.monacoGreen.withValues(alpha: 0.45), width: 0.8),
+              border: Border.all(
+                color: MonacoColors.seleccion.withValues(alpha: 0.30), width: 0.8),
             ),
-            child: const Icon(Icons.auto_awesome_rounded, size: 20, color: MonacoColors.monacoGreen),
+            child: const Icon(Icons.auto_awesome_rounded, size: 20, color: Colors.white),
           ),
           title: 'Cualquiera disponible',
           badge: 'Sugerido',
@@ -224,7 +225,7 @@ class _Opcion extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const accent = MonacoColors.monacoGreen;
+    const accent = MonacoColors.seleccion;
     return LiquidTapEffect(
       onTap: onTap,
       scaleTo: 0.98,

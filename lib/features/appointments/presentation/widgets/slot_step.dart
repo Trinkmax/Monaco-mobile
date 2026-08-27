@@ -334,8 +334,8 @@ class _QuienTeAtiende extends StatelessWidget {
     return LiquidGlass(
       padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
       borderRadius: 20,
-      tint: esSeguro ? MonacoColors.monacoGreen : Colors.white,
-      tintOpacity: esSeguro ? 0.10 : 0.08,
+      tint: MonacoColors.seleccion,
+      tintOpacity: esSeguro ? 0.11 : 0.07,
       pressable: false,
       showVignette: false,
       child: Row(
@@ -344,7 +344,7 @@ class _QuienTeAtiende extends StatelessWidget {
             imageUrl: grupo.staffAvatarUrl,
             name: grupo.staffName,
             size: 46,
-            tint: esSeguro ? MonacoColors.monacoGreen : null,
+            tint: null,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -354,7 +354,7 @@ class _QuienTeAtiende extends StatelessWidget {
                 Text(
                   esSeguro ? 'TE ATIENDE' : 'POSIBLEMENTE TE ATIENDA',
                   style: TextStyle(
-                    color: (esSeguro ? MonacoColors.monacoGreen : Colors.white).withValues(alpha: 0.85),
+                    color: Colors.white.withValues(alpha: esSeguro ? 0.92 : 0.72),
                     fontSize: 10,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.9,

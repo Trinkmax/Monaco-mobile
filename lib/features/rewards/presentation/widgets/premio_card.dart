@@ -36,10 +36,27 @@ class PremioCard extends StatelessWidget {
   /// (`childAspectRatio`). Está acá y no duplicado en cada pantalla porque la
   /// relación entre la lámina, el nombre de dos líneas y la barra de canje es
   /// del widget, no de quien lo dibuja.
-  /// `ancho / 1.5` es la lámina; los 122 son padding (22) + nombre de dos
-  /// líneas (34) + subtítulo (18) + separación (8) + la barra de canje (34).
-  /// Con 142 sobraban 20 px de aire muerto entre el subtítulo y la barra.
-  static double altoPara(double ancho) => ancho / 1.5 + 122;
+  /// Alto que necesita la tarjeta para un ancho dado, sin desbordar.
+  ///
+  /// `ancho / 1.5` es la lámina; el resto es la suma EXACTA del bloque de
+  /// texto, que tiene alturas fijas justamente para que esta cuenta cierre.
+  static double altoPara(double ancho) => ancho / 1.5 + _altoTexto;
+
+  // Piezas del bloque inferior. Cambiar una sin cambiar la suma es lo que hacía
+  // desbordar la tarjeta 7–15 px según el ancho.
+  static const double _lhNombre = 1.2;
+  static const double _altoNombre = 14 * _lhNombre * 2; // dos líneas
+  static const double _lhSubtitulo = 1.25;
+  static const double _altoSubtitulo = 11.5 * _lhSubtitulo;
+  static const double _altoBarra = 7 + 7 + 12.5 * 1.2 + 1.6; // padding+texto+borde
+  /// Colchón medido, no calculado: la suma nominal de las piezas se queda
+  /// ~16 px corta porque las métricas reales de Poppins (ascent/descent) y el
+  /// ícono del chevron no coinciden con `fontSize × height`. Verificado con
+  /// `test/widget/wallet_widgets_test.dart`, que renderiza la tarjeta con la
+  /// fuente real en las dos medidas que usa la app.
+  static const double _colchon = 18;
+  static const double _altoTexto =
+      10 + _altoNombre + 3 + _altoSubtitulo + 10 + _altoBarra + 12 + _colchon;
 
   /// `childAspectRatio` para un `SliverGridDelegateWithFixedCrossAxisCount`.
   static double aspectoGrilla(double anchoCelda) =>
@@ -115,43 +132,45 @@ class PremioCard extends StatelessWidget {
                         // el texto (una línea menos), NO la tarjeta con la barra
                         // amarilla de overflow. La pastilla de canje nunca se
                         // recorta: es lo accionable.
-                        Flexible(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  premio.nombre,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: MonacoColors.textPrimary,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: -0.2,
-                                    height: 1.2,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              Flexible(
-                                child: Text(
-                                  premio.subtitulo ?? premio.categoria.label,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: Colors.white.withValues(alpha: 0.5),
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.w500,
-                                    height: 1.25,
-                                  ),
-                                ),
-                              ),
-                            ],
+                        // Altura FIJA de dos líneas, no Flexible. Con Flexible
+                        // el Text de dos líneas recibía menos alto del que pide
+                        // y Flutter lo recortaba a media línea (la segunda línea
+                        // del nombre quedaba pisada por el subtítulo); sin
+                        // Flexible pedía su alto natural y desbordaba. Fijo, el
+                        // layout es determinista: `altoPara()` cierra la cuenta
+                        // y todas las barras de canje de la grilla quedan
+                        // alineadas aunque los nombres midan distinto.
+                        SizedBox(
+                          height: _altoNombre,
+                          child: Text(
+                            premio.nombre,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: MonacoColors.textPrimary,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.2,
+                              height: _lhNombre,
+                            ),
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 3),
+                        SizedBox(
+                          height: _altoSubtitulo,
+                          child: Text(
+                            premio.subtitulo ?? premio.categoria.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.5),
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w500,
+                              height: _lhSubtitulo,
+                            ),
+                          ),
+                        ),
+                        const Spacer(),
                         _Pie(premio: premio, saldo: saldo),
                       ],
                     ),
@@ -225,6 +244,7 @@ class _Pie extends StatelessWidget {
                   fontSize: 12.5,
                   fontWeight: FontWeight.w800,
                   letterSpacing: -0.1,
+                  height: 1.2,
                 ),
               ),
             ),

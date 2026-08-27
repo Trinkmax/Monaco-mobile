@@ -78,15 +78,17 @@ class _TileReservar extends StatelessWidget {
         onTap: () => context.push('/turnos/reservar'),
         padding: const EdgeInsets.fromLTRB(16, 15, 14, 15),
         borderRadius: 24,
-        tint: MonacoColors.monacoGreen,
-        tintOpacity: 0.13,
+        // Vidrio neutro, igual que la tarjeta de puntos de arriba (decisión del
+        // dueño): el verde de marca acá teñía media pantalla y peleaba con el
+        // acento verde de "Sin espera" de la fila en vivo, que sí significa algo.
+        tintOpacity: 0.09,
         showVignette: false,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const _IconoTile(
               icono: Icons.calendar_month_rounded,
-              accent: MonacoColors.monacoGreen,
+              accent: Colors.white,
             ),
             const Spacer(),
             const Text(
@@ -264,7 +266,6 @@ class _CtaAncho extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const accent = MonacoColors.monacoGreen;
     return Semantics(
       button: true,
       label: 'Reservá tu turno',
@@ -272,8 +273,9 @@ class _CtaAncho extends StatelessWidget {
         onTap: () => context.push('/turnos/reservar'),
         padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
         borderRadius: 24,
-        tint: accent,
-        tintOpacity: 0.13,
+        // Vidrio neutro, como la tarjeta de puntos. Lo que lo hace tocable es la
+        // flecha sólida de la derecha, no un fondo de color.
+        tintOpacity: 0.09,
         showVignette: false,
         child: Row(
           children: [
@@ -286,18 +288,14 @@ class _CtaAncho extends StatelessWidget {
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: [
-                    accent.withValues(alpha: 0.34),
-                    accent.withValues(alpha: 0.12),
+                    Colors.white.withValues(alpha: 0.18),
+                    Colors.white.withValues(alpha: 0.06),
                   ],
                 ),
-                border: Border.all(color: accent.withValues(alpha: 0.45), width: 0.8),
-                boxShadow: [
-                  BoxShadow(
-                    color: accent.withValues(alpha: 0.3),
-                    blurRadius: 14,
-                    spreadRadius: -4,
-                  ),
-                ],
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.22),
+                  width: 0.8,
+                ),
               ),
               child: const Icon(Icons.calendar_month_rounded,
                   color: Colors.white, size: 22),
@@ -330,18 +328,26 @@ class _CtaAncho extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 10),
+            // Único elemento sólido del CTA — mismo recurso que el botón de
+            // regalo de la tarjeta de puntos: en una lámina de vidrio, lo opaco
+            // es lo que el ojo lee como "esto se toca".
             Container(
               width: 34,
               height: 34,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: accent.withValues(alpha: 0.9),
+                color: Colors.white,
                 boxShadow: [
-                  BoxShadow(color: accent.withValues(alpha: 0.45), blurRadius: 12),
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.32),
+                    blurRadius: 12,
+                    spreadRadius: -2,
+                    offset: const Offset(0, 4),
+                  ),
                 ],
               ),
               child: const Icon(Icons.arrow_forward_rounded,
-                  size: 18, color: Colors.white),
+                  size: 18, color: MonacoColors.background),
             ),
           ],
         ),

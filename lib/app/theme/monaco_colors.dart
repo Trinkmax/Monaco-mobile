@@ -55,6 +55,17 @@ class MonacoColors {
   /// Verde Monaco más profundo — para gradients y estados "activos".
   static const Color monacoGreenDeep = Color(0xFF16A34A);
 
+  /// Acento de **estado de interfaz**: chip seleccionado, día elegido, paso
+  /// actual, CTA principal.
+  ///
+  /// Es blanco a propósito (decisión del dueño, 27/ago/2026). El verde de marca
+  /// quedó reservado para lo que significa algo del negocio —"sin espera" en la
+  /// fila, el velo de turno confirmado, los toasts de éxito—: cuando además
+  /// teñía cada chip, cada día y cada botón, esas dos cosas se confundían y el
+  /// wizard entero se leía verde. Sobre vidrio oscuro, lo claro ya comunica
+  /// "elegido" sin gastar color.
+  static const Color seleccion = Color(0xFFFFFFFF);
+
   /// Rojo de los corchetes del logotipo [ BARBER STUDIO ]. Sólo para detalles
   /// de marca (no para estados: para eso está `destructive`).
   static const Color brandRed = Color(0xFFE30613);

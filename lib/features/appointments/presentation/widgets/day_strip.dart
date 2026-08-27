@@ -141,7 +141,7 @@ class _DayChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const accent = MonacoColors.monacoGreen;
+    const accent = MonacoColors.seleccion;
     final opacity = !enabled ? 0.34 : (lleno && !selected ? 0.62 : 1.0);
 
     final box = AnimatedContainer(

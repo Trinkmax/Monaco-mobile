@@ -187,8 +187,8 @@ class _CercaniaPill extends StatelessWidget {
 
     return LiquidPill(
       onTap: cargando ? null : onTap,
-      tint: destacado ? MonacoColors.monacoGreen : null,
-      tintOpacity: destacado ? 0.16 : 0.10,
+      tint: destacado ? MonacoColors.seleccion : null,
+      tintOpacity: destacado ? 0.18 : 0.10,
       padding: const EdgeInsets.fromLTRB(12, 8, 14, 8),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -203,7 +203,7 @@ class _CercaniaPill extends StatelessWidget {
             Icon(
               sinPermiso ? Icons.location_off_rounded : Icons.near_me_rounded,
               size: 14,
-              color: destacado ? MonacoColors.monacoGreen : Colors.white,
+              color: Colors.white,
             ),
           const SizedBox(width: 7),
           Text(

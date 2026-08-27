@@ -386,15 +386,16 @@ void main() {
       }
     });
 
-    testWidgets('si le dan MENOS alto, cede el texto y no desborda',
+    testWidgets('el alto declarado alcanza JUSTO: con menos, desborda',
         (tester) async {
-      // El `Flexible` del bloque de texto es la red: apretada 30 px, la tarjeta
-      // recorta el nombre a una línea en vez de pintar la barra amarilla, y la
-      // barra de canje —lo accionable— sigue entera.
+      // El bloque de texto tiene alturas fijas a propósito (layout
+      // determinista, y todas las barras de canje alineadas en la grilla), así
+      // que la tarjeta NO degrada: o le dan el alto que declara, o desborda.
+      // Este test es la alarma si alguien baja `altoPara` "porque sobra".
       await tester.pumpWidget(envolver(
         SizedBox(
           width: 168,
-          height: PremioCard.altoPara(168) - 30,
+          height: PremioCard.altoPara(168) - 20,
           child: PremioCard(
             premio: premio(
               nombre: '20% off en el próximo corte de pelo',
@@ -408,8 +409,38 @@ void main() {
         ancho: 200,
       ));
       await frames(tester);
+      expect(tester.takeException(), isNotNull);
+    });
+
+    testWidgets('un nombre de dos líneas se ve ENTERO, no recortado a media',
+        (tester) async {
+      // El bug: con el bloque de texto dentro de un Flexible, el Text de dos
+      // líneas recibía menos alto del que pide y Flutter lo recortaba por la
+      // mitad — la segunda línea del nombre quedaba pisada por el subtítulo.
+      await tester.pumpWidget(envolver(
+        SizedBox(
+          width: 168,
+          height: PremioCard.altoPara(168),
+          child: PremioCard(
+            premio: premio(
+              nombre: '20% off en el próximo corte',
+              subtitulo: 'Descuento',
+              puntos: 120,
+            ),
+            saldo: 240,
+            onTap: () {},
+          ),
+        ),
+        ancho: 200,
+      ));
+      await frames(tester);
+
+      final nombre = tester.getRect(find.text('20% off en el próximo corte'));
+      final subtitulo = tester.getRect(find.text('Descuento'));
+      // Dos líneas completas y sin solaparse con lo de abajo.
+      expect(nombre.height, greaterThan(28));
+      expect(nombre.bottom, lessThanOrEqualTo(subtitulo.top + 0.5));
       expect(tester.takeException(), isNull);
-      expect(find.text('Canjear'), findsOneWidget);
     });
   });
 }

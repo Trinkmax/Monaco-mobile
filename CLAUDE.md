@@ -169,6 +169,19 @@ selector aparece igual con el copy que lo explica (`originalNotBookable`).
   el CTA de más lleva, en el peor caso, a "por ahora no hay turnos online"; de menos, deja al
   cliente sin forma de reservar y sin explicación.
 
+### El verde es del NEGOCIO, no de la interfaz
+
+`MonacoColors.seleccion` (blanco) es el acento de **estado de interfaz**: chip elegido, día
+seleccionado, paso actual del wizard, CTA principal, tile de "Reservar turno". Lo usan
+`LiquidChip` (por default), `DayStrip`, `StepProgress`, `ServicesStep`, `BarberSheet`,
+`WizardFooter` y `TurnoTiles`.
+
+`MonacoColors.monacoGreen` quedó **sólo** para lo que significa algo del negocio: "Sin espera" en la
+fila en vivo, el velo `ConfirmacionVerde` de turno confirmado, los toasts de éxito y las pastillas
+de estado. Decisión del dueño (27/ago/2026): con el verde tiñendo además cada chip, cada día y cada
+botón, el wizard entero se leía verde y las dos cosas se confundían. Sobre vidrio oscuro, lo claro
+ya comunica "elegido" sin gastar color — **no volver a poner `monacoGreen` en un estado de UI.**
+
 ## Premios — una sola pantalla (rediseño 24/ago/2026)
 
 El tab `/rewards` (`PremiosScreen`) es **la tienda**: grilla de 2 columnas, chips de categoría y,
@@ -202,10 +215,16 @@ Cosas que no hay que "arreglar" ingenuamente:
   con un ícono. Con un solo color, las seis se leen como una mancha (verificado en el simulador).
 - **Los chips salen de los datos** (`categoriasConPremiosProvider`) y van **sin ícono**: con cuatro
   chips + ícono, "Marcas" se salía de la pantalla en un iPhone de 390 pt.
-- **`PremioCard.altoPara(ancho)` es la única fuente del alto.** La grilla la usa vía
-  `aspectoGrilla()` y el carrusel del Home como `height`. Cuando cada pantalla tenía su número a
-  ojo, la tarjeta desbordaba 7–15 px según el ancho. `test/widget/wallet_widgets_test.dart` lo
-  fija: los casos de medida real fallan si alguien toca la proporción sin tocar `altoPara`.
+- **`PremioCard.altoPara(ancho)` es la única fuente del alto**, y el bloque de texto tiene
+  **alturas fijas** para que esa cuenta cierre. La grilla lo usa vía `aspectoGrilla()` y el
+  carrusel del Home como `height`. La tarjeta **no degrada**: o le dan el alto que declara, o
+  desborda — es a propósito. Con el bloque de texto dentro de un `Flexible`, el nombre de dos
+  líneas recibía menos alto del que pide y Flutter lo **recortaba a media línea** (la segunda línea
+  quedaba pisada por el subtítulo); sin `Flexible`, pedía su alto natural y desbordaba. Con altura
+  fija el layout es determinista y, de paso, todas las barras de canje de la grilla quedan
+  alineadas. `altoPara` lleva un `_colchon` **medido, no calculado**: las métricas reales de Poppins
+  no coinciden con `fontSize × height`. `test/widget/wallet_widgets_test.dart` fija las dos medidas
+  reales y falla si alguien toca la proporción sin tocar `altoPara`.
 - **El orden de la grilla es "lo que podés usar primero", el del carrusel del Home es
   "catálogo primero".** Son distintos a propósito: la sección del Home se llama *Canjeá tus puntos*
   y con el orden de la grilla un cliente con 0 puntos abría con tres tarjetas GRATIS.

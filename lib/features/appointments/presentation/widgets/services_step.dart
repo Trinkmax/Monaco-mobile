@@ -100,7 +100,7 @@ class _ServiceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const accent = MonacoColors.monacoGreen;
+    const accent = MonacoColors.seleccion;
     return LiquidTapEffect(
       onTap: onTap,
       scaleTo: 0.975,

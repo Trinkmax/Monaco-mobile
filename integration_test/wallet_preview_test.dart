@@ -19,7 +19,11 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
+import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/theme/monaco_theme.dart';
+import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
+import 'package:monaco_mobile/features/appointments/presentation/widgets/day_strip.dart';
+import 'package:monaco_mobile/features/appointments/presentation/widgets/step_progress.dart';
 import 'package:monaco_mobile/core/auth/auth_provider.dart';
 import 'package:monaco_mobile/features/appointments/data/appointment_model.dart';
 import 'package:monaco_mobile/features/appointments/providers/appointments_provider.dart';
@@ -324,5 +328,125 @@ void main() {
     await tester.drag(find.byType(CustomScrollView).first,
         const Offset(0, -420), warnIfMissed: false);
     await shot(binding, tester, 'wallet_07_premios_scroll');
+  });
+
+  // ── Wizard de turnos: los elementos que llevaban verde ──────────────────
+  // No se monta el wizard entero (necesita bootstrap y slots del server): se
+  // pintan las piezas que el dueño señaló, que son las que tienen color de
+  // estado. Si alguien vuelve a meter verde en un chip o en el CTA, se ve acá.
+  testWidgets('Wizard — barra de pasos, días, horarios y CTA', (tester) async {
+    final hoy = DateTime.now();
+    String d(int n) {
+      final x = hoy.add(Duration(days: n));
+      return '${x.year}-${x.month.toString().padLeft(2, '0')}-${x.day.toString().padLeft(2, '0')}';
+    }
+
+    await tester.pumpWidget(MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: MonacoTheme.dark,
+      home: Scaffold(
+        backgroundColor: MonacoColors.background,
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
+            children: [
+              const StepProgress(current: 3, total: 3, label: 'Día y horario'),
+              const SizedBox(height: 26),
+              const Text(
+                '¿Cuándo te viene bien?',
+                style: TextStyle(
+                  color: MonacoColors.textPrimary,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.6,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: -0),
+                child: DayStrip(
+                  days: [for (var i = 0; i < 6; i++) d(i)],
+                  today: d(0),
+                  selected: d(1),
+                  enabledDays: const [0, 1, 2, 3, 4, 5, 6],
+                  fullDates: {d(3)},
+                  unknownDates: const {},
+                  onSelect: (_) {},
+                ),
+              ),
+              const SizedBox(height: 22),
+              Row(
+                children: [
+                  Expanded(
+                    child: LiquidChip(
+                      label: '10:00',
+                      expand: true,
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                      fontSize: 14.5,
+                      onTap: () {},
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: LiquidChip(
+                      label: '10:45',
+                      selected: true,
+                      expand: true,
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                      fontSize: 14.5,
+                      onTap: () {},
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: LiquidChip(
+                      label: '11:30',
+                      expand: true,
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                      fontSize: 14.5,
+                      onTap: () {},
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 28),
+              Row(
+                children: [
+                  LiquidPill(
+                    onTap: () {},
+                    padding: const EdgeInsets.fromLTRB(14, 13, 16, 13),
+                    child: const Text(
+                      'Atrás',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: LiquidButton(
+                      tint: MonacoColors.seleccion,
+                      onPressed: () {},
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+                      child: const Text(
+                        'Confirmar turno',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ));
+    await shot(binding, tester, 'wallet_08_wizard');
   });
 }

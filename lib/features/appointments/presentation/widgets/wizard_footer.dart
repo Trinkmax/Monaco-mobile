@@ -151,6 +151,10 @@ class WizardFooter extends StatelessWidget {
                             opacity: enabled ? 1 : 0.55,
                             child: LiquidButton(
                               key: ctaKey,
+                              // Vidrio claro, no verde: el CTA se distingue por
+                              // tamaño y posición, y el verde quedó para el velo
+                              // de "turno confirmado" que viene después.
+                              tint: MonacoColors.seleccion,
                               onPressed: enabled ? onNext : null,
                               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
                               child: state.submitting
@@ -273,7 +277,7 @@ class _Resumen extends StatelessWidget {
         Text(
           Fechas.moneda(state.totalPrice),
           style: const TextStyle(
-            color: MonacoColors.monacoGreen,
+            color: MonacoColors.textPrimary,
             fontSize: 16,
             fontWeight: FontWeight.w900,
             letterSpacing: -0.3,
@@ -294,7 +298,7 @@ class _Politica extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const accent = MonacoColors.monacoGreen;
+    const accent = MonacoColors.seleccion;
     return Semantics(
       checked: accepted,
       label: 'Política de cancelación',

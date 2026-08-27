@@ -58,12 +58,12 @@ class StepProgress extends StatelessWidget {
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(3),
                     color: i < current
-                        ? MonacoColors.monacoGreen.withValues(alpha: 0.95)
+                        ? MonacoColors.seleccion.withValues(alpha: 0.92)
                         : Colors.white.withValues(alpha: 0.10),
                     boxShadow: i < current
                         ? [
                             BoxShadow(
-                              color: MonacoColors.monacoGreen.withValues(alpha: 0.45),
+                              color: MonacoColors.seleccion.withValues(alpha: 0.30),
                               blurRadius: 8,
                             ),
                           ]

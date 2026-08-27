@@ -5,8 +5,8 @@ import 'liquid_tap_effect.dart';
 import 'liquid_tokens.dart';
 
 /// Chip seleccionable del lenguaje Liquid Glass (horarios, días, servicios,
-/// filtros). El estado seleccionado se distingue por relleno verde y brillo;
-/// `disabled` baja la opacidad y no responde.
+/// filtros). El estado seleccionado se distingue por un relleno claro y brillo
+/// (`MonacoColors.seleccion`); `disabled` baja la opacidad y no responde.
 class LiquidChip extends StatelessWidget {
   final String label;
   final bool selected;
@@ -37,7 +37,7 @@ class LiquidChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = tint ?? MonacoColors.monacoGreen;
+    final accent = tint ?? MonacoColors.seleccion;
     final content = Row(
       mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
