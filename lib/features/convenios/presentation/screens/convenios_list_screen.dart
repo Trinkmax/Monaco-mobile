@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:monaco_mobile/core/auth/auth_provider.dart';
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 import 'package:monaco_mobile/features/convenios/presentation/widgets/convenio_card.dart';
@@ -21,34 +22,41 @@ class ConveniosListScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final asyncBenefits = ref.watch(conveniosProvider);
+    // "Mis canjes" es personal: sin cuenta el router la bloquea y el botón
+    // rebotaría al Home sin decir nada. Se esconde en vez de mentir.
+    final invitado = ref.watch(authProvider.select((a) => a.isGuest));
 
     return LiquidAppBarScaffold(
       title: 'Convenios',
       showBackButton: true,
       actions: [
-        Padding(
-          padding: const EdgeInsets.only(right: 14),
-          child: LiquidPill(
-            onTap: () => context.push('/mis-canjes'),
-            padding: const EdgeInsets.fromLTRB(12, 7, 10, 7),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.confirmation_number_outlined,
-                    size: 15, color: Colors.white),
-                const SizedBox(width: 6),
-                Text(
-                  'Mis canjes',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.92),
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
+        if (!invitado)
+          Padding(
+            padding: const EdgeInsets.only(right: 14),
+            child: LiquidPill(
+              onTap: () => context.push('/mis-canjes'),
+              padding: const EdgeInsets.fromLTRB(12, 7, 10, 7),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.confirmation_number_outlined,
+                    size: 15,
+                    color: Colors.white,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 6),
+                  Text(
+                    'Mis canjes',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.92),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
       ],
       body: RefreshIndicator(
         color: Colors.white,
@@ -60,10 +68,8 @@ class ConveniosListScreen extends ConsumerWidget {
             itemHeight: 112,
             padding: EdgeInsets.fromLTRB(20, 12, 20, 48),
           ),
-          error: (e, _) => LiquidErrorState(
-            error: e,
-            onRetry: () => _refresh(ref),
-          ),
+          error: (e, _) =>
+              LiquidErrorState(error: e, onRetry: () => _refresh(ref)),
           data: (items) {
             if (items.isEmpty) {
               return const LiquidEmptyState(

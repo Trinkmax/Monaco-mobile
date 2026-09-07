@@ -73,6 +73,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
         context.go('/home');
       case AuthStatus.needsBiometric:
         context.go('/biometric');
+      case AuthStatus.guest:
+        // Ya eligió "Seguir mirando" en una sesión anterior: vuelve al Home sin
+        // cuenta, no a la bienvenida.
+        context.go('/home');
       case AuthStatus.unauthenticated:
       case AuthStatus.initial:
         context.go('/welcome');

@@ -18,9 +18,19 @@ import '../../utils/phone_format.dart';
 import '../widgets/onboarding_scaffold.dart';
 import '../widgets/shake.dart';
 
-/// Paso 2: el código de WhatsApp. Si el cliente ya existía se verifica acá;
-/// si es nuevo, el código viaja al paso del nombre y se verifica desde ahí
-/// (el server exige `name` para crear el cliente).
+/// Paso 2 y último: el código de WhatsApp.
+///
+/// **Si el teléfono es nuevo, el nombre se pide ACÁ**, en la misma pantalla y
+/// junto al código, no en un paso aparte (`/login/nombre` se eliminó). El
+/// server contesta `name_required` en `start`, así que sabemos antes de dibujar
+/// si hace falta; y el `NAME_REQUIRED` de `verify` llega **sin consumir el
+/// desafío**, así que aun en el caso raro en que el server cambie de opinión el
+/// código sigue vigente y sólo hay que completar el campo.
+///
+/// El flujo anterior apilaba una tercera pantalla que verificaba el código
+/// recién ahí: un código incorrecto obligaba a volver atrás con un error
+/// arrastrado en el estado (`pendingCodeError`), que es la máquina que se borró
+/// con este cambio.
 class LoginCodeScreen extends ConsumerStatefulWidget {
   const LoginCodeScreen({super.key});
 
@@ -30,10 +40,13 @@ class LoginCodeScreen extends ConsumerStatefulWidget {
 
 class _LoginCodeScreenState extends ConsumerState<LoginCodeScreen> {
   final _codeCtrl = TextEditingController();
+  final _nombreCtrl = TextEditingController();
+  final _nombreFocus = FocusNode();
 
   bool _loading = false;
   bool _resending = false;
   String? _error;
+  String? _nombreError;
   String? _bannerError;
   VoidCallback? _bannerAction;
   String? _bannerActionLabel;
@@ -56,48 +69,36 @@ class _LoginCodeScreenState extends ConsumerState<LoginCodeScreen> {
   bool _done = false;
   LoginFlow? _lastFlow;
 
+  String get _nombre => _nombreCtrl.text.trim();
+  bool get _nombreValido => _nombre.length >= 2 && _nombre.length <= 80;
+
   @override
   void initState() {
     super.initState();
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
-    // Si llegamos con un error pendiente ya cargado (raro: el flujo lo deja
-    // el paso del nombre, que es posterior), lo consumimos igual.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _consumePendingError(ref.read(loginFlowProvider));
+    // El nombre que trajo Google/Apple. En Apple es la ÚNICA vez que se puede
+    // obtener, así que precargarlo no es comodidad: es no perderlo.
+    final sugerido = ref.read(signupPendienteProvider)?.nombreSugerido?.trim();
+    if (sugerido != null && sugerido.isNotEmpty) _nombreCtrl.text = sugerido;
+    _nombreCtrl.addListener(() {
+      if (_nombreError != null) setState(() => _nombreError = null);
     });
-  }
-
-  /// Error que dejó el paso del nombre (código inválido/vencido). El paso del
-  /// nombre se apila ENCIMA de esta pantalla, así que cuando vuelve con `pop`
-  /// esta pantalla no se vuelve a montar: por eso se escucha el provider en
-  /// `build` y no sólo en `initState`.
-  void _consumePendingError(LoginFlow? flow) {
-    final pending = flow?.pendingCodeError;
-    if (pending == null || flow == null) return;
-    setState(() {
-      _clearErrors();
-      _error = pending;
-      _shakeSeed++;
-      _resetCode();
-      if (pending.contains('venció')) _forceResend = true;
-    });
-    ref.read(loginFlowProvider.notifier).state = flow.copyWith(
-      clearPendingCodeError: true,
-      clearCode: true,
-    );
   }
 
   @override
   void dispose() {
     _ticker?.cancel();
     _codeCtrl.dispose();
+    _nombreCtrl.dispose();
+    _nombreFocus.dispose();
     super.dispose();
   }
 
   void _clearErrors() {
     _error = null;
+    _nombreError = null;
     _bannerError = null;
     _bannerAction = null;
     _bannerActionLabel = null;
@@ -113,28 +114,39 @@ class _LoginCodeScreenState extends ConsumerState<LoginCodeScreen> {
     if (flow == null || _loading) return;
     HapticFeedback.lightImpact();
 
-    if (!flow.clientKnown) {
-      // Cliente nuevo: el nombre es obligatorio y viaja con el verify.
-      ref.read(loginFlowProvider.notifier).state = flow.copyWith(code: code);
-      setState(_clearErrors);
-      context.push('/login/nombre');
+    if (flow.nameRequired && !_nombreValido) {
+      // No se manda: `verify` rebotaría con NAME_REQUIRED y el cliente
+      // quedaría mirando un error por un campo que tiene delante.
+      setState(() {
+        _nombreError = 'Contanos al menos tu nombre (2 letras o más).';
+      });
+      _nombreFocus.requestFocus();
       return;
     }
     await _verify(flow, code);
   }
 
   Future<void> _verify(LoginFlow flow, String code) async {
+    final signup = ref.read(signupPendienteProvider);
     setState(() {
       _loading = true;
       _clearErrors();
     });
     try {
-      await ref.read(authProvider.notifier).verifyCode(flow.phone, code);
+      await ref
+          .read(authProvider.notifier)
+          .verifyCode(
+            flow.phone,
+            code,
+            name: flow.nameRequired ? _nombre : null,
+            signupToken: signup?.token,
+          );
       if (!mounted) return;
-      // Sesión lista: el router redirige a /home. El CTA
-      // queda en "cargando" hasta que esta pantalla desaparezca.
+      // Sesión lista: el router redirige a /home. El CTA queda en "cargando"
+      // hasta que esta pantalla desaparezca.
       _done = true;
       ref.read(loginFlowProvider.notifier).state = null;
+      ref.read(signupPendienteProvider.notifier).state = null;
       return;
     } on AuthException catch (e) {
       if (!mounted) return;
@@ -184,12 +196,35 @@ class _LoginCodeScreenState extends ConsumerState<LoginCodeScreen> {
           _resetCode();
         });
       case 'NAME_REQUIRED':
-        // El server dice que es nuevo aunque creíamos que no: pedimos nombre.
+        // El server dice que hace falta el nombre aunque `start` no lo hubiera
+        // pedido. **El código NO se consumió**: alcanza con mostrar el campo y
+        // reintentar con el mismo.
         ref.read(loginFlowProvider.notifier).state = flow.copyWith(
-          code: code,
+          nameRequired: true,
           clientKnown: false,
         );
-        context.push('/login/nombre');
+        setState(() {
+          _nombreError = 'Necesitamos tu nombre para crear la cuenta.';
+        });
+        _nombreFocus.requestFocus();
+      case 'SOCIAL_ALREADY_LINKED':
+        // Tampoco consume el código: la cuenta social ya es de otro cliente.
+        // Se puede seguir sin ella, con este mismo código.
+        ref.read(signupPendienteProvider.notifier).state = null;
+        setState(() {
+          _bannerError =
+              'Esa cuenta ya está vinculada a otro cliente. Podés seguir con '
+              'este número: volvé a tocar Confirmar.';
+        });
+      case 'SIGNUP_TOKEN_INVALID':
+        ref.read(signupPendienteProvider.notifier).state = null;
+        setState(() {
+          _bannerError = e.expired
+              ? 'Pasó demasiado tiempo desde que entraste con tu cuenta. '
+                    'Seguimos sólo con tu número: volvé a tocar Confirmar.'
+              : 'No pudimos usar tu cuenta social. Seguimos sólo con tu '
+                    'número: volvé a tocar Confirmar.';
+        });
       case 'NETWORK':
         setState(() {
           _bannerError = e.message;
@@ -236,12 +271,16 @@ class _LoginCodeScreenState extends ConsumerState<LoginCodeScreen> {
       _clearErrors();
     });
     try {
-      final res = await ref.read(authProvider.notifier).startLogin(flow.phone);
+      final signup = ref.read(signupPendienteProvider);
+      final res = await ref
+          .read(authProvider.notifier)
+          .startLogin(flow.phone, signupToken: signup?.token);
       if (!mounted) return;
       if (res.sessionReady) {
         // Raro (el dispositivo pasó a ser conocido) pero válido: sesión lista.
         _done = true;
         ref.read(loginFlowProvider.notifier).state = null;
+        ref.read(signupPendienteProvider.notifier).state = null;
         return;
       }
       if (res.otpSent) {
@@ -333,10 +372,6 @@ class _LoginCodeScreenState extends ConsumerState<LoginCodeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    ref.listen<LoginFlow?>(loginFlowProvider, (_, next) {
-      if (next?.pendingCodeError != null) _consumePendingError(next);
-    });
-
     final current = ref.watch(loginFlowProvider);
     if (current != null) _lastFlow = current;
     final flow = current ?? (_done ? _lastFlow : null);
@@ -367,6 +402,10 @@ class _LoginCodeScreenState extends ConsumerState<LoginCodeScreen> {
         ? _GreetingChip(name: flow.firstName!)
         : null;
 
+    final listo =
+        _code.length == AppConstants.otpLength &&
+        (!flow.nameRequired || _nombreValido);
+
     return OnboardingScaffold(
       showBack: true,
       onBack: _changeNumber,
@@ -375,13 +414,11 @@ class _LoginCodeScreenState extends ConsumerState<LoginCodeScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           OnboardingCta(
-            label: flow.clientKnown ? 'Confirmar' : 'Continuar',
+            label: flow.nameRequired ? 'Crear mi cuenta' : 'Confirmar',
             icon: Icons.arrow_forward_rounded,
             loading: _loading || _done,
-            onPressed: _code.length == AppConstants.otpLength && !_done
-                ? () => _onCompleted(_code)
-                : null,
-          ).liquidEnter(index: 4),
+            onPressed: listo && !_done ? () => _onCompleted(_code) : null,
+          ).liquidEnter(index: 5),
           const SizedBox(height: 6),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -398,7 +435,7 @@ class _LoginCodeScreenState extends ConsumerState<LoginCodeScreen> {
                 onTap: canResend ? _resend : null,
               ),
             ],
-          ).liquidEnter(index: 5),
+          ).liquidEnter(index: 6),
         ],
       ),
       child: Column(
@@ -412,7 +449,7 @@ class _LoginCodeScreenState extends ConsumerState<LoginCodeScreen> {
                 'Te mandamos un código de ${AppConstants.otpLength} dígitos a '
                 '${flow.phoneMasked.isNotEmpty ? flow.phoneMasked : ArPhone.mask(flow.phone)}.',
           ).liquidEnter(index: 0),
-          const SizedBox(height: 34),
+          const SizedBox(height: 28),
           Center(
             child: ShakeOnChange(
               trigger: _shakeSeed,
@@ -428,11 +465,38 @@ class _LoginCodeScreenState extends ConsumerState<LoginCodeScreen> {
                   _code = v;
                   if (_error != null && v.isNotEmpty) _error = null;
                 }),
-                onCompleted: _onCompleted,
+                // Con el campo Nombre en pantalla NO se auto-envía al sexto
+                // dígito: el cliente todavía puede estar por escribir el
+                // nombre, y un submit automático que rebota se lee como que la
+                // app se adelantó.
+                onCompleted: flow.nameRequired ? null : _onCompleted,
               ),
             ),
           ).liquidEnter(index: 1),
-          const SizedBox(height: 22),
+
+          // ── Nombre (sólo si el teléfono es nuevo) ──
+          if (flow.nameRequired) ...[
+            const SizedBox(height: 22),
+            LiquidTextField(
+              controller: _nombreCtrl,
+              focusNode: _nombreFocus,
+              label: 'TU NOMBRE',
+              hint: 'Ignacio Baldovino',
+              helper: 'Así te saludamos y reservamos los turnos a tu nombre',
+              keyboardType: TextInputType.name,
+              textInputAction: TextInputAction.done,
+              textCapitalization: TextCapitalization.words,
+              autofillHints: const [AutofillHints.name],
+              enabled: !_loading,
+              maxLength: 60,
+              errorText: _nombreError,
+              onSubmitted: (_) {
+                if (listo) _onCompleted(_code);
+              },
+            ).liquidEnter(index: 2),
+          ],
+
+          const SizedBox(height: 20),
           AnimatedSize(
             duration: LiquidTokens.swap,
             curve: LiquidTokens.curveSwap,
@@ -446,7 +510,7 @@ class _LoginCodeScreenState extends ConsumerState<LoginCodeScreen> {
                   ).animate().fadeIn(duration: 220.ms),
           ),
           const SizedBox(height: 8),
-          _ExpiryHint(flow: flow).liquidEnter(index: 2),
+          _ExpiryHint(flow: flow).liquidEnter(index: 3),
         ],
       ),
     );

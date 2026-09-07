@@ -5,44 +5,50 @@ import 'package:intl/intl.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
+import 'package:monaco_mobile/features/loyalty/data/loyalty_models.dart';
+import 'package:monaco_mobile/features/loyalty/providers/loyalty_provider.dart';
 import 'package:monaco_mobile/features/points/presentation/widgets/points_history_tile.dart';
 import 'package:monaco_mobile/features/points/providers/points_provider.dart';
 
 final _pts = NumberFormat.decimalPattern('es_AR');
+final _diaMes = DateFormat('dd/MM');
 
-/// Pantalla "Mis puntos": saldo global, acceso al catálogo de canje,
-/// desglose por sucursal e historial de movimientos. Vive fuera del shell.
+/// Pantalla "Mis puntos": saldo global con el próximo vencimiento, acceso al
+/// catálogo, cómo funciona el programa (con los valores del server) e
+/// historial de lotes y canjes. Vive fuera del shell.
+///
+/// Los puntos son GLOBALES desde la mig 196: no hay desglose por sucursal.
 class PointsScreen extends ConsumerWidget {
   const PointsScreen({super.key});
 
   Future<void> _refresh(WidgetRef ref) async {
-    ref.invalidate(globalPointsProvider);
+    invalidarLoyalty(ref);
     ref.invalidate(pointsHistoryProvider);
-    ref.invalidate(branchPointsProvider);
     // Esperamos el saldo (lo principal) para que el indicador no se cierre
     // antes de que haya datos nuevos; los errores los pinta la pantalla.
-    await ref.read(globalPointsProvider.future).then((_) {}, onError: (_) {});
+    await ref.read(loyaltyProvider.future).then((_) {}, onError: (_) {});
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final globalPoints = ref.watch(globalPointsProvider);
+    final loyalty = ref.watch(loyaltyProvider);
     final history = ref.watch(pointsHistoryProvider);
-    final branchPoints = ref.watch(branchPointsProvider);
 
     return LiquidAppBarScaffold(
       title: 'Mis puntos',
       showBackButton: true,
-      body: globalPoints.when(
+      body: loyalty.when(
         loading: () => const _LoadingBody(),
         error: (e, _) => LiquidErrorState(
           error: e,
           onRetry: () => _refresh(ref),
         ),
-        data: (data) {
-          final total = (data['total_balance'] as num?)?.toInt() ?? 0;
-          final earned = (data['total_earned'] as num?)?.toInt() ?? 0;
-          final redeemed = (data['total_redeemed'] as num?)?.toInt() ?? 0;
+        data: (summary) {
+          // Ganados/Canjeados vienen en el mismo resumen que el saldo
+          // (`earned_total` / `redeemed_total`, también con el programa
+          // apagado desde la mig 200): una sola llamada, un solo instante.
+          final earned = summary.points.earnedTotal;
+          final redeemed = summary.points.redeemedTotal;
 
           return RefreshIndicator(
             color: Colors.white,
@@ -57,7 +63,7 @@ class PointsScreen extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _BalanceHero(
-                    total: total,
+                    summary: summary,
                     earned: earned,
                     redeemed: redeemed,
                   ).liquidEnter(index: 0),
@@ -84,22 +90,19 @@ class PointsScreen extends ConsumerWidget {
                   ).liquidEnter(index: 1),
                   const SizedBox(height: 28),
 
-                  // ── Por sucursal ──
+                  // ── Cómo funciona ──
                   const LiquidSectionTitle(
-                    title: 'Por sucursal',
-                    subtitle: 'Tus puntos en cada local',
+                    title: 'Cómo funciona',
+                    subtitle: 'Las reglas del programa de puntos',
                   ).liquidEnter(index: 2),
                   const SizedBox(height: 12),
-                  _BranchSection(
-                    branchPoints: branchPoints,
-                    onRetry: () => ref.invalidate(branchPointsProvider),
-                  ).liquidEnter(index: 3),
+                  _ComoFunciona(summary: summary).liquidEnter(index: 3),
                   const SizedBox(height: 28),
 
                   // ── Historial ──
                   const LiquidSectionTitle(
                     title: 'Historial',
-                    subtitle: 'Últimos movimientos',
+                    subtitle: 'Lo que sumaste, canjeaste y venció',
                   ).liquidEnter(index: 4),
                   const SizedBox(height: 12),
                   _HistorySection(
@@ -121,12 +124,12 @@ class PointsScreen extends ConsumerWidget {
 // ═══════════════════════════════════════════════════════════════════════════
 
 class _BalanceHero extends StatelessWidget {
-  final int total;
+  final LoyaltySummary summary;
   final int earned;
   final int redeemed;
 
   const _BalanceHero({
-    required this.total,
+    required this.summary,
     required this.earned,
     required this.redeemed,
   });
@@ -134,6 +137,20 @@ class _BalanceHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const green = MonacoColors.monacoGreen;
+    final p = summary.points;
+    final total = p.balance;
+
+    // "120 pts vencen el 28/12": el lote más próximo a vencer. En ámbar si cae
+    // dentro de la ventana de aviso del programa (`expiring_soon_days`).
+    String? vencen;
+    var vencenPronto = false;
+    final proximo = p.nextExpiryAt;
+    if (proximo != null && p.nextExpiryPoints > 0) {
+      vencen = '${_pts.format(p.nextExpiryPoints)} pts vencen el ${_diaMes.format(proximo)}';
+      final dias = p.diasHastaVencimiento ?? 0;
+      vencenPronto = p.expiringSoonDays > 0 && dias <= p.expiringSoonDays;
+    }
+
     return LiquidGlass(
       padding: const EdgeInsets.fromLTRB(22, 20, 22, 20),
       borderRadius: 26,
@@ -238,6 +255,36 @@ class _BalanceHero extends StatelessWidget {
               ),
             ],
           ),
+          if (vencen != null) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(
+                  Icons.hourglass_bottom_rounded,
+                  size: 14,
+                  color: vencenPronto
+                      ? MonacoColors.warning
+                      : Colors.white.withValues(alpha: 0.6),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    vencen,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: vencenPronto
+                          ? MonacoColors.warning
+                          : Colors.white.withValues(alpha: 0.65),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 18),
           Container(height: 0.5, color: Colors.white.withValues(alpha: 0.10)),
           const SizedBox(height: 14),
@@ -259,7 +306,7 @@ class _BalanceHero extends StatelessWidget {
               const SizedBox(width: 14),
               Expanded(
                 child: _HeroStat(
-                  icon: Icons.card_giftcard_rounded,
+                  icon: Icons.redeem_rounded,
                   color: Colors.white,
                   value: _pts.format(redeemed),
                   label: 'Canjeados',
@@ -337,145 +384,90 @@ class _HeroStat extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// POR SUCURSAL
+// CÓMO FUNCIONA — con los valores del server, nunca escritos acá
 // ═══════════════════════════════════════════════════════════════════════════
 
-class _BranchSection extends StatelessWidget {
-  final AsyncValue<List<Map<String, dynamic>>> branchPoints;
-  final VoidCallback onRetry;
-
-  const _BranchSection({required this.branchPoints, required this.onRetry});
+class _ComoFunciona extends StatelessWidget {
+  final LoyaltySummary summary;
+  const _ComoFunciona({required this.summary});
 
   @override
   Widget build(BuildContext context) {
-    return branchPoints.when(
-      loading: () => SizedBox(
-        height: 108,
-        child: Row(
-          children: const [
-            Expanded(child: LiquidSkeleton(height: 108, radius: 18)),
-            SizedBox(width: 10),
-            Expanded(child: LiquidSkeleton(height: 108, radius: 18)),
-          ],
-        ),
+    final p = summary.program;
+    if (!p.enabled) {
+      return const _InlineNote(
+        icon: Icons.info_outline_rounded,
+        text:
+            'El programa de puntos todavía no está activo. Lo que ya tenés se guarda; cuando arranque vas a ver acá cómo se suman y cuándo vencen.',
+      );
+    }
+
+    final tier = summary.tier;
+    final filas = <(IconData, String)>[
+      (
+        Icons.content_cut_rounded,
+        tier == null
+            ? 'Cada visita suma ${p.basePoints} pts, multiplicados por tu categoría.'
+            : 'Cada visita suma ${p.basePoints} pts × ${tier.multiplierPct} % por ser ${tier.name}.',
       ),
-      error: (e, _) => _InlineError(
-        message: 'No pudimos cargar tus puntos por sucursal.',
-        onRetry: onRetry,
+      (
+        Icons.hourglass_bottom_rounded,
+        'Cada lote de puntos vence a los ${p.expiryDays} días de ganarlo. Al canjear se usan primero los que vencen antes.',
       ),
-      data: (branches) {
-        if (branches.isEmpty) {
-          return const _InlineNote(
-            icon: Icons.storefront_outlined,
-            text: 'Todavía no sumaste puntos en ninguna sucursal.',
-          );
-        }
-        return SizedBox(
-          height: 108,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            clipBehavior: Clip.none,
-            itemCount: branches.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 10),
-            itemBuilder: (context, i) {
-              final b = branches[i];
-              final branchData = b['branches'] as Map<String, dynamic>?;
-              final name = branchData?['name']?.toString() ?? 'Sucursal';
-              final balance = (b['points_balance'] as num?)?.toInt() ?? 0;
-              final earned = (b['total_earned'] as num?)?.toInt() ?? 0;
-              return _BranchPointsCard(
-                name: name,
-                balance: balance,
-                earned: earned,
-              ).liquidEnter(index: i, stagger: 70);
-            },
-          ),
-        );
-      },
-    );
-  }
-}
+      (
+        Icons.calendar_month_rounded,
+        'Tu categoría se calcula con las visitas de las últimas ${p.windowWeeks} semanas.',
+      ),
+      (Icons.shield_rounded, p.textoGracia),
+    ];
 
-class _BranchPointsCard extends StatelessWidget {
-  final String name;
-  final int balance;
-  final int earned;
-
-  const _BranchPointsCard({
-    required this.name,
-    required this.balance,
-    required this.earned,
-  });
-
-  @override
-  Widget build(BuildContext context) {
     return LiquidGlass(
-      width: 160,
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      borderRadius: 18,
-      tintOpacity: 0.06,
       pressable: false,
-      showVignette: false,
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(Icons.storefront_rounded,
-                  size: 13, color: Colors.white.withValues(alpha: 0.6)),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.7),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+          for (var i = 0; i < filas.length; i++) ...[
+            if (i > 0)
+              Container(height: 0.5, color: Colors.white.withValues(alpha: 0.07)),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(9),
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.white.withValues(alpha: 0.18),
+                          Colors.white.withValues(alpha: 0.06),
+                        ],
+                      ),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.2), width: 0.8),
+                    ),
+                    child: Icon(filas[i].$1, size: 15, color: Colors.white),
                   ),
-                ),
-              ),
-            ],
-          ),
-          const Spacer(),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                _pts.format(balance),
-                style: const TextStyle(
-                  color: MonacoColors.textPrimary,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800,
-                  height: 1,
-                  letterSpacing: -0.6,
-                  fontFeatures: [FontFeature.tabularFigures()],
-                ),
-              ),
-              const SizedBox(width: 4),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Text(
-                  'pts',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.55),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 5),
+                      child: Text(
+                        filas[i].$2,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.8),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Acumulados ${_pts.format(earned)}',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.45),
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -539,6 +531,7 @@ class _InlineNote extends StatelessWidget {
       showVignette: false,
       blur: LiquidTokens.blurSubtle,
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(icon, size: 18, color: Colors.white.withValues(alpha: 0.6)),
           const SizedBox(width: 10),
@@ -549,6 +542,7 @@ class _InlineNote extends StatelessWidget {
                 color: Colors.white.withValues(alpha: 0.65),
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
+                height: 1.4,
               ),
             ),
           ),
@@ -616,22 +610,13 @@ class _LoadingBody extends StatelessWidget {
       physics: const NeverScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 48),
       children: const [
-        LiquidSkeleton(height: 232, radius: 26),
+        LiquidSkeleton(height: 250, radius: 26),
         SizedBox(height: 14),
         LiquidSkeleton(height: 52, radius: 16),
         SizedBox(height: 28),
         LiquidSkeleton.line(width: 140, height: 18),
         SizedBox(height: 14),
-        SizedBox(
-          height: 108,
-          child: Row(
-            children: [
-              Expanded(child: LiquidSkeleton(height: 108, radius: 18)),
-              SizedBox(width: 10),
-              Expanded(child: LiquidSkeleton(height: 108, radius: 18)),
-            ],
-          ),
-        ),
+        LiquidSkeleton(height: 190, radius: 22),
         SizedBox(height: 28),
         LiquidSkeleton.line(width: 110, height: 18),
         SizedBox(height: 14),

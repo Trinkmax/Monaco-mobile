@@ -39,6 +39,28 @@ enum PremioCategoria {
 /// **gratis** y sólo emite un código que valida el comercio.
 enum PremioOrigen { catalogo, convenio }
 
+/// Qué ES un premio del catálogo (`reward_catalog.kind`, migración 196):
+/// `descuento` = % sobre el precio del servicio (100 = gratis) · `merch` =
+/// producto físico con stock, se retira en el local · `especial` = beneficio
+/// sin descuento automático. Cambia la etiqueta, el copy del canje y la
+/// categoría derivada; nunca el precio.
+enum PremioKind {
+  descuento('descuento'),
+  merch('merch'),
+  especial('especial');
+
+  const PremioKind(this.slug);
+  final String slug;
+
+  static PremioKind? porSlug(String? slug) {
+    if (slug == null) return null;
+    for (final k in values) {
+      if (k.slug == slug) return k;
+    }
+    return null;
+  }
+}
+
 /// Un ítem de la grilla de Premios: un premio del catálogo de la barbería o un
 /// convenio de un comercio aliado, con la misma forma para poder mostrarlos
 /// juntos sin que la pantalla tenga que saber de dónde viene cada uno.
@@ -68,6 +90,33 @@ class PremioItem {
   /// Sólo convenios: el comercio que lo da.
   final String? marca;
 
+  /// Sólo catálogo. `null` = fila vieja sin `kind` (se deriva de lo que hace).
+  final PremioKind? kind;
+
+  /// El server ya resolvió el candado para ESTE cliente
+  /// (`get_loyalty_catalog().locked_by_tier`): el premio exige una categoría
+  /// que el cliente no tiene. No se recalcula acá: la app no sabe umbrales.
+  final bool lockedByTier;
+
+  /// Nombre y código de la categoría MÁS BAJA que lo desbloquea ("Oro").
+  final String? tierRequiredName;
+  final String? tierRequiredCode;
+
+  /// Códigos de categoría habilitados (`allowed_tiers`). `null` = todas.
+  final List<String>? allowedTiers;
+
+  /// Servicio al que aplica el descuento ("Corte clásico"). `null` = cualquiera.
+  final String? serviceName;
+
+  /// Días de validez del beneficio desde el canje. `null` = el default del
+  /// programa (que decide el server al canjear).
+  final int? validityDays;
+
+  final bool isFeatured;
+
+  /// Se puede combinar con otro beneficio en el mismo cobro.
+  final bool allowStacking;
+
   const PremioItem({
     required this.id,
     required this.origen,
@@ -81,10 +130,27 @@ class PremioItem {
     this.descuentoPct,
     this.validoHasta,
     this.marca,
+    this.kind,
+    this.lockedByTier = false,
+    this.tierRequiredName,
+    this.tierRequiredCode,
+    this.allowedTiers,
+    this.serviceName,
+    this.validityDays,
+    this.isFeatured = false,
+    this.allowStacking = false,
   });
 
   bool get esGratis => puntos == null;
   bool get agotado => stock != null && stock! <= 0;
+
+  /// Es merch: se retira en el mostrador mostrando el QR.
+  bool get esMerch => kind == PremioKind.merch;
+
+  /// Lo puede canjear YA: no está bloqueado por categoría, hay stock y le
+  /// alcanza el saldo (o es gratis). Es la única regla que decide si la
+  /// tarjeta dice "Canjear".
+  bool puedeCanjear(int saldo) => !lockedByTier && !agotado && alcanza(saldo);
 
   /// ¿Le alcanza el saldo? Un convenio siempre "alcanza": no cuesta puntos.
   bool alcanza(int saldo) => esGratis || saldo >= (puntos ?? 0);
@@ -105,6 +171,7 @@ class PremioItem {
     if (origen == PremioOrigen.convenio) return Icons.local_offer_rounded;
     if (esServicioGratis) return Icons.content_cut_rounded;
     if ((descuentoPct ?? 0) > 0) return Icons.percent_rounded;
+    if (kind == PremioKind.especial) return Icons.auto_awesome_rounded;
     return categoria == PremioCategoria.merch
         ? Icons.redeem_rounded
         : Icons.card_giftcard_rounded;
@@ -112,15 +179,31 @@ class PremioItem {
 
   // ── Constructores desde la base ─────────────────────────────────────────
 
-  /// Fila de `reward_catalog` (la trae `catalogProvider`, `SELECT *`).
+  /// Fila de `get_loyalty_catalog()` (mig 197): trae el candado ya resuelto
+  /// para este cliente. Tolera también una fila pelada de `reward_catalog`
+  /// (sin `kind` ni `locked_by_tier`): cae a la heurística y sin candado.
   factory PremioItem.deCatalogo(Map<String, dynamic> row) {
     final esServicioGratis = row['is_free_service'] == true;
     final descuento = (row['discount_pct'] as num?)?.toInt();
-    // Override manual del dueño; si no lo cargó, se deriva.
+    final kind = PremioKind.porSlug(_limpio(row['kind']));
+    // Override manual del dueño; si no lo cargó, manda `kind`; y si la fila
+    // tampoco trae `kind` (o es `especial`), lo que el premio HACE.
     final categoria = PremioCategoria.porSlug(row['category'] as String?) ??
-        ((esServicioGratis || (descuento ?? 0) > 0)
-            ? PremioCategoria.cortes
-            : PremioCategoria.merch);
+        switch (kind) {
+          PremioKind.descuento => PremioCategoria.cortes,
+          PremioKind.merch => PremioCategoria.merch,
+          _ => (esServicioGratis || (descuento ?? 0) > 0)
+              ? PremioCategoria.cortes
+              : PremioCategoria.merch,
+        };
+
+    final rawTiers = row['allowed_tiers'];
+    final allowedTiers = rawTiers is List
+        ? rawTiers
+            .map((t) => t?.toString().trim() ?? '')
+            .where((t) => t.isNotEmpty)
+            .toList()
+        : null;
 
     return PremioItem(
       id: row['id']?.toString() ?? '',
@@ -136,6 +219,15 @@ class PremioItem {
       esServicioGratis: esServicioGratis,
       descuentoPct: descuento,
       validoHasta: _fecha(row['valid_until']),
+      kind: kind,
+      lockedByTier: row['locked_by_tier'] == true,
+      tierRequiredName: _limpio(row['tier_required_name']),
+      tierRequiredCode: _limpio(row['tier_required_code']),
+      allowedTiers: allowedTiers,
+      serviceName: _limpio(row['service_name']),
+      validityDays: (row['validity_days'] as num?)?.toInt(),
+      isFeatured: row['is_featured'] == true,
+      allowStacking: row['allow_stacking'] == true,
     );
   }
 

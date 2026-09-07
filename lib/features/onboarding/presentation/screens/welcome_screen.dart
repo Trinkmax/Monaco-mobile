@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
+import 'package:monaco_mobile/core/auth/auth_provider.dart';
 
 import '../../providers/login_flow_provider.dart';
-import '../widgets/no_cliente_sheet.dart';
+import '../widgets/auth_opciones.dart';
+import '../widgets/legal_footer.dart';
 import '../widgets/onboarding_scaffold.dart';
 
 class _Slide {
@@ -57,9 +58,18 @@ const _slides = [
   ),
 ];
 
-/// Tres slides de bienvenida. "Empezar" y "Ya tengo cuenta" van al mismo
-/// lugar (/login): el OTP resuelve si sos nuevo o no, así que no hay dos
-/// caminos. El link sirve para el que ya conoce la app y no quiere deslizar.
+/// **Puerta de entrada.** Tres láminas de contexto arriba y, abajo, las tres
+/// formas de entrar + "Seguir mirando".
+///
+/// Las opciones están en la PRIMERA pantalla, no escondidas detrás de un
+/// carrusel que hay que terminar: el dueño va a hacer publicidad y el que baja
+/// la app por un anuncio no es cliente todavía. Antes acá había un "¿Aún no sos
+/// cliente?" que explicaba que la cuenta nacía en la tablet del local —o sea,
+/// que la app rechazaba a todo el que llegara desde afuera—; eso murió junto
+/// con `no_cliente_sheet.dart`.
+///
+/// **"Seguir mirando" no es una cortesía, es requisito de App Store** (5.1.1:
+/// si la app no es toda "account-based", tiene que dejar usarla sin login).
 class WelcomeScreen extends ConsumerStatefulWidget {
   const WelcomeScreen({super.key});
 
@@ -76,9 +86,12 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
     super.initState();
     // Llegar acá es empezar de cero (primera vez o después de cerrar sesión):
     // un flujo de código a medias del login anterior no tiene que sobrevivir,
-    // ni siquiera para precargar el teléfono de otra persona.
+    // ni siquiera para precargar el teléfono de otra persona. Lo mismo con un
+    // alta social abandonada a mitad de camino.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) ref.read(loginFlowProvider.notifier).state = null;
+      if (!mounted) return;
+      ref.read(loginFlowProvider.notifier).state = null;
+      ref.read(signupPendienteProvider.notifier).state = null;
     });
   }
 
@@ -88,24 +101,10 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
     super.dispose();
   }
 
-  void _goLogin() => context.go('/login');
-
-  void _next() {
-    if (_page < _slides.length - 1) {
-      _pageCtrl.nextPage(
-        duration: const Duration(milliseconds: 420),
-        curve: Curves.easeOutCubic,
-      );
-    } else {
-      _goLogin();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final last = _page == _slides.length - 1;
     final size = MediaQuery.sizeOf(context);
-    final compact = size.height < 720;
+    final compact = size.height < 760;
 
     return OnboardingScaffold(
       scrollable: false,
@@ -118,27 +117,12 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           _Dots(count: _slides.length, index: _page).liquidEnter(index: 3),
-          const SizedBox(height: 18),
-          OnboardingCta(
-            label: last ? 'Ingresar con mi número' : 'Siguiente',
-            icon: last ? Icons.arrow_forward_rounded : null,
-            onPressed: _next,
-          ).liquidEnter(index: 4),
-          const SizedBox(height: 4),
-          // La app no crea cuentas (la cuenta nace en la tablet del local):
-          // en la última lámina el enlace explica eso; en las anteriores,
-          // atajo al login para el que ya es cliente.
-          last
-              ? OnboardingLink(
-                  label: '¿Aún no sos cliente?',
-                  icon: Icons.help_outline_rounded,
-                  onTap: () => showNoClienteSheet(context),
-                ).liquidEnter(index: 5)
-              : OnboardingLink(
-                  label: 'Ya soy cliente, ingresar',
-                  icon: Icons.login_rounded,
-                  onTap: _goLogin,
-                ).liquidEnter(index: 5),
+          const SizedBox(height: 16),
+          const AuthOpciones().liquidEnter(index: 4),
+          const SizedBox(height: 2),
+          const _SeguirMirando().liquidEnter(index: 5),
+          const SizedBox(height: 2),
+          const LegalFooter().liquidEnter(index: 6),
         ],
       ),
       child: PageView.builder(
@@ -153,6 +137,36 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   }
 }
 
+/// Modo invitado. Va como link y no como botón a propósito: es la salida, no
+/// la acción que queremos. Pero tiene que estar **visible sin scrollear** —un
+/// "sin cuenta" escondido es lo mismo que no tenerlo.
+class _SeguirMirando extends ConsumerStatefulWidget {
+  const _SeguirMirando();
+
+  @override
+  ConsumerState<_SeguirMirando> createState() => _SeguirMirandoState();
+}
+
+class _SeguirMirandoState extends ConsumerState<_SeguirMirando> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return OnboardingLink(
+      label: _busy ? 'Entrando…' : 'Seguir mirando',
+      icon: Icons.visibility_outlined,
+      onTap: _busy
+          ? null
+          : () async {
+              setState(() => _busy = true);
+              // El router redirige solo al cambiar el AuthStatus a `guest`.
+              await ref.read(authProvider.notifier).continuarComoInvitado();
+              if (mounted) setState(() => _busy = false);
+            },
+    );
+  }
+}
+
 class _SlideView extends StatelessWidget {
   final _Slide slide;
   final bool compact;
@@ -160,13 +174,14 @@ class _SlideView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // La ilustración se adapta al alto que queda (teclados no hay, pero sí
-    // pantallas de 16:9 y el modo "texto grande"): entre 150 y 290 px, y
-    // si aun así no entra, el slide scrollea en vez de desbordar.
+    // La ilustración se adapta al alto que queda. El pie de esta pantalla ahora
+    // lleva tres botones de 56 + el link + los legales, así que la lámina es
+    // bastante más chica que antes; si aun así no entra, el slide scrollea en
+    // vez de desbordar.
     return LayoutBuilder(
       builder: (context, constraints) {
         final h = constraints.maxHeight;
-        final imageSize = (h * 0.46).clamp(150.0, compact ? 230.0 : 290.0);
+        final imageSize = (h * 0.42).clamp(96.0, compact ? 150.0 : 190.0);
         return SingleChildScrollView(
           physics: const ClampingScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: 28),
@@ -214,7 +229,7 @@ class _SlideView extends StatelessWidget {
                       duration: 560.ms,
                       curve: Curves.easeOutCubic,
                     ),
-                SizedBox(height: compact ? 18 : 30),
+                SizedBox(height: compact ? 14 : 22),
                 _SlideCopy(slide: slide, compact: compact),
               ],
             ),
@@ -267,16 +282,16 @@ class _SlideCopy extends StatelessWidget {
               duration: 420.ms,
               curve: Curves.easeOutCubic,
             ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
 
         // ── Título ──
         Text(
               slide.title,
               style: TextStyle(
                 color: MonacoColors.textPrimary,
-                fontSize: compact ? 30 : 34,
+                fontSize: compact ? 26 : 30,
                 fontWeight: FontWeight.w900,
-                letterSpacing: -1.3,
+                letterSpacing: -1.2,
                 height: 1.05,
               ),
             )
@@ -289,16 +304,16 @@ class _SlideCopy extends StatelessWidget {
               duration: 460.ms,
               curve: Curves.easeOutCubic,
             ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
 
         // ── Subtítulo ──
         Text(
               slide.subtitle,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.6),
-                fontSize: 15,
+                fontSize: 14,
                 fontWeight: FontWeight.w500,
-                height: 1.45,
+                height: 1.4,
               ),
             )
             .animate()

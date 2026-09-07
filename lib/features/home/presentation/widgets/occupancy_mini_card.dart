@@ -127,7 +127,7 @@ class OccupancyMiniCard extends StatelessWidget {
                               BoxShadow(
                                 color: color.withValues(alpha: 0.5),
                                 blurRadius: 6,
-                              )
+                              ),
                             ]
                           : null,
                     ),

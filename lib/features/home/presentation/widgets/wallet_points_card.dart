@@ -56,9 +56,10 @@ class _WalletPointsCardState extends State<WalletPointsCard>
       vsync: this,
       duration: const Duration(milliseconds: 1100),
     );
-    _contador = IntTween(begin: 0, end: widget.saldo).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic),
-    );
+    _contador = IntTween(
+      begin: 0,
+      end: widget.saldo,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
     _ctrl.forward();
   }
 
@@ -66,9 +67,10 @@ class _WalletPointsCardState extends State<WalletPointsCard>
   void didUpdateWidget(covariant WalletPointsCard old) {
     super.didUpdateWidget(old);
     if (old.saldo != widget.saldo) {
-      _contador = IntTween(begin: old.saldo, end: widget.saldo).animate(
-        CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic),
-      );
+      _contador = IntTween(
+        begin: old.saldo,
+        end: widget.saldo,
+      ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
       _ctrl
         ..reset()
         ..forward();
@@ -84,81 +86,81 @@ class _WalletPointsCardState extends State<WalletPointsCard>
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      button: true,
-      label: 'Tenés ${widget.saldo} puntos. ${widget.pie}. Ver detalle',
-      child: LiquidGlass(
-        onTap: widget.onTap,
-        borderRadius: 26,
-        padding: const EdgeInsets.fromLTRB(22, 20, 18, 20),
-        tintOpacity: 0.09,
-        scalePressed: 0.98,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+          button: true,
+          label: 'Tenés ${widget.saldo} puntos. ${widget.pie}. Ver detalle',
+          child: LiquidGlass(
+            onTap: widget.onTap,
+            borderRadius: 26,
+            padding: const EdgeInsets.fromLTRB(22, 20, 18, 20),
+            tintOpacity: 0.09,
+            scalePressed: 0.98,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Row(
+                        children: [
+                          Text(
+                            'Tus puntos',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.6),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: -0.1,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            size: 16,
+                            color: Colors.white.withValues(alpha: 0.4),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      m.AnimatedBuilder(
+                        animation: _contador,
+                        builder: (context, _) => Text(
+                          _pts.format(_contador.value),
+                          style: const TextStyle(
+                            color: MonacoColors.textPrimary,
+                            fontSize: 52,
+                            fontWeight: FontWeight.w900,
+                            height: 1.05,
+                            letterSpacing: -2,
+                            fontFeatures: [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       Text(
-                        'Tus puntos',
+                        widget.pie,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.6),
-                          fontSize: 14,
+                          color: Colors.white.withValues(alpha: 0.72),
+                          fontSize: 13.5,
                           fontWeight: FontWeight.w600,
+                          height: 1.3,
                           letterSpacing: -0.1,
                         ),
                       ),
-                      const SizedBox(width: 6),
-                      Icon(
-                        Icons.chevron_right_rounded,
-                        size: 16,
-                        color: Colors.white.withValues(alpha: 0.4),
-                      ),
+                      if (widget.progreso != null) ...[
+                        const SizedBox(height: 12),
+                        _BarraProgreso(valor: widget.progreso!),
+                      ],
                     ],
                   ),
-                  const SizedBox(height: 2),
-                  m.AnimatedBuilder(
-                    animation: _contador,
-                    builder: (context, _) => Text(
-                      _pts.format(_contador.value),
-                      style: const TextStyle(
-                        color: MonacoColors.textPrimary,
-                        fontSize: 52,
-                        fontWeight: FontWeight.w900,
-                        height: 1.05,
-                        letterSpacing: -2,
-                        fontFeatures: [FontFeature.tabularFigures()],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    widget.pie,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.72),
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w600,
-                      height: 1.3,
-                      letterSpacing: -0.1,
-                    ),
-                  ),
-                  if (widget.progreso != null) ...[
-                    const SizedBox(height: 12),
-                    _BarraProgreso(valor: widget.progreso!),
-                  ],
-                ],
-              ),
+                ),
+                const SizedBox(width: 12),
+                _BotonRegalo(onTap: widget.onPremios),
+              ],
             ),
-            const SizedBox(width: 12),
-            _BotonRegalo(onTap: widget.onPremios),
-          ],
-        ),
-      ),
-    )
+          ),
+        )
         .animate()
         .fadeIn(duration: 500.ms)
         .slideY(begin: 0.08, end: 0, duration: 500.ms);

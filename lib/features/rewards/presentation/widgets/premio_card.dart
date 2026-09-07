@@ -66,13 +66,16 @@ class PremioCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final alcanza = premio.alcanza(saldo);
     final agotado = premio.agotado;
-    final disponible = alcanza && !agotado;
+    final bloqueado = premio.lockedByTier;
+    final disponible = premio.puedeCanjear(saldo);
 
     return Semantics(
       button: true,
       label: _semantica(),
       child: Opacity(
-        opacity: disponible ? 1 : 0.74,
+        // Bloqueado por categoría se atenúa más que "te faltan puntos": lo
+        // segundo se resuelve viniendo; lo primero, subiendo de categoría.
+        opacity: disponible ? 1 : (bloqueado ? 0.62 : 0.74),
         child: LiquidGlass(
           onTap: onTap,
           width: width,
@@ -110,14 +113,24 @@ class PremioCard extends StatelessWidget {
                           top: 10,
                           right: 10,
                           child: LiquidStatusPill(
-                            label: 'Agotado',
+                            label: 'AGOTADO',
                             color: MonacoColors.occupancyClosed,
                             pulse: false,
                             compact: true,
                           ),
                         )
-                      else if (!alcanza)
+                      else if (bloqueado || !alcanza)
                         const Positioned(top: 10, right: 10, child: _CandadoChico()),
+                      // La pill "Solo Oro" va ABAJO a la izquierda, sobre la
+                      // sombra de la lámina, y no al lado del precio: "Solo
+                      // Platinum" + "2.000 pts" no entran juntos en los 168 px
+                      // de la celda y se pisaban.
+                      if (bloqueado)
+                        Positioned(
+                          left: 10,
+                          bottom: 10,
+                          child: _PillSoloTier(nombre: premio.tierRequiredName),
+                        ),
                     ],
                   ),
                 ),
@@ -185,6 +198,12 @@ class PremioCard extends StatelessWidget {
   }
 
   String _semantica() {
+    if (premio.lockedByTier) {
+      final t = premio.tierRequiredName;
+      return t == null
+          ? '${premio.nombre}, exclusivo por categoría'
+          : '${premio.nombre}, exclusivo para clientes $t';
+    }
     if (premio.agotado) return '${premio.nombre}, agotado';
     if (premio.esGratis) return '${premio.nombre}, beneficio gratis';
     if (premio.alcanza(saldo)) {
@@ -205,6 +224,21 @@ class _Pie extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (premio.lockedByTier) {
+      // Lo accionable no es cuánto cuesta: es qué categoría lo destraba.
+      final t = premio.tierRequiredName;
+      return Text(
+        t == null ? 'Exclusivo por categoría' : 'Subí a $t para canjearlo',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: Colors.white.withValues(alpha: 0.55),
+          fontSize: 11.5,
+          fontWeight: FontWeight.w600,
+        ),
+      );
+    }
+
     if (premio.agotado) {
       return Text(
         'Sin stock por ahora',
@@ -438,6 +472,47 @@ class _PrecioPill extends StatelessWidget {
           letterSpacing: 0.1,
           fontFeatures: [FontFeature.tabularFigures()],
         ),
+      ),
+    );
+  }
+}
+
+/// "Solo Oro": el premio exige una categoría que el cliente no tiene. El
+/// nombre sale del server (`tier_required_name`), nunca de acá.
+class _PillSoloTier extends StatelessWidget {
+  final String? nombre;
+  const _PillSoloTier({required this.nombre});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 4, 10, 4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: Colors.black.withValues(alpha: 0.55),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.22), width: 0.8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.workspace_premium_rounded,
+            size: 12,
+            color: Colors.white.withValues(alpha: 0.9),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            nombre == null ? 'Exclusivo' : 'Solo $nombre',
+            maxLines: 1,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.92),
+              fontSize: 10.5,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+              height: 1.2,
+            ),
+          ),
+        ],
       ),
     );
   }

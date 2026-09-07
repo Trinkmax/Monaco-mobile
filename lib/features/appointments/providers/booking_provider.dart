@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:monaco_mobile/core/api/mobile_api.dart';
 import 'package:monaco_mobile/core/auth/auth_provider.dart';
 import 'package:monaco_mobile/core/branch/test_mode_provider.dart';
+import 'package:monaco_mobile/features/senas/data/senas_api.dart';
 
 import '../data/booking_api.dart';
 import '../data/fechas.dart';
@@ -124,6 +125,11 @@ class BookingWizardState {
   final BookingResult? result;
   final bool showGreen;
 
+  /// La seña que el server pidió para este horario. Mientras esté acá, el
+  /// wizard NO reservó nada: el turno lo crea el webhook de Mercado Pago
+  /// cuando el pago se acredita.
+  final SenaIntencion? sena;
+
   const BookingWizardState({
     this.phase = WizardPhase.loading,
     this.slug = '',
@@ -149,6 +155,7 @@ class BookingWizardState {
     this.submitting = false,
     this.result,
     this.showGreen = false,
+    this.sena,
   });
 
   BookingWizardState copyWith({
@@ -176,6 +183,7 @@ class BookingWizardState {
     bool? submitting,
     Object? result = _unset,
     bool? showGreen,
+    Object? sena = _unset,
   }) {
     return BookingWizardState(
       phase: phase ?? this.phase,
@@ -202,6 +210,7 @@ class BookingWizardState {
       submitting: submitting ?? this.submitting,
       result: result == _unset ? this.result : result as BookingResult?,
       showGreen: showGreen ?? this.showGreen,
+      sena: sena == _unset ? this.sena : sena as SenaIntencion?,
     );
   }
 
@@ -711,6 +720,20 @@ class BookingWizardController extends StateNotifier<BookingWizardState> {
 
   // ── Confirmar ──────────────────────────────────────────────────────────
 
+  /// Confirmar tiene DOS caminos y quién decide es el server, no la app:
+  ///
+  /// 1. Se le pregunta a `POST /api/mobile/turnos/<slug>/sena` si esta reserva
+  ///    lleva seña.
+  /// 2. `SENA_NO_APLICA` → se reserva por `POST /book`, exactamente como
+  ///    siempre. Es el camino de las cuatro sucursales de Monaco hoy.
+  /// 3. Con seña → el wizard NO reserva nada. Deja la intención en
+  ///    `state.sena`, la pantalla muestra la hoja con la política y el turno lo
+  ///    crea el webhook de Mercado Pago cuando el pago se acredita.
+  ///
+  /// **Cualquier otro error NO cae al camino sin seña.** Si la sucursal cobra
+  /// seña y Mercado Pago no responde, reservar igual sería regalar turnos cada
+  /// vez que MP tiene un hipo. Se muestra el error y se puede reintentar; si la
+  /// app no llega a `/sena`, tampoco iba a llegar a `/book`.
   Future<void> confirm() async {
     if (state.phase != WizardPhase.slot || state.submitting) return;
     final date = state.selectedDate;
@@ -730,8 +753,46 @@ class BookingWizardController extends StateNotifier<BookingWizardState> {
       state = state.copyWith(error: 'Ingresá tu nombre para continuar.');
       return;
     }
+    final nombre = needsName ? state.nameInput.trim() : null;
 
-    state = state.copyWith(submitting: true, error: null);
+    state = state.copyWith(submitting: true, error: null, sena: null);
+
+    final resultado = await _ref.read(senasApiProvider).crear(
+          slug: state.slug,
+          staffId: slot.staffId,
+          date: date,
+          startTime: slot.time,
+          serviceIds: state.selectedServiceIds,
+          durationMinutes: state.totalDuration,
+          name: nombre,
+        );
+    if (!mounted) return;
+
+    switch (resultado) {
+      case SenaRequerida(intencion: final intencion):
+        // El nombre viajó en el pedido de seña; lo reflejamos localmente para
+        // que el saludo y el resumen dejen de mostrar el teléfono.
+        if (nombre != null) {
+          unawaited(_ref.read(authProvider.notifier).updateClientName(nombre));
+        }
+        state = state.copyWith(submitting: false, sena: intencion);
+        return;
+      case SenaFallo(code: final code, mensaje: final mensaje):
+        _falloDeConfirmacion(code: code, mensaje: mensaje, date: date);
+        return;
+      case SenaNoAplica():
+        break;
+    }
+
+    await _reservarSinSena(date: date, slot: slot, nombre: nombre);
+  }
+
+  /// El camino de siempre: `POST /book` crea el turno en el acto.
+  Future<void> _reservarSinSena({
+    required String date,
+    required SlotSelection slot,
+    required String? nombre,
+  }) async {
     try {
       final res = await _api.book(
         slug: state.slug,
@@ -740,12 +801,12 @@ class BookingWizardController extends StateNotifier<BookingWizardState> {
         startTime: slot.time,
         serviceIds: state.selectedServiceIds,
         durationMinutes: state.totalDuration,
-        name: needsName ? state.nameInput.trim() : null,
+        name: nombre,
       );
       if (!mounted) return;
       invalidateAppointments(_ref);
-      if (needsName) {
-        unawaited(_ref.read(authProvider.notifier).updateClientName(state.nameInput.trim()));
+      if (nombre != null) {
+        unawaited(_ref.read(authProvider.notifier).updateClientName(nombre));
       }
       state = state.copyWith(
         submitting: false,
@@ -756,19 +817,12 @@ class BookingWizardController extends StateNotifier<BookingWizardState> {
       );
     } on MobileApiException catch (e) {
       if (!mounted) return;
-      final msg = bookingErrorMessage(e);
-      if (bookingErrorNeedsReload(e)) {
-        final map = Map<String, SlotsOutcome>.from(state.slotsByDate)..remove(date);
-        state = state.copyWith(
-          submitting: false,
-          error: msg,
-          selectedSlot: null,
-          slotsByDate: map,
-        );
-        unawaited(_loadSlots(date, force: true));
-        return;
-      }
-      state = state.copyWith(submitting: false, error: msg);
+      _falloDeConfirmacion(
+        code: e.code,
+        mensaje: bookingErrorMessage(e),
+        date: date,
+        recargar: bookingErrorNeedsReload(e),
+      );
     } catch (e) {
       if (!mounted) return;
       debugPrint('[turnos] book falló: $e');
@@ -777,6 +831,40 @@ class BookingWizardController extends StateNotifier<BookingWizardState> {
         error: 'No pudimos confirmar el turno. Probá de nuevo en un momento.',
       );
     }
+  }
+
+  /// Un fallo al confirmar (con seña o sin ella). Cuando la causa es que la
+  /// grilla quedó vieja, se limpia el cache de ese día y se vuelve a pedir:
+  /// dejar la hora tomada seleccionada invita a reintentar contra el mismo
+  /// horario que acaba de fallar.
+  void _falloDeConfirmacion({
+    required String code,
+    required String mensaje,
+    required String date,
+    bool? recargar,
+  }) {
+    final hayQueRecargar = recargar ?? (code == 'SLOT_TAKEN' || code == 'TOO_LATE');
+    if (hayQueRecargar) {
+      final map = Map<String, SlotsOutcome>.from(state.slotsByDate)..remove(date);
+      state = state.copyWith(
+        submitting: false,
+        error: mensaje,
+        selectedSlot: null,
+        slotsByDate: map,
+        sena: null,
+      );
+      unawaited(_loadSlots(date, force: true));
+      return;
+    }
+    state = state.copyWith(submitting: false, error: mensaje, sena: null);
+  }
+
+  /// La pantalla ya mostró la hoja de la seña (el cliente fue a pagar o dijo
+  /// que no). Se limpia para que un segundo toque en "Confirmar turno" vuelva a
+  /// pedirle al server una intención fresca: la anterior puede haber vencido y,
+  /// sobre todo, el horario puede haberse ido mientras el cliente decidía.
+  void senaAtendida() {
+    if (state.sena != null) state = state.copyWith(sena: null);
   }
 
   /// La animación verde terminó.

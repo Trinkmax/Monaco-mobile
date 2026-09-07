@@ -1,75 +1,38 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:monaco_mobile/core/auth/auth_provider.dart';
 import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
 
-/// Los tres providers de este archivo son datos PERSONALES y globales (sin
+/// Los providers de este archivo son datos PERSONALES y globales (sin
 /// `autoDispose`): se atan al `clientId` de la sesión para no seguir sirviendo
 /// el saldo del cliente anterior después de un cierre de sesión. Ver la nota
 /// larga en `rewards_provider.dart`.
+///
+/// Desde la migración 196 **los puntos son globales y viven en lotes**
+/// (`point_transactions.remaining/expires_at`); `client_points` por sucursal ya
+/// no se lee desde la app. El saldo, los vencimientos y los totales
+/// Ganados/Canjeados salen todos de `loyaltyProvider` (`get_client_loyalty`,
+/// que desde la mig 200 manda `earned_total`/`redeemed_total` también con el
+/// programa apagado): `get_client_global_points` ya no se llama desde la app.
 
-/// Resolves the client record ID from the auth user ID.
-final _clientIdProvider = FutureProvider<String?>((ref) async {
-  ref.watch(authProvider.select((a) => a.clientId));
-  final supabase = ref.read(supabaseClientProvider);
-  final authId = supabase.auth.currentUser?.id;
-  if (authId == null) return null;
-  final res = await supabase
-      .from('clients')
-      .select('id')
-      .eq('auth_user_id', authId)
-      .maybeSingle();
-  return res?['id'] as String?;
-});
-
-/// Global points balance for the authenticated client.
-final globalPointsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
-  if (ref.watch(authProvider.select((a) => a.clientId)) == null) {
-    return const {'total_balance': 0, 'total_earned': 0, 'total_redeemed': 0};
-  }
-  final supabase = ref.read(supabaseClientProvider);
-  final response = await supabase.rpc('get_client_global_points');
-  // RPC returns TABLE → List with one row
-  if (response is List && response.isNotEmpty) {
-    return Map<String, dynamic>.from(response.first);
-  }
-  if (response is Map) {
-    return Map<String, dynamic>.from(response);
-  }
-  return {
-    'total_balance': 0,
-    'total_earned': 0,
-    'total_redeemed': 0,
-  };
-});
-
-/// Transaction history for the authenticated client.
+/// Historial de movimientos (`get_client_point_history`, mig 197): cada fila
+/// es un LOTE (`points`, `remaining`, `expires_at`, `is_expired`) o un
+/// movimiento negativo (`redeemed`, `expired`, `reversal`). La RPC resuelve el
+/// cliente por `auth.uid()`; el `p_limit` lo acota el server a 300.
 final pointsHistoryProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
+  if (ref.watch(authProvider.select((a) => a.clientId)) == null) return const [];
   final supabase = ref.read(supabaseClientProvider);
-  final clientId = await ref.watch(_clientIdProvider.future);
-  if (clientId == null) return [];
-
-  final response = await supabase
-      .from('point_transactions')
-      .select('*')
-      .eq('client_id', clientId)
-      .order('created_at', ascending: false)
-      .limit(50);
-
-  return List<Map<String, dynamic>>.from(response as List);
-});
-
-/// Points breakdown by branch for the authenticated client.
-final branchPointsProvider =
-    FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  final supabase = ref.read(supabaseClientProvider);
-  final clientId = await ref.watch(_clientIdProvider.future);
-  if (clientId == null) return [];
-
-  final response = await supabase
-      .from('client_points')
-      .select('*, branches(name, address)')
-      .eq('client_id', clientId);
-
-  return List<Map<String, dynamic>>.from(response as List);
+  final response = await supabase.rpc(
+    'get_client_point_history',
+    params: {'p_limit': 80},
+  );
+  if (response is List) {
+    return response
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+  debugPrint('[points] get_client_point_history devolvió ${response.runtimeType}');
+  return const [];
 });

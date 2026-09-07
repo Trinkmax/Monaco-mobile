@@ -78,6 +78,7 @@ class ClientNotification {
     deepLink: deepLink,
     type: type,
     value: _valueOf(data),
+    loyaltyKind: _loyaltyKind,
   );
 
   static String? _valueOf(Map<String, dynamic> data) {
@@ -87,8 +88,23 @@ class ClientNotification {
     return s.isEmpty ? null : s;
   }
 
+  /// Familia de fidelización: `loyalty_notify` (mig 197) escribe el `type`
+  /// como `reward` o `points` y manda el `kind` de la regla aparte, en
+  /// `data.loyalty_kind`. `null` si no es de fidelización.
+  String? get _loyaltyKind {
+    final k = data['loyalty_kind']?.toString().trim();
+    return (k == null || k.isEmpty) ? null : k;
+  }
+
   /// Ícono según el tipo.
   IconData get icon {
+    final lk = _loyaltyKind;
+    if (lk != null) {
+      if (lk.startsWith('tier') || lk == 'near_tier') return Icons.workspace_premium_rounded;
+      if (lk.startsWith('referral')) return Icons.person_add_alt_1_rounded;
+      if (lk.startsWith('points')) return Icons.stars_rounded;
+      return Icons.card_giftcard_rounded;
+    }
     switch (type) {
       case 'appointment_reminder':
         return Icons.alarm_rounded;
@@ -116,6 +132,12 @@ class ClientNotification {
   /// Color del ícono según el tipo (ámbar para turnos, verde para premios,
   /// azul para campañas, blanco para el resto).
   Color get accent {
+    final lk = _loyaltyKind;
+    if (lk != null) {
+      if (lk.startsWith('tier') || lk == 'near_tier') return MonacoColors.warning;
+      if (lk.startsWith('referral')) return MonacoColors.info;
+      return MonacoColors.monacoGreen;
+    }
     switch (type) {
       case 'appointment_reminder':
       case 'appointment_update':

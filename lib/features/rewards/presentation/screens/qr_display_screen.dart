@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
+import 'package:monaco_mobile/features/rewards/data/beneficio_canjeado.dart';
 import 'package:monaco_mobile/features/rewards/providers/rewards_provider.dart';
 
-/// QR de un premio disponible: el barbero lo escanea desde su panel.
+/// QR de un premio disponible: el barbero lo escanea desde su panel (descuento)
+/// o el mostrador lo entrega (merch).
 class QrDisplayScreen extends ConsumerWidget {
   final String clientRewardId;
 
@@ -43,6 +44,11 @@ class QrDisplayScreen extends ConsumerWidget {
               );
 
           if (reward == null) {
+            // Tras un canje la wallet se invalida y se pushea esta pantalla en
+            // el mismo tick: `when` entrega la lista VIEJA (skipLoadingOnRefresh)
+            // y el premio recién creado todavía no está. Es carga, no "no
+            // encontrado" — y si el QR ya se tiene, un refresh no lo pisa.
+            if (walletAsync.isLoading) return const _Loading();
             return LiquidEmptyState(
               icon: Icons.search_off_rounded,
               title: 'Premio no encontrado',
@@ -52,14 +58,37 @@ class QrDisplayScreen extends ConsumerWidget {
             );
           }
 
+          final estado = BeneficioCanjeado.estadoDe(reward);
+          // Un QR de un premio usado, vencido o cancelado es un código que el
+          // barbero va a rechazar: mejor decirlo acá que en el mostrador.
+          if (estado != EstadoBeneficio.disponible) {
+            final (icon, msg) = switch (estado) {
+              EstadoBeneficio.utilizado => (
+                  Icons.check_circle_outline_rounded,
+                  'Este premio ya se usó. Lo encontrás en el historial de Mis premios.',
+                ),
+              EstadoBeneficio.vencido => (
+                  Icons.hourglass_disabled_rounded,
+                  'Este premio venció y ya no se puede usar.',
+                ),
+              _ => (
+                  Icons.block_rounded,
+                  'La barbería canceló este premio. Si fue con devolución, los puntos ya están en tu saldo.',
+                ),
+            };
+            return LiquidEmptyState(
+              icon: icon,
+              title: 'Premio ${estado.label.toLowerCase()}',
+              message: msg,
+              ctaLabel: 'Volver',
+              onCta: () => _close(context),
+            );
+          }
+
           final rewardName = reward['reward_name'] as String? ?? 'Premio';
           final description =
               (reward['reward_description'] as String?)?.trim();
-          final etiquetaTipo = _etiquetaDe(reward);
           final qrCode = reward['qr_code'] as String? ?? '';
-          final expiresRaw = reward['expires_at'] as String?;
-          final expiresAt =
-              expiresRaw != null ? DateTime.tryParse(expiresRaw) : null;
 
           if (qrCode.isEmpty) {
             return LiquidEmptyState(
@@ -75,9 +104,10 @@ class QrDisplayScreen extends ConsumerWidget {
           return _QrBody(
             rewardName: rewardName,
             description: description,
-            etiquetaTipo: etiquetaTipo,
+            etiquetaTipo: BeneficioCanjeado.etiqueta(reward),
+            esMerch: BeneficioCanjeado.esMerch(reward),
             qrCode: qrCode,
-            expiresAt: expiresAt,
+            expiresAt: BeneficioCanjeado.vencimiento(reward),
             onClose: () => _close(context),
           );
         },
@@ -90,6 +120,7 @@ class _QrBody extends StatelessWidget {
   final String rewardName;
   final String? description;
   final String etiquetaTipo;
+  final bool esMerch;
   final String qrCode;
   final DateTime? expiresAt;
   final VoidCallback onClose;
@@ -98,6 +129,7 @@ class _QrBody extends StatelessWidget {
     required this.rewardName,
     required this.description,
     required this.etiquetaTipo,
+    required this.esMerch,
     required this.qrCode,
     required this.expiresAt,
     required this.onClose,
@@ -105,21 +137,10 @@ class _QrBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-    String? expiresLabel;
-    Color expiresColor = MonacoColors.monacoGreen;
-    if (expiresAt != null) {
-      final local = expiresAt!.toLocal();
-      final daysLeft = local.difference(now).inDays;
-      expiresLabel =
-          'Vence el ${DateFormat("d 'de' MMM", 'es').format(local)}';
-      if (local.isBefore(now)) {
-        expiresLabel = 'Vencido';
-        expiresColor = MonacoColors.destructive;
-      } else if (daysLeft <= 3) {
-        expiresColor = MonacoColors.warning;
-      }
-    }
+    // "Vence en 12 días": verde si falta más de una semana, ámbar si es esta
+    // semana, rojo si ya pasó.
+    final vence = BeneficioCanjeado.cuentaRegresiva(expiresAt);
+    final venceEl = BeneficioCanjeado.venceEl(expiresAt);
 
     final qrSize = (MediaQuery.sizeOf(context).width - 48 - 44 - 36)
         .clamp(180.0, 250.0);
@@ -232,36 +253,61 @@ class _QrBody extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
-                      Icons.qr_code_scanner_rounded,
+                      esMerch
+                          ? Icons.storefront_rounded
+                          : Icons.qr_code_scanner_rounded,
                       size: 16,
                       color: Colors.white.withValues(alpha: 0.75),
                     ),
                     const SizedBox(width: 8),
-                    Text(
-                      'Mostrá este código al barbero',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.8),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
+                    Flexible(
+                      child: Text(
+                        esMerch
+                            ? 'Mostrá este código en el mostrador para retirarlo'
+                            : 'Mostrá este código al barbero',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.8),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ],
                 ),
-                if (expiresLabel != null) ...[
+                if (vence != null) ...[
                   const SizedBox(height: 12),
-                  LiquidStatusPill(
-                    label: expiresLabel,
-                    color: expiresColor,
-                    pulse: false,
-                    compact: true,
+                  Semantics(
+                    label: venceEl == null ? vence.label : '${vence.label}, $venceEl',
+                    child: ExcludeSemantics(
+                      child: LiquidStatusPill(
+                        label: vence.label,
+                        color: vence.color,
+                        pulse: false,
+                        compact: true,
+                      ),
+                    ),
                   ),
+                  if (venceEl != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      venceEl,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.45),
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ],
               ],
             ),
           ).liquidEnter(index: 2),
           const SizedBox(height: 16),
           Text(
-            'Lo escanea desde su panel y el premio se aplica en el momento.',
+            esMerch
+                ? 'Lo escanean en cualquier sucursal y te lo entregan en el momento.'
+                : 'Lo escanea desde su panel y el premio se aplica en el momento.',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.5),
@@ -307,32 +353,5 @@ class _Loading extends StatelessWidget {
         LiquidSkeleton(height: 52, radius: 16),
       ],
     );
-  }
-}
-
-/// Qué ES el premio, en criollo.
-///
-/// El mapeo anterior traducía `free_service`, `discount` y `product`, que **no
-/// existen** en el enum `reward_type` (`spin_prize | return_discount |
-/// milestone_free | manual | points_redemption`): la pantalla terminaba
-/// imprimiendo "spin prize" y "milestone free" tal cual. Manda lo que el
-/// premio hace; el tipo sólo desempata. Misma regla que `MisPremiosScreen`.
-String _etiquetaDe(Map<String, dynamic> r) {
-  if (r['is_free_service'] == true) return 'Servicio gratis';
-  final pct = (r['discount_pct'] as num?)?.toInt() ?? 0;
-  if (pct > 0) return '$pct% de descuento';
-  switch (r['reward_type']?.toString() ?? '') {
-    case 'points_redemption':
-      return 'Canje por puntos';
-    case 'return_discount':
-      return 'Descuento de bienvenida';
-    case 'milestone_free':
-      return 'Premio por fidelidad';
-    case 'spin_prize':
-      return 'Premio de la ruleta';
-    case 'manual':
-      return 'Premio especial';
-    default:
-      return 'Premio';
   }
 }

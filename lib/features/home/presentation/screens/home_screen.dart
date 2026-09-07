@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
@@ -13,20 +12,23 @@ import 'package:monaco_mobile/features/appointments/presentation/widgets/turno_l
 import 'package:monaco_mobile/features/appointments/providers/appointments_provider.dart';
 import 'package:monaco_mobile/features/appointments/providers/booking_provider.dart';
 import 'package:monaco_mobile/features/convenios/providers/convenios_provider.dart';
+import 'package:monaco_mobile/features/loyalty/data/loyalty_models.dart';
+import 'package:monaco_mobile/features/loyalty/presentation/widgets/loyalty_status_strip.dart';
+import 'package:monaco_mobile/features/loyalty/presentation/widgets/monaco_card.dart';
+import 'package:monaco_mobile/features/loyalty/presentation/widgets/tier_up_celebration.dart';
+import 'package:monaco_mobile/features/loyalty/providers/loyalty_provider.dart';
 import 'package:monaco_mobile/features/home/presentation/widgets/home_header.dart';
 import 'package:monaco_mobile/features/home/presentation/widgets/occupancy_mini_card.dart';
 import 'package:monaco_mobile/features/home/presentation/widgets/turno_tiles.dart';
-import 'package:monaco_mobile/features/home/presentation/widgets/wallet_points_card.dart';
 import 'package:monaco_mobile/features/occupancy/providers/occupancy_provider.dart';
-import 'package:monaco_mobile/features/points/providers/points_provider.dart';
+import 'package:monaco_mobile/features/onboarding/presentation/widgets/muro_login.dart';
 import 'package:monaco_mobile/features/reviews/providers/reviews_provider.dart';
 import 'package:monaco_mobile/features/rewards/data/premio_item.dart';
 import 'package:monaco_mobile/features/rewards/presentation/widgets/canje.dart';
 import 'package:monaco_mobile/features/rewards/presentation/widgets/premio_card.dart';
 import 'package:monaco_mobile/features/rewards/providers/premios_provider.dart';
 import 'package:monaco_mobile/features/rewards/providers/rewards_provider.dart';
-
-final _pts = NumberFormat.decimalPattern('es_AR');
+import 'package:monaco_mobile/features/senas/presentation/widgets/sena_pendiente_banner.dart';
 
 /// Ancho de la tarjeta del carrusel "Canjeá tus puntos". Fijo (no depende del
 /// teléfono) para que se vea siempre media tarjeta al costado: eso es lo que
@@ -35,8 +37,9 @@ const _anchoTarjetaPremio = 162.0;
 
 // ── Providers ──────────────────────────────────────────────────────────────
 
-final billboardProvider =
-    FutureProvider<List<Map<String, dynamic>>>((ref) async {
+final billboardProvider = FutureProvider<List<Map<String, dynamic>>>((
+  ref,
+) async {
   final supabase = ref.read(supabaseClientProvider);
   final res = await supabase
       .from('billboard_items')
@@ -50,20 +53,50 @@ final billboardProvider =
 
 /// **Inicio — una billetera.**
 ///
-/// El orden no es decorativo, es una jerarquía: qué tenés (puntos) → qué te
-/// pasa hoy (tu turno) → dónde ir ahora (espera en vivo) → qué podés conseguir
-/// (premios) → qué hay de nuevo (cartelera).
+/// El orden no es decorativo, es una jerarquía: qué tenés (la tarjeta Monaco:
+/// puntos y categoría) → qué te pasa hoy (tu turno) → dónde ir ahora (espera en
+/// vivo) → qué podés conseguir (premios) → qué hay de nuevo (cartelera).
 ///
 /// La app dejó de tener sucursal: el saludo no la nombra, no hay pill para
 /// cambiarla y la fila en vivo muestra **todas**. La sucursal se elige recién
 /// al reservar un turno, que es el único momento en que la respuesta cambia
 /// algo.
-class HomeScreen extends ConsumerWidget {
+///
+/// **Sin cuenta el Home también existe** (modo invitado, guideline 5.1.1). Lo
+/// que cambia es la tarjeta —la de puntos pasa a ser una invitación a crear la
+/// cuenta— y que las acciones personales abren el muro de login en vez de
+/// llevar a una pantalla vacía. La fila en vivo, la cartelera y las sucursales
+/// se leen igual: son públicas, y son lo que le muestra a un desconocido para
+/// qué sirve la app.
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Festejo de subida de categoría: cada vez que el programa trae datos se
+    // compara con la última categoría vista (Keychain). `fireImmediately`
+    // cubre el caso en que el provider ya estaba resuelto al montar el Home.
+    ref.listenManual<AsyncValue<LoyaltySummary>>(loyaltyProvider, (_, next) {
+      final s = next.valueOrNull;
+      if (s == null) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        TierUpCelebration.check(context, s);
+      });
+    }, fireImmediately: true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
+    final invitado = auth.isGuest;
+    final loyalty = ref.watch(loyaltyProvider);
     final saldo = ref.watch(saldoPuntosProvider);
     final reviews = ref.watch(pendingReviewsProvider);
     final branches = ref.watch(branchSignalsProvider);
@@ -85,7 +118,7 @@ class HomeScreen extends ConsumerWidget {
             color: Colors.white,
             backgroundColor: MonacoColors.surface,
             onRefresh: () async {
-              ref.invalidate(globalPointsProvider);
+              ref.invalidate(loyaltyProvider);
               ref.invalidate(pendingReviewsProvider);
               ref.invalidate(branchSignalsProvider);
               ref.invalidate(billboardProvider);
@@ -95,8 +128,10 @@ class HomeScreen extends ConsumerWidget {
               ref.invalidate(upcomingAppointmentsProvider);
               ref.invalidate(mobileBranchesProvider);
               await Future.wait([
-                ref.read(globalPointsProvider.future),
-                ref.read(upcomingAppointmentsProvider.future),
+                ref.read(loyaltyProvider.future).then((_) {}, onError: (_) {}),
+                ref
+                    .read(upcomingAppointmentsProvider.future)
+                    .then((_) {}, onError: (_) {}),
               ]);
             },
             child: SingleChildScrollView(
@@ -108,22 +143,47 @@ class HomeScreen extends ConsumerWidget {
                   const HomeHeader(),
                   const SizedBox(height: 18),
 
-                  _Saludo(saludo: saludo, fecha: Fechas.fechaLarga(DateTime.now())),
+                  _Saludo(
+                    saludo: saludo,
+                    fecha: Fechas.fechaLarga(DateTime.now()),
+                  ),
                   const SizedBox(height: 18),
 
-                  // ── La tarjeta ──
-                  saldo.when(
-                    data: (valor) => _TarjetaPuntos(saldo: valor),
-                    loading: () => const LiquidSkeleton(height: 168, radius: 26),
-                    error: (_, _) => const SizedBox.shrink(),
-                  ),
+                  // ── La tarjeta Monaco (o la invitación a tener una) ──
+                  if (invitado)
+                    const _TarjetaInvitado()
+                  else
+                    _TarjetaMonaco(
+                      loyalty: loyalty,
+                      saldo: saldo.valueOrNull ?? 0,
+                      nombre: auth.clientName ?? '',
+                    ),
                   const SizedBox(height: 14),
+
+                  // ── Seña a medio pagar ──
+                  // Arriba de los tiles de turno a propósito: si el cliente
+                  // tiene plata en el aire, eso es lo más urgente del Home.
+                  if (!invitado) const SenaPendienteBanner(),
 
                   // ── Turnos ──
                   TurnoTiles(
                     proximo: proximoTurno.valueOrNull,
-                    cargando: proximoTurno.isLoading && !proximoTurno.hasValue,
+                    cargando:
+                        !invitado &&
+                        proximoTurno.isLoading &&
+                        !proximoTurno.hasValue,
                     reservable: reservable,
+                    // `conCuenta` retoma la reserva si el muro terminó con
+                    // sesión: hacerlo tocar dos veces el mismo botón es la
+                    // forma más barata de perder al que recién se registró.
+                    onReservar: invitado
+                        ? () => conCuenta(
+                            context,
+                            ref,
+                            AccionConCuenta.reservar,
+                            () => context.push('/turnos/reservar'),
+                          )
+                        : null,
                   ),
                   const SizedBox(height: 24),
 
@@ -178,7 +238,8 @@ class HomeScreen extends ConsumerWidget {
                               occupancyLevel: b['occupancy_level'] ?? 'baja',
                               isOpen: (b['is_open'] ?? true) as bool,
                               totalBarbers: (b['total_barbers'] ?? 0).toInt(),
-                              onTap: () => context.push('/branch/${b['branch_id']}'),
+                              onTap: () =>
+                                  context.push('/branch/${b['branch_id']}'),
                             ).liquidEnter(index: i, stagger: 70);
                           },
                         );
@@ -196,7 +257,10 @@ class HomeScreen extends ConsumerWidget {
                   const SizedBox(height: 26),
 
                   // ── Canjeá tus puntos ──
-                  _CarruselPremios(premios: premios, saldo: saldo.valueOrNull ?? 0),
+                  _CarruselPremios(
+                    premios: premios,
+                    saldo: saldo.valueOrNull ?? 0,
+                  ),
 
                   // ── Cartelera ──
                   billboard.when(
@@ -216,7 +280,8 @@ class HomeScreen extends ConsumerWidget {
                               scrollDirection: Axis.horizontal,
                               clipBehavior: Clip.none,
                               itemCount: items.length,
-                              separatorBuilder: (_, _) => const SizedBox(width: 12),
+                              separatorBuilder: (_, _) =>
+                                  const SizedBox(width: 12),
                               itemBuilder: (context, i) {
                                 final item = items[i];
                                 return _BillboardCard(
@@ -251,7 +316,8 @@ class HomeScreen extends ConsumerWidget {
       case 'route':
         if (linkValue.startsWith('/')) context.push(linkValue);
       case 'url':
-        if (linkValue.startsWith('http://') || linkValue.startsWith('https://')) {
+        if (linkValue.startsWith('http://') ||
+            linkValue.startsWith('https://')) {
           abrirUrlExterna(context, linkValue);
         }
       case 'branch':
@@ -276,17 +342,17 @@ class _Saludo extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          saludo,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: MonacoColors.textPrimary,
-            fontSize: 32,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.8,
-            height: 1.1,
-          ),
-        )
+              saludo,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: MonacoColors.textPrimary,
+                fontSize: 32,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.8,
+                height: 1.1,
+              ),
+            )
             .animate()
             .fadeIn(duration: 500.ms)
             .slideX(begin: -0.05, end: 0, duration: 500.ms),
@@ -305,44 +371,163 @@ class _Saludo extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TARJETA DE PUNTOS — el pie sale del catálogo REAL
+// TARJETA MONACO + tira de estado
 // ═══════════════════════════════════════════════════════════════════════════
 
-class _TarjetaPuntos extends ConsumerWidget {
+/// La tarjeta y su tira. Tres estados y ninguno vacío:
+///   - cargando → esqueleto con la proporción exacta de la tarjeta (no salta);
+///   - error → la tarjeta en modo apagado con el último saldo conocido (o 0);
+///   - datos → la tarjeta de la categoría (o apagada si el programa no está).
+class _TarjetaMonaco extends StatelessWidget {
+  final AsyncValue<LoyaltySummary> loyalty;
   final int saldo;
-  const _TarjetaPuntos({required this.saldo});
+  final String nombre;
+
+  const _TarjetaMonaco({
+    required this.loyalty,
+    required this.saldo,
+    required this.nombre,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (loyalty.isLoading && !loyalty.hasValue) {
+      return const AspectRatio(
+        aspectRatio: MonacoCard.proporcion,
+        child: LiquidSkeleton(radius: MonacoCard.radio),
+      );
+    }
+    final summary =
+        loyalty.valueOrNull ??
+        LoyaltySummary.disabled(clientName: nombre, balance: saldo);
+    final conNombre = summary.clientName.isEmpty
+        ? summary.copyWith(clientName: nombre)
+        : summary;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        MonacoCard(
+              summary: conNombre,
+              saldo: saldo,
+              onTap: () => context.push('/points'),
+            )
+            .animate()
+            .fadeIn(duration: 500.ms)
+            .slideY(begin: 0.08, end: 0, duration: 500.ms),
+        const SizedBox(height: 12),
+        LoyaltyStatusStrip(
+          summary: conNombre,
+          onCanjear: () => context.go('/rewards'),
+        ).animate().fadeIn(delay: 120.ms, duration: 400.ms),
+      ],
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TARJETA DE INVITADO
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Reemplaza a la tarjeta de puntos cuando no hay cuenta.
+///
+/// Ocupa el mismo lugar y la misma proporción que `MonacoCard` a propósito: es
+/// el hueco de "lo que tenés", y mostrarlo vacío (o con un 0) sería mentir. Lo
+/// que hay adentro es la promesa del programa y un botón para tenerlo.
+///
+/// Va en vidrio gris, como la tarjeta real (decisión del dueño, 24/ago/2026:
+/// la lámina blanca rompe el lenguaje Liquid Glass). Lo único sólido es el
+/// botón, que es lo que el ojo lee como "esto se toca".
+class _TarjetaInvitado extends ConsumerWidget {
+  const _TarjetaInvitado();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final proximo = ref.watch(proximoPremioProvider);
-    final canjeables = ref.watch(premiosCanjeablesProvider);
-
-    // Tres estados, en orden de utilidad para el cliente:
-    //   1. le falta poco para algo concreto → decile qué y cuánto;
-    //   2. ya le alcanza para algo → decile que vaya a buscarlo;
-    //   3. no hay catálogo cargado → no inventes una meta que no existe.
-    final String pie;
-    final double? progreso;
-    if (proximo != null) {
-      pie = 'A ${_pts.format(proximo.faltan(saldo))} pts de ${proximo.nombre}';
-      progreso = proximo.progreso(saldo);
-    } else if (canjeables > 0) {
-      pie = canjeables == 1
-          ? 'Ya podés canjear un premio'
-          : 'Ya podés canjear $canjeables premios';
-      progreso = 1;
-    } else {
-      pie = 'Sumás puntos en cada visita';
-      progreso = null;
-    }
-
-    return WalletPointsCard(
-      saldo: saldo,
-      progreso: progreso,
-      pie: pie,
-      onTap: () => context.push('/points'),
-      onPremios: () => context.go('/rewards'),
-    );
+    return AspectRatio(
+          aspectRatio: MonacoCard.proporcion,
+          child: LiquidGlass(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+            borderRadius: MonacoCard.radio,
+            tintOpacity: 0.09,
+            showVignette: false,
+            onTap: () => pedirCuenta(context, ref, AccionConCuenta.misPuntos),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const MonacoLogo.monogram(width: 26),
+                    const SizedBox(width: 10),
+                    Text(
+                      'MONACO',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.75),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 2.4,
+                      ),
+                    ),
+                  ],
+                ),
+                const Spacer(),
+                const Text(
+                  'Sumá puntos\nen cada corte',
+                  style: TextStyle(
+                    color: MonacoColors.textPrimary,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                    height: 1.1,
+                    letterSpacing: -0.9,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Creá tu cuenta y empezá a acumular puntos, categoría y '
+                        'premios desde tu próxima visita.',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.6),
+                          fontSize: 12.5,
+                          height: 1.3,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.32),
+                            blurRadius: 12,
+                            spreadRadius: -2,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.arrow_forward_rounded,
+                        size: 20,
+                        color: MonacoColors.background,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        )
+        .animate()
+        .fadeIn(duration: 500.ms)
+        .slideY(begin: 0.08, end: 0, duration: 500.ms);
   }
 }
 
@@ -425,69 +610,72 @@ class _ReviewBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     const amber = MonacoColors.warning;
     return LiquidGlass(
-      onTap: onTap,
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      tint: amber,
-      tintOpacity: 0.12,
-      borderRadius: 18,
-      showVignette: false,
-      scalePressed: 0.97,
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  amber.withValues(alpha: 0.28),
-                  amber.withValues(alpha: 0.14),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(11),
-              border: Border.all(color: amber.withValues(alpha: 0.42), width: 0.8),
-            ),
-            child: Center(
-              child: Text(
-                '$count',
-                style: TextStyle(
-                  color: amber.withValues(alpha: 0.98),
-                  fontWeight: FontWeight.w900,
-                  fontSize: 15,
+          onTap: onTap,
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          tint: amber,
+          tintOpacity: 0.12,
+          borderRadius: 18,
+          showVignette: false,
+          scalePressed: 0.97,
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      amber.withValues(alpha: 0.28),
+                      amber.withValues(alpha: 0.14),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(11),
+                  border: Border.all(
+                    color: amber.withValues(alpha: 0.42),
+                    width: 0.8,
+                  ),
+                ),
+                child: Center(
+                  child: Text(
+                    '$count',
+                    style: TextStyle(
+                      color: amber.withValues(alpha: 0.98),
+                      fontWeight: FontWeight.w900,
+                      fontSize: 15,
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          const Expanded(
-            child: Text(
-              'Tenés reseñas pendientes',
-              style: TextStyle(
-                color: MonacoColors.textPrimary,
-                fontSize: 13.5,
-                fontWeight: FontWeight.w700,
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Tenés reseñas pendientes',
+                  style: TextStyle(
+                    color: MonacoColors.textPrimary,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
-            ),
+              Text(
+                'Dejá tu opinión',
+                style: TextStyle(
+                  color: amber.withValues(alpha: 0.98),
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 11,
+                color: amber.withValues(alpha: 0.98),
+              ),
+            ],
           ),
-          Text(
-            'Dejá tu opinión',
-            style: TextStyle(
-              color: amber.withValues(alpha: 0.98),
-              fontSize: 12.5,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(width: 4),
-          Icon(
-            Icons.arrow_forward_ios_rounded,
-            size: 11,
-            color: amber.withValues(alpha: 0.98),
-          ),
-        ],
-      ),
-    )
+        )
         .animate()
         .fadeIn(duration: 400.ms)
         .slideY(begin: 0.08, end: 0, duration: 400.ms);

@@ -17,8 +17,12 @@ import 'package:monaco_mobile/core/auth/biometric_service.dart';
 import 'package:monaco_mobile/core/auth/secure_storage.dart';
 import 'package:monaco_mobile/core/push/push_service.dart';
 import 'package:monaco_mobile/core/utils/constants.dart';
+import 'package:monaco_mobile/features/loyalty/data/loyalty_models.dart';
+import 'package:monaco_mobile/features/loyalty/providers/loyalty_provider.dart';
 import 'package:monaco_mobile/features/notifications/presentation/widgets/push_pre_prompt.dart';
 import 'package:monaco_mobile/features/notifications/providers/notifications_provider.dart';
+import 'package:monaco_mobile/features/onboarding/presentation/widgets/muro_login.dart';
+import 'package:monaco_mobile/features/onboarding/presentation/widgets/onboarding_scaffold.dart';
 import 'package:monaco_mobile/features/onboarding/utils/phone_format.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -141,6 +145,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
+    if (auth.isGuest) return _perfilInvitado();
+
     final pushStatus = ref.watch(pushPermissionProvider);
     final unread = ref.watch(unreadNotificationsCountProvider);
     final biometricEnabled = ref.watch(biometricEnabledProvider);
@@ -148,6 +154,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     final pinConfigured = ref.watch(pinConfiguredProvider).valueOrNull;
     final version = ref.watch(appVersionProvider).valueOrNull;
     final testMode = ref.watch(testModeEnabledProvider);
+    final loyalty = ref.watch(loyaltyProvider);
 
     // Si el server tiene otro nombre (lo editaron desde el dashboard), se
     // adopta en silencio.
@@ -181,6 +188,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
           ref.invalidate(pushPermissionProvider);
           ref.invalidate(pinConfiguredProvider);
           ref.invalidate(biometricKindProvider);
+          invalidarLoyalty(ref);
           await Future<void>.delayed(const Duration(milliseconds: 400));
         },
         child: ListView(
@@ -276,8 +284,33 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
             const SizedBox(height: 26),
 
+            // ── Mi programa ────────────────────────────────────────────
+            const _SectionLabel('Mi programa').liquidEnter(index: 6),
+            const SizedBox(height: 10),
+            LiquidSectionCard(
+              children: [
+                LiquidListTile(
+                  icon: Icons.workspace_premium_rounded,
+                  // El color de la categoría, no un verde de "tiene": misma
+                  // regla que la línea "Cliente Oro" de Premios.
+                  iconColor: loyalty.valueOrNull?.tier?.acentoSobreOscuro,
+                  title: 'Mi categoría',
+                  subtitle: _subtituloCategoria(loyalty),
+                  onTap: () => context.push('/categoria'),
+                ),
+                LiquidListTile(
+                  icon: Icons.person_add_alt_1_rounded,
+                  title: 'Invitá a un amigo',
+                  subtitle: 'Tu código y QR personal',
+                  onTap: () => context.push('/invitar'),
+                ),
+              ],
+            ).liquidEnter(index: 7),
+
+            const SizedBox(height: 26),
+
             // ── Historial ──────────────────────────────────────────────
-            const _SectionLabel('Historial').liquidEnter(index: 6),
+            const _SectionLabel('Historial').liquidEnter(index: 8),
             const SizedBox(height: 10),
             LiquidSectionCard(
               children: [
@@ -307,12 +340,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   onTap: () => context.push('/mis-canjes'),
                 ),
               ],
-            ).liquidEnter(index: 7),
+            ).liquidEnter(index: 9),
 
             const SizedBox(height: 26),
 
             // ── Legal y soporte ────────────────────────────────────────
-            const _SectionLabel('Legal y soporte').liquidEnter(index: 8),
+            const _SectionLabel('Legal y soporte').liquidEnter(index: 10),
             const SizedBox(height: 10),
             LiquidSectionCard(
               children: [
@@ -330,7 +363,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   icon: Icons.chat_rounded,
                   iconColor: MonacoColors.monacoGreen,
                   title: 'Soporte por WhatsApp',
-                  subtitle: '${AppConstants.supportPhoneDisplay} · en horario de atención',
+                  subtitle:
+                      '${AppConstants.supportPhoneDisplay} · en horario de atención',
                   onTap: () => _openUrl(AppConstants.supportWhatsappUrl),
                 ),
                 LiquidListTile(
@@ -342,7 +376,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   ),
                 ),
               ],
-            ).liquidEnter(index: 9),
+            ).liquidEnter(index: 11),
 
             const SizedBox(height: 32),
 
@@ -374,7 +408,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   ),
                 ],
               ),
-            ).liquidEnter(index: 10),
+            ).liquidEnter(index: 12),
 
             const SizedBox(height: 14),
 
@@ -400,7 +434,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   ),
                 ),
               ),
-            ).liquidEnter(index: 11),
+            ).liquidEnter(index: 13),
 
             const SizedBox(height: 14),
 
@@ -565,6 +599,169 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     }
   }
 
+  /// Perfil de un **invitado**: sin datos personales (no hay ninguno), con lo
+  /// legal y el soporte —que son públicos y App Store los quiere accesibles— y
+  /// con la puerta para crear la cuenta.
+  ///
+  /// No dibuja el interruptor de notificaciones del sistema a propósito: pedir
+  /// el permiso de push a alguien que todavía no tiene cuenta es pedirlo sin
+  /// nada que notificar, y la 5.1.2(i) prohíbe condicionar funciones a que el
+  /// usuario habilite permisos.
+  Widget _perfilInvitado() {
+    final version = ref.watch(appVersionProvider).valueOrNull;
+    final testMode = ref.watch(testModeEnabledProvider);
+
+    return LiquidAppBarScaffold(
+      title: 'Perfil',
+      body: ListView(
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
+        children: [
+          LiquidGlass(
+            padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
+            borderRadius: 24,
+            tintOpacity: 0.09,
+            showVignette: false,
+            pressable: false,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Estás mirando sin cuenta',
+                  style: TextStyle(
+                    color: MonacoColors.textPrimary,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Con tu cuenta reservás turnos, sumás puntos en cada corte y '
+                  'canjeás premios en el local.',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.6),
+                    fontSize: 13.5,
+                    height: 1.4,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  height: 52,
+                  width: double.infinity,
+                  child: LiquidTapEffect(
+                    onTap: () =>
+                        pedirCuenta(context, ref, AccionConCuenta.perfil),
+                    borderRadius: BorderRadius.circular(16),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          'Crear cuenta o ingresar',
+                          style: TextStyle(
+                            color: MonacoColors.background,
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ).liquidEnter(index: 0),
+
+          const SizedBox(height: 26),
+
+          const _SectionLabel('Legal y soporte').liquidEnter(index: 1),
+          const SizedBox(height: 10),
+          LiquidSectionCard(
+            children: [
+              LiquidListTile(
+                icon: Icons.shield_outlined,
+                title: 'Política de privacidad',
+                onTap: () => _openUrl(AppConstants.privacyPolicyUrl),
+              ),
+              LiquidListTile(
+                icon: Icons.description_outlined,
+                title: 'Términos y condiciones',
+                onTap: () => _openUrl(AppConstants.termsOfServiceUrl),
+              ),
+              LiquidListTile(
+                icon: Icons.chat_rounded,
+                iconColor: MonacoColors.monacoGreen,
+                title: 'Soporte por WhatsApp',
+                subtitle:
+                    '${AppConstants.supportPhoneDisplay} · en horario de atención',
+                onTap: () => _openUrl(AppConstants.supportWhatsappUrl),
+              ),
+              LiquidListTile(
+                icon: Icons.alternate_email_rounded,
+                title: 'Soporte por email',
+                subtitle: AppConstants.supportEmail,
+                onTap: () => _openUrl(
+                  'mailto:${AppConstants.supportEmail}?subject=${Uri.encodeComponent('Soporte app Monaco')}',
+                ),
+              ),
+            ],
+          ).liquidEnter(index: 2),
+
+          const SizedBox(height: 26),
+
+          // Salir del modo invitado = volver a la bienvenida. No es "cerrar
+          // sesión" (no hay ninguna): es deshacer el "Seguir mirando".
+          Center(
+            child: OnboardingLink(
+              label: 'Volver a la pantalla de inicio',
+              icon: Icons.arrow_back_rounded,
+              onTap: () =>
+                  ref.read(authProvider.notifier).salirDelModoInvitado(),
+            ),
+          ).liquidEnter(index: 3),
+
+          const SizedBox(height: 14),
+
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _onVersionTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Column(
+                children: [
+                  Text(
+                    'Versión ${version ?? '…'}',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.3),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                  if (testMode) ...[
+                    const SizedBox(height: 8),
+                    const LiquidStatusPill(
+                      label: 'MODO PRUEBA',
+                      color: MonacoColors.warning,
+                      compact: true,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _confirmLogout() async {
     final ok = await showLiquidDialog<bool>(
       context,
@@ -690,6 +887,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 // ═══════════════════════════════════════════════════════════════════════════
 // Widgets
 // ═══════════════════════════════════════════════════════════════════════════
+
+/// "Oro · 2 visitas para Platinum" / "Oro · nivel máximo" / "Programa
+/// próximamente" (apagado). Todo sale de `get_client_loyalty`.
+String _subtituloCategoria(AsyncValue<LoyaltySummary> loyalty) {
+  final s = loyalty.valueOrNull;
+  if (s == null) return 'Tu nivel y beneficios';
+  if (!s.programEnabled) return 'Programa próximamente';
+  final tier = s.tier;
+  if (tier == null) return 'Tu nivel y beneficios';
+  final next = s.nextTier;
+  if (next == null) return '${tier.name} · nivel máximo';
+  final faltan = s.nextTierFaltan;
+  final visitas = faltan == 1 ? '1 visita' : '$faltan visitas';
+  return '${tier.name} · $visitas para ${next.name}';
+}
 
 class _BellAction extends StatelessWidget {
   final int unread;

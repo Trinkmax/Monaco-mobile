@@ -182,6 +182,56 @@ class BookingSettings {
       );
 }
 
+/// `deposit` del bootstrap: lo que hace falta para **anunciar** la seña antes
+/// de que el cliente elija nada.
+///
+/// No alcanza para calcularla, y no tiene que alcanzar: el monto exacto —con su
+/// moneda— lo escribe el server (`PoliticaSena.titulo`, "Seña $8.000 ARS").
+/// Reimplementar `calcularSena` acá es cómo se llega a que la pantalla diga un
+/// número y Mercado Pago cobre otro.
+class AvisoSena {
+  /// La sucursal cobra seña **por la app** (`is_enabled` + canal habilitado).
+  final bool enabled;
+
+  /// Porcentaje del total que se cobra por adelantado.
+  final int percentage;
+
+  /// Debajo de este monto la seña no se cobra (no vale la fricción ni la
+  /// comisión de Mercado Pago).
+  final num minAmount;
+
+  const AvisoSena({
+    this.enabled = false,
+    this.percentage = 50,
+    this.minAmount = 0,
+  });
+
+  /// ¿Se anuncia la seña para un carrito de `total`?
+  ///
+  /// Sin servicio elegido (`total <= 0`) se anuncia igual: el aviso existe
+  /// justamente para que el cliente se entere ANTES de elegir. Con servicios
+  /// elegidos, sólo si la parte a señar llega al mínimo de la sucursal.
+  ///
+  /// La comparación es **conservadora**: el server redondea la seña hacia
+  /// arriba, así que puede haber un caso donde él la cobre y acá no se anuncie.
+  /// Anunciar de menos es un cartel que falta; anunciar de más es prometer un
+  /// cobro que no va a existir.
+  bool anunciaPara(num total) {
+    if (!enabled) return false;
+    if (total <= 0) return true;
+    return total * percentage / 100 >= minAmount;
+  }
+
+  factory AvisoSena.fromJson(Map<String, dynamic> j) {
+    final pct = _toInt(j['percentage'], 50);
+    return AvisoSena(
+      enabled: j['enabled'] == true,
+      percentage: pct < 1 ? 1 : (pct > 100 ? 100 : pct),
+      minAmount: _toDouble(j['min_amount']) ?? 0,
+    );
+  }
+}
+
 class BookingBranding {
   final String? logoUrl;
   final String? welcomeMessage;
@@ -337,6 +387,9 @@ class BookingBootstrap {
   final List<WalkInStaff> walkInStaff;
   final BookingClient client;
 
+  /// Si esta sucursal cobra seña por la app, para anunciarlo desde el paso 1.
+  final AvisoSena deposit;
+
   /// Instante local en que se recibió: "ahora" = `serverNow + (now - fetchedAt)`.
   final DateTime fetchedAt;
 
@@ -351,6 +404,7 @@ class BookingBootstrap {
     required this.staff,
     required this.walkInStaff,
     required this.client,
+    this.deposit = const AvisoSena(),
     required this.fetchedAt,
   });
 
@@ -382,6 +436,10 @@ class BookingBootstrap {
           ? walkIn.map((e) => WalkInStaff.fromJson(_map(e))).toList()
           : const [],
       client: BookingClient.fromJson(_map(j['client'])),
+      // Un bootstrap viejo (server sin `deposit`) queda en "no cobra seña": no
+      // se anuncia nada y el flujo sigue igual. El que decide de verdad es
+      // `POST /sena`, no este aviso.
+      deposit: AvisoSena.fromJson(_map(j['deposit'])),
       fetchedAt: now,
     );
   }

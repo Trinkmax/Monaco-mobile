@@ -2,16 +2,22 @@ import 'dart:async';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'package:monaco_mobile/features/rewards/providers/premios_provider.dart';
 
 import 'push_service.dart';
 
 /// Resuelve qué hacer con un push: a dónde navegar y qué marcar como leído.
 ///
 /// Contrato del payload (CONTRACTS.md §6.7), todo string:
-/// `data = { type, value?, deep_link?, notification_id? }`.
+/// `data = { type, value?, deep_link?, notification_id?, loyalty_kind? }`.
 /// - Si viene `deep_link` y es un path interno (empieza con `/`), gana.
+/// - Si viene `loyalty_kind` (fidelización, `loyalty_notify` en la mig 197:
+///   el `type` es `reward` o `points` y la familia viaja aparte), se resuelve
+///   por familia ([loyaltyRouteFor]).
 /// - Si no, se decide por `type`: `appointment_*` → `/turnos`, `reward` →
 ///   `/rewards`, `points` → `/points`, `campaign`/default → `/home`.
 /// - Si viene `notification_id`, se marca `client_notifications.read_at`
@@ -52,6 +58,39 @@ class PushHandler {
     '/biometric',
     '/pin',
   };
+
+  /// Rutas cuyo contenido sale de los providers de fidelización (globales,
+  /// cacheados de por vida): un push que aterriza ahí promete un dato nuevo
+  /// ("Sumaste 110 pts") y sin refrescar la pantalla mostraba la última carga.
+  static const Set<String> _rutasDeFidelizacion = {
+    '/home',
+    '/points',
+    '/rewards',
+    '/mis-premios',
+    '/categoria',
+    '/invitar',
+  };
+
+  /// La usa también la bandeja (`notifications_screen`): un tap ahí y un tap
+  /// en la notificación del sistema tienen que refrescar igual.
+  static bool esRutaDeFidelizacion(String route) {
+    try {
+      return _rutasDeFidelizacion.contains(Uri.parse(route).path);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static void _refrescarSiFidelizacion(BuildContext context, String route) {
+    if (!esRutaDeFidelizacion(route)) return;
+    try {
+      invalidarFidelizacionEn(ProviderScope.containerOf(context));
+    } catch (e) {
+      // Sin ProviderScope todavía (arranque muy temprano) no hay nada
+      // cacheado que refrescar: la pantalla se computa fresca al montarse.
+      debugPrint('[push] refresco de fidelización: $e');
+    }
+  }
 
   /// `main.dart` lo llama con `rootNavigatorKey` del router.
   static void setNavigatorKey(GlobalKey<NavigatorState> key) {
@@ -103,8 +142,18 @@ class PushHandler {
   }
 
   /// Tabla de ruteo única para push y bandeja.
-  static String routeFor({String? deepLink, String? type, String? value}) {
+  static String routeFor({
+    String? deepLink,
+    String? type,
+    String? value,
+    String? loyaltyKind,
+  }) {
     if (isInternalPath(deepLink)) return deepLink!.trim();
+    // Fidelización: las reglas de `loyalty_notification_rules` mandan
+    // `deep_link` (que gana arriba); esto es el respaldo si una regla se
+    // guardó sin él, para que un `benefit_new` no caiga en `/rewards`.
+    final porFamilia = loyaltyRouteFor(loyaltyKind);
+    if (porFamilia != null) return porFamilia;
     final v = (value ?? '').trim();
     switch (type) {
       case 'appointment_reminder':
@@ -131,6 +180,22 @@ class PushHandler {
     }
   }
 
+  /// Ruta por familia del `kind` de `loyalty_notification_rules` (`tier_up`,
+  /// `near_tier`, `points_expiring`, `benefit_new`, `referral_completed_*`…),
+  /// que `loyalty_notify` manda en `data.loyalty_kind` — el `type` de esas
+  /// notificaciones es `reward` o `points`, nunca `loyalty_*` (el CHECK de
+  /// `client_notifications` no lo admite). `null` si no es de fidelización.
+  static String? loyaltyRouteFor(String? kind) {
+    final k = kind?.trim();
+    if (k == null || k.isEmpty) return null;
+    if (k.startsWith('tier') || k == 'near_tier') return '/categoria';
+    if (k.startsWith('referral')) return '/invitar';
+    if (k.startsWith('points')) return '/points';
+    if (k == 'benefit_new') return '/mis-premios';
+    if (k.contains('reward')) return '/rewards';
+    return '/categoria';
+  }
+
   static String? _str(Object? v) {
     if (v == null) return null;
     final s = v.toString().trim();
@@ -143,6 +208,7 @@ class PushHandler {
       deepLink: _str(data['deep_link']),
       type: _str(data['type']),
       value: _str(data['value']) ?? _str(data['token']),
+      loyaltyKind: _str(data['loyalty_kind']),
     );
   }
 
@@ -181,6 +247,7 @@ class PushHandler {
         if (!_notReadyPaths.contains(current)) {
           _pendingRoute = null;
           _pendingTimer?.cancel();
+          _refrescarSiFidelizacion(context, route);
           _go(router, route);
           return;
         }
@@ -199,6 +266,10 @@ class PushHandler {
   static void _go(GoRouter router, String route) {
     try {
       final path = Uri.parse(route).path;
+      // Ya estamos ahí: no apilar una segunda copia. Pasa con el deep link de
+      // vuelta del checkout de Mercado Pago (la app ya empujó `/pago/<id>`
+      // antes de abrir el navegador) y con un push de una pantalla abierta.
+      if (router.routerDelegate.currentConfiguration.uri.path == path) return;
       if (_shellPaths.contains(path)) {
         router.go(route);
       } else {

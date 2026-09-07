@@ -46,6 +46,7 @@ class WizardFooter extends StatelessWidget {
     final mostrarPolitica = esSlot && slot != null;
     final mostrarNombre = esSlot && slot != null && needsName;
     final n = state.settings?.cancellationMinHours ?? 2;
+    final avisoSena = _textoAvisoSena(state);
     final ctaLabel = esSlot ? 'Confirmar turno' : 'Continuar';
     final enabled = canProceed && !state.submitting && (!mostrarNombre || state.nameInputValid);
 
@@ -76,6 +77,16 @@ class WizardFooter extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // El aviso de la seña, arriba del precio y desde el primer
+                  // paso. Antes el cliente se enteraba recién al tocar
+                  // "Confirmar turno", con el servicio y el horario ya
+                  // elegidos: el que no puede o no quiere pagar por adelantado
+                  // había hecho todo el trabajo al pedo. Una línea sola —el
+                  // monto, la política y la devolución son la hoja siguiente—.
+                  if (avisoSena != null) ...[
+                    _AvisoSena(texto: avisoSena),
+                    const SizedBox(height: 10),
+                  ],
                   if (mostrarResumen) ...[
                     _Resumen(state: state),
                     const SizedBox(height: 10),
@@ -212,6 +223,56 @@ class WizardFooter extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// El texto del aviso de seña, o `null` si esta reserva no lleva.
+///
+/// Anuncia el PORCENTAJE y no el monto a propósito: el monto exacto —con su
+/// moneda— lo escribe el server (`PoliticaSena.titulo`) y se lee en la hoja de
+/// la seña. Es además el mismo texto, palabra por palabra, que el pie del
+/// turnero web (`textoAvisoSena` en `booking-wizard.tsx`): las dos superficies
+/// tienen que prometer lo mismo. Si cambia una, cambian las dos.
+String? _textoAvisoSena(BookingWizardState state) {
+  final aviso = state.bootstrap?.deposit;
+  if (aviso == null || !aviso.anunciaPara(state.totalPrice)) return null;
+  return aviso.percentage >= 100
+      ? 'Este turno se reserva pagando el total por adelantado, online.'
+      : 'Este turno se reserva con una seña del ${aviso.percentage}%; '
+          'el resto lo pagás en el local.';
+}
+
+class _AvisoSena extends StatelessWidget {
+  final String texto;
+  const _AvisoSena({required this.texto});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 1),
+          child: Icon(
+            Icons.account_balance_wallet_outlined,
+            size: 14,
+            color: Colors.white.withValues(alpha: 0.55),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            texto,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.62),
+              fontSize: 11.5,
+              height: 1.35,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

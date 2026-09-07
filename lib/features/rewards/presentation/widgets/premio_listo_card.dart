@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
+import 'package:monaco_mobile/features/rewards/data/beneficio_canjeado.dart';
 
 /// Tarjeta de la tira **"Listos para usar"**: un premio ya canjeado, esperando
 /// que el cliente lo muestre en el local.
@@ -25,7 +25,13 @@ class PremioListoCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final nombre = (reward['reward_name'] as String?)?.trim();
     final qr = (reward['qr_code'] as String?)?.trim() ?? '';
-    final vence = _vencimiento(reward['expires_at']);
+    // El mismo helper que el QR y "Mis premios": la tira decía "Vence hoy"
+    // para un premio que vencía mañana (truncaba con `inDays`) y el QR, con
+    // la misma fila, "Vence mañana".
+    final vencimiento = BeneficioCanjeado.vencimiento(reward);
+    final cuenta = BeneficioCanjeado.cuentaRegresiva(vencimiento);
+    final dias = BeneficioCanjeado.diasParaVencer(vencimiento);
+    final urgente = dias != null && dias <= 7;
 
     return Semantics(
       button: true,
@@ -79,13 +85,17 @@ class PremioListoCard extends StatelessWidget {
               ],
             ),
             const Spacer(),
-            if (vence != null)
+            if (cuenta != null)
               Text(
-                vence,
+                cuenta.label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.5),
+                  // Ámbar/rojo sólo cuando urge; el verde del helper acá
+                  // sobraría (la tarjeta ya es verde).
+                  color: urgente
+                      ? cuenta.color
+                      : Colors.white.withValues(alpha: 0.5),
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
                 ),
@@ -112,20 +122,6 @@ class PremioListoCard extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  /// "Vence hoy" / "Vence el 12 de sep". `null` si no vence o ya venció (un
-  /// premio vencido no debería estar en esta tira, y si llega, no le metemos
-  /// una fecha vieja al cliente en la cara).
-  static String? _vencimiento(Object? raw) {
-    final s = raw?.toString();
-    if (s == null || s.isEmpty) return null;
-    final d = DateTime.tryParse(s)?.toLocal();
-    if (d == null) return null;
-    final dias = d.difference(DateTime.now()).inDays;
-    if (dias < 0) return null;
-    if (dias == 0) return 'Vence hoy';
-    return 'Vence el ${DateFormat("d 'de' MMM", 'es').format(d)}';
   }
 }
 

@@ -50,6 +50,26 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+
+            <!--
+              Vuelta del checkout de Mercado Pago: monaco://pago?deposit=<id>.
+              MP sólo acepta back_urls https (descarta en silencio cualquier
+              otra cosa), así que el camino real es MP → https://…/pago/<id> →
+              esa página rebota a este esquema.
+
+              El parámetro se llama `deposit` y NO `code`: supabase_flutter
+              engancha todos los deep links del proceso y trata cualquiera con
+              `code` como callback de OAuth.
+
+              launchMode=singleTop (arriba): el link reusa la Activity que ya
+              está abierta en vez de apilar una segunda instancia de la app.
+            -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="monaco" android:host="pago"/>
+            </intent-filter>
         </activity>
 
         <!-- Canal por defecto para los push de FCM cuando la app está en background.
@@ -102,6 +122,19 @@
         <intent>
             <action android:name="android.intent.action.VIEW"/>
             <data android:scheme="https"/>
+        </intent>
+        <!-- Custom Tabs (checkout de Mercado Pago). En API 30+ la resolución
+             del navegador exige que la consulta incluya la categoría
+             BROWSABLE: con la entrada de arriba sola, `flutter_custom_tabs` no
+             encuentra navegador y el botón "Pagar seña" no hace nada. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <category android:name="android.intent.category.BROWSABLE"/>
+            <data android:scheme="https"/>
+        </intent>
+        <!-- Navegadores que soportan Custom Tabs (para poder elegir uno). -->
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService"/>
         </intent>
         <intent>
             <action android:name="android.intent.action.VIEW"/>

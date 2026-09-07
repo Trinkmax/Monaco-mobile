@@ -12,15 +12,25 @@ import 'package:monaco_mobile/core/auth/auth_provider.dart';
 import 'package:monaco_mobile/core/auth/auth_service.dart';
 import 'package:monaco_mobile/core/utils/constants.dart';
 
+import 'package:monaco_mobile/core/auth/social_auth_service.dart';
+
 import '../../providers/login_flow_provider.dart';
 import '../../utils/phone_format.dart';
 import '../widgets/legal_footer.dart';
-import '../widgets/no_cliente_sheet.dart';
 import '../widgets/onboarding_scaffold.dart';
 
 /// Paso 1 del login: el número. `start` decide si la sesión ya está lista
 /// (dispositivo conocido → el router manda a /home) o si hay que verificar
 /// un código por WhatsApp (→ /login/codigo).
+///
+/// Es también el segundo paso del alta con Google/Apple: si viene un
+/// [SignupPendiente], su `signup_token` viaja en `start` (habilita mandarle el
+/// código a un número que todavía no es cliente) y después en `verify` (es lo
+/// que vincula la identidad social con la cuenta). Por eso el teléfono se pide
+/// SIEMPRE, aunque la identidad ya esté validada: **la identidad del negocio es
+/// el teléfono** —es lo que ata la cuenta con la fila del local, con WhatsApp,
+/// con los puntos y con el historial—, y una cuenta sin él sería una cuenta que
+/// el local no puede encontrar.
 class LoginPhoneScreen extends ConsumerStatefulWidget {
   const LoginPhoneScreen({super.key});
 
@@ -126,8 +136,15 @@ class _LoginPhoneScreenState extends ConsumerState<LoginPhoneScreen> {
     });
 
     final phone = _digits;
+    final signup = ref.read(signupPendienteProvider);
+    if (signup != null && signup.vencido) {
+      _signupVencido();
+      return;
+    }
     try {
-      final res = await ref.read(authProvider.notifier).startLogin(phone);
+      final res = await ref
+          .read(authProvider.notifier)
+          .startLogin(phone, signupToken: signup?.token);
       if (!mounted) return;
 
       if (res.sessionReady) {
@@ -136,6 +153,7 @@ class _LoginPhoneScreenState extends ConsumerState<LoginPhoneScreen> {
         // y dejamos el CTA en "cargando" hasta que la pantalla desaparezca.
         _done = true;
         ref.read(loginFlowProvider.notifier).state = null;
+        ref.read(signupPendienteProvider.notifier).state = null;
         return;
       }
       if (res.otpSent) {
@@ -206,18 +224,44 @@ class _LoginPhoneScreenState extends ConsumerState<LoginPhoneScreen> {
           ),
         );
       case 'CLIENT_NOT_FOUND':
-        // La app no crea cuentas: el cliente nace en la tablet del local.
+        // Con el alta abierta (`organizations.allow_client_signup`, hoy sólo
+        // Monaco) este código no llega: `start` manda el código igual y la
+        // cuenta se crea en `verify`. Si llega, es que el dueño cerró el alta,
+        // y entonces no hay nada que el cliente pueda hacer solo desde la app.
         setState(
           () => _banner = _Banner(
-            'Este número todavía no está registrado como cliente. La cuenta se '
-            'crea en tu primera visita, registrándote en la tablet del local.',
-            actionLabel: '¿Cómo es?',
-            onAction: () => showNoClienteSheet(context),
+            'Este número todavía no está registrado y por ahora no podemos '
+            'crear cuentas nuevas desde la app. Escribinos y lo resolvemos.',
+            actionLabel: 'Escribinos',
+            onAction: _openSupport,
           ),
         );
+      case 'SIGNUP_TOKEN_INVALID':
+        _signupVencido(expirado: e.expired);
       default:
         setState(() => _banner = _Banner(e.message));
     }
+  }
+
+  /// El `signup_token` de Google/Apple dura 15 minutos. Vencido, no alcanza con
+  /// reintentar: hay que volver a autorizar con el proveedor. Se dice con
+  /// palabras y se limpia el token, para que el próximo `start` no vuelva a
+  /// rebotar con lo mismo.
+  void _signupVencido({bool expirado = true}) {
+    final proveedor = ref.read(signupPendienteProvider)?.proveedor;
+    ref.read(signupPendienteProvider.notifier).state = null;
+    setState(() {
+      _loading = false;
+      _banner = _Banner(
+        expirado
+            ? 'Pasó demasiado tiempo desde que entraste con '
+                  '${proveedor?.label ?? 'tu cuenta'}. Volvé a empezar: es un toque.'
+            : 'No pudimos continuar con tu cuenta de '
+                  '${proveedor?.label ?? 'ese proveedor'}. Podés seguir con tu número.',
+        actionLabel: 'Volver al inicio',
+        onAction: () => context.go('/welcome'),
+      );
+    });
   }
 
   Future<void> _openSupport() async {
@@ -258,6 +302,8 @@ class _LoginPhoneScreenState extends ConsumerState<LoginPhoneScreen> {
         ? 'Demasiados intentos. Probá de nuevo en ${_fmt(retryLeft)}.'
         : banner?.text;
 
+    final signup = ref.watch(signupPendienteProvider);
+
     return OnboardingScaffold(
       showBack: true,
       onBack: _back,
@@ -279,10 +325,17 @@ class _LoginPhoneScreenState extends ConsumerState<LoginPhoneScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 18),
-          const OnboardingTitle(
-            title: 'Ingresá tu número',
-            subtitle:
-                'Te mandamos un código por WhatsApp para entrar. Sin contraseñas.',
+          if (signup != null) ...[
+            _ChipProveedor(signup: signup).liquidEnter(index: 0),
+            const SizedBox(height: 16),
+          ],
+          OnboardingTitle(
+            title: signup == null ? 'Ingresá tu número' : 'Falta tu teléfono',
+            subtitle: signup == null
+                ? 'Te mandamos un código por WhatsApp para entrar. Sin contraseñas.'
+                : 'Lo usamos para reconocerte en el local, avisarte de tus '
+                      'turnos y guardar tus puntos. Te mandamos un código por '
+                      'WhatsApp para confirmarlo.',
           ).liquidEnter(index: 0),
           const SizedBox(height: 32),
           LiquidTextField(
@@ -326,15 +379,6 @@ class _LoginPhoneScreenState extends ConsumerState<LoginPhoneScreen> {
           ),
           const SizedBox(height: 18),
           const _WhatsappHint().liquidEnter(index: 2),
-          const SizedBox(height: 6),
-          Center(
-            child: OnboardingLink(
-              label: '¿Aún no sos cliente?',
-              icon: Icons.help_outline_rounded,
-              dense: true,
-              onTap: () => showNoClienteSheet(context),
-            ),
-          ).liquidEnter(index: 3),
         ],
       ),
     );
@@ -443,8 +487,9 @@ class _WhatsappHint extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Un código de 6 dígitos al mismo número (el que registraste en '
-                  'la barbería). Si ya entraste desde este teléfono, pasás directo.',
+                  'Vas a recibir un mensaje de WhatsApp de Monaco con un código '
+                  'de 6 dígitos. Si ya entraste desde este teléfono, pasás '
+                  'directo y no te mandamos nada.',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.55),
                     fontSize: 12.5,
@@ -472,4 +517,48 @@ class _Banner {
     this.onAction,
     this.countdown = false,
   });
+}
+
+/// "Seguimos con tu cuenta de Google · nacho@gmail.com". Es lo que le dice al
+/// cliente por qué le estamos pidiendo el teléfono después de haber entrado con
+/// un toque, en vez de dejarlo pensando que el login falló.
+class _ChipProveedor extends StatelessWidget {
+  final SignupPendiente signup;
+  const _ChipProveedor({required this.signup});
+
+  @override
+  Widget build(BuildContext context) {
+    final email = (signup.email ?? '').trim();
+    return LiquidPill(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      tintOpacity: 0.08,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            signup.proveedor == SocialProvider.google
+                ? Icons.verified_rounded
+                : Icons.apple_rounded,
+            size: 16,
+            color: MonacoColors.monacoGreen,
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              email.isEmpty
+                  ? 'Seguimos con tu cuenta de ${signup.proveedor.label}'
+                  : '${signup.proveedor.label} · $email',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

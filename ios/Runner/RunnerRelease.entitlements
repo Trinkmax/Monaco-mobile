@@ -1,8 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  RunnerRelease.entitlements — Release/Profile.
+
+  Las dos capabilities de acá exigen el Apple Developer Program pago: push
+  (aps-environment) y Sign in with Apple. Por eso NO están en
+  Runner.entitlements (Debug), que usa el Personal Team y no las puede firmar.
+
+  `Sign in with Apple` hay que habilitarlo además en el App ID desde
+  developer.apple.com (Certificates, Identifiers & Profiles → el identifier
+  com.monacobarber.monacoMobile) y regenerar el perfil de aprovisionamiento; con
+  el entitlement acá pero la capability apagada allá, la firma falla.
+-->
 <plist version="1.0">
 <dict>
 	<key>aps-environment</key>
 	<string>production</string>
+	<!-- Ingreso con Apple (guideline 4.8: es obligatorio ofrecerlo si ofrecemos
+	     Google). `Default` es el flujo nativo; no hace falta `com.apple.developer.
+	     applesignin` con valores extra porque no usamos Services ID web. -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
 </dict>
 </plist>

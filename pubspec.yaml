@@ -29,6 +29,25 @@ dependencies:
   local_auth: ^2.3.0
   crypto: ^3.0.6
 
+  # ── Alta propia de cuentas (Google / Apple) ───────────────────────────────
+  # El id_token que devuelven estos paquetes NO se le entrega a
+  # `supabase.auth.signInWithIdToken`: va a nuestra edge function `client-auth`
+  # (acción `social`). Ver el comentario largo en `social_auth_service.dart`.
+  #
+  # google_sign_in 7.x rehízo la API (singleton `GoogleSignIn.instance`,
+  # `initialize()` una sola vez por proceso, `account.authentication` con sólo
+  # `idToken`). Pide Dart ^3.7 / Flutter >=3.29: entra en 3.10.3 / 3.38.4.
+  google_sign_in: ^7.2.0
+
+  # OJO con el rango: `sign_in_with_apple` 8.x pide Dart ^3.11 (8.0/8.1) y
+  # ^3.12 + Flutter >=3.44 (8.2), y este proyecto está en Dart 3.10.3 /
+  # Flutter 3.38.4 — o sea que `^8.2.0` NO resuelve acá. La 7.0.1 es la última
+  # que soporta este SDK y trae la misma API que necesitamos
+  # (`getAppleIDCredential(nonce:)`, `givenName`/`familyName`). Mismo criterio
+  # que el tope de `flutter_custom_tabs` de más abajo: se sube cuando suba el
+  # Flutter del proyecto, no antes.
+  sign_in_with_apple: ">=7.0.1 <8.0.0"
+
   # Push Notifications
   firebase_core: ^3.12.1
   firebase_messaging: ^15.2.4
@@ -46,6 +65,22 @@ dependencies:
   # Utilities
   intl: ^0.20.2
   url_launcher: ^6.3.1
+
+  # Checkout de Mercado Pago (seña) — Custom Tabs en Android.
+  #
+  # Mercado Pago DESHABILITÓ el modelo WebView para todas las integraciones: el
+  # checkout tiene que abrirse en el navegador del sistema, con su barra de URL
+  # y sus credenciales guardadas. Por eso NO hay `webview_flutter` acá.
+  #
+  # Se fija <2.6.0 a propósito: la 2.6.0 pide Dart ^3.12 / Flutter >=3.44 y este
+  # proyecto está en 3.10.3 / 3.38.4. Sin el tope, un `pub upgrade --major` en
+  # una máquina con Flutter nuevo la sube y el build local deja de resolver.
+  flutter_custom_tabs: ">=2.5.0 <2.6.0"
+
+  # Deep link de vuelta desde el navegador (monaco://pago?deposit=<id>).
+  # Ya venía como dependencia transitiva de supabase_flutter; se declara
+  # explícita porque ahora hay código nuestro que la importa.
+  app_links: ^6.4.1
   package_info_plus: ^8.1.3
   share_plus: ^10.1.2
 
@@ -59,6 +94,7 @@ dependencies:
   # hasta que Flutter firme esos frameworks como el resto (no cambia nada
   # funcional: path_provider sólo lo usa supabase/shared_preferences).
   path_provider_foundation: ">=2.4.0 <2.5.0"
+  sensors_plus: ^7.1.0
 
 dev_dependencies:
   flutter_test:

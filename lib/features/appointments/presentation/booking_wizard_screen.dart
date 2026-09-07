@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,6 +7,11 @@ import 'package:go_router/go_router.dart';
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 import 'package:monaco_mobile/core/auth/auth_provider.dart';
+import 'package:monaco_mobile/features/senas/data/sena_models.dart';
+import 'package:monaco_mobile/features/senas/data/sena_pendiente_store.dart';
+import 'package:monaco_mobile/features/senas/presentation/checkout_launcher.dart';
+import 'package:monaco_mobile/features/senas/presentation/widgets/sena_confirm_sheet.dart';
+import 'package:monaco_mobile/features/senas/providers/sena_estado_provider.dart';
 
 import '../providers/booking_provider.dart';
 import 'widgets/barber_sheet.dart';
@@ -80,6 +87,74 @@ class _BookingWizardScreenState extends ConsumerState<BookingWizardScreen> {
     ref.read(bookingWizardProvider(_key).notifier).setStaffFilter(choice.staffId);
   }
 
+  /// El server pidió seña para este horario: hoja con la política, y si el
+  /// cliente acepta, checkout de Mercado Pago + pantalla de estado.
+  ///
+  /// Acá NO hay turno todavía. Con `hold_minutes = 0` —que es como está
+  /// configurado— el horario tampoco queda reservado mientras paga; eso se lo
+  /// dice la política, que la escribe el server.
+  Future<void> _ofrecerSena(SenaIntencion intencion) async {
+    final state = ref.read(bookingWizardProvider(_key));
+    final ctrl = ref.read(bookingWizardProvider(_key).notifier);
+    final slot = state.selectedSlot;
+    final fecha = state.selectedDate;
+    final boot = state.bootstrap;
+
+    // Se limpia siempre, incluso si algo salió mal: la intención vieja no
+    // puede quedar pegada al estado y reabrir la hoja en el próximo rebuild.
+    ctrl.senaAtendida();
+    if (slot == null || fecha == null || boot == null) return;
+
+    final resumen = ResumenTurnoSena(
+      sucursal: boot.branch.name,
+      servicios: state.selectedServices.map((s) => s.name).join(' + '),
+      fecha: fecha,
+      hora: slot.time,
+      barbero: slot.staffName,
+    );
+
+    final pagar = await mostrarHojaDeSena(
+      context,
+      intencion: intencion,
+      resumen: resumen,
+    );
+    if (!pagar || !mounted) return;
+
+    // La marca se guarda ANTES de salir al navegador: entre que se abre el
+    // checkout y que el cliente vuelve, la app está en segundo plano y el
+    // sistema puede matarla. Sin esta marca, vuelve a una app recién arrancada
+    // con un cobro hecho y nada que se lo explique.
+    final store = ref.read(senaPendienteStoreProvider);
+    await store.guardar(SenaPendiente(
+      depositId: intencion.depositId,
+      resumen: resumen.linea,
+      monto: intencion.monto,
+      initPoint: intencion.initPoint,
+      venceEn: intencion.venceEn,
+      creadaEn: DateTime.now().toUtc(),
+    ));
+
+    final abrio = await abrirCheckoutSena(intencion.initPoint);
+    if (!mounted) return;
+    if (!abrio) {
+      // Si el navegador no abrió, no hay pago posible: se saca la marca para
+      // que no quede un cartel de "retomá tu pago" que no lleva a ninguna parte.
+      await store.limpiar();
+      if (!mounted) return;
+      showLiquidToast(
+        context,
+        'No pudimos abrir Mercado Pago en este dispositivo. '
+        'Probá de nuevo o escribinos por WhatsApp.',
+        tone: LiquidToastTone.error,
+        duration: const Duration(seconds: 4),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    context.push('/pago/${intencion.depositId}', extra: intencion.initPoint);
+  }
+
   void _onNext() {
     final ctrl = ref.read(bookingWizardProvider(_key).notifier);
     final state = ref.read(bookingWizardProvider(_key));
@@ -101,6 +176,13 @@ class _BookingWizardScreenState extends ConsumerState<BookingWizardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(
+      bookingWizardProvider(_key).select((s) => s.sena),
+      (_, intencion) {
+        if (intencion != null) unawaited(_ofrecerSena(intencion));
+      },
+    );
+
     final state = ref.watch(bookingWizardProvider(_key));
     final ctrl = ref.read(bookingWizardProvider(_key).notifier);
     final auth = ref.watch(authProvider);

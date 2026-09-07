@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../utils/constants.dart';
 import 'auth_provider.dart' show StartResult;
 import 'secure_storage.dart';
+import 'social_auth_service.dart';
 
 /// Error de auth con código del server (`OTP_INVALID`, `RATE_LIMITED`,
 /// `OTP_DELIVERY_FAILED`, `NAME_REQUIRED`, …) o sintético (`NETWORK`).
@@ -15,13 +16,53 @@ class AuthException implements Exception {
   final int? attemptsLeft;
   final int? retryIn;
 
-  const AuthException(this.code, this.message, {this.attemptsLeft, this.retryIn});
+  /// Sólo en `SIGNUP_TOKEN_INVALID`: el token venció (pasaron los 15 minutos) y
+  /// hay que rehacer el paso social. Distinto de "el token es inválido", que no
+  /// se arregla reintentando.
+  final bool expired;
+
+  const AuthException(
+    this.code,
+    this.message, {
+    this.attemptsLeft,
+    this.retryIn,
+    this.expired = false,
+  });
 
   @override
   String toString() => 'AuthException($code): $message';
 }
 
-/// Habla con la Edge Function `client-auth` (acciones `start` / `verify`).
+/// Resultado de la acción `social`.
+///
+/// O la identidad ya estaba vinculada y hay sesión ([sessionReady]), o es la
+/// primera vez y falta el teléfono ([signupToken] + [suggestedName]). **No se
+/// creó nada** en el segundo caso: la cuenta nace recién en `verify`.
+class SocialResult {
+  final bool sessionReady;
+
+  /// HMAC autocontenido de 15 minutos que ata proveedor + subject + email +
+  /// nombre + organización. Hay que mandarlo en `start` **y** en `verify`: en
+  /// `start` habilita el envío del código a un número que todavía no es
+  /// cliente, y en `verify` es lo que vincula la identidad social con la
+  /// cuenta. No se guarda en la base ni en el Keychain: vive en memoria.
+  final String? signupToken;
+
+  final String? suggestedName;
+  final String? email;
+  final bool clientKnown;
+
+  const SocialResult({
+    required this.sessionReady,
+    this.signupToken,
+    this.suggestedName,
+    this.email,
+    this.clientKnown = false,
+  });
+}
+
+/// Habla con la Edge Function `client-auth` (acciones `social` / `start` /
+/// `verify`).
 class AuthService {
   final SupabaseClient _client;
 
@@ -38,9 +79,11 @@ class AuthService {
           : (details is String ? _tryDecode(details) : null);
       throw AuthException(
         (map?['error'] as String?) ?? 'AUTH_FAILED',
-        (map?['message'] as String?) ?? 'No pudimos iniciar sesión. Probá de nuevo.',
+        (map?['message'] as String?) ??
+            'No pudimos iniciar sesión. Probá de nuevo.',
         attemptsLeft: (map?['attempts_left'] as num?)?.toInt(),
         retryIn: (map?['retry_in'] as num?)?.toInt(),
+        expired: map?['expired'] == true,
       );
     } catch (e) {
       debugPrint('[auth] invoke error: $e');
@@ -57,9 +100,11 @@ class AuthService {
     if (response.status < 200 || response.status >= 300) {
       throw AuthException(
         (data['error'] as String?) ?? 'AUTH_FAILED',
-        (data['message'] as String?) ?? 'No pudimos iniciar sesión. Probá de nuevo.',
+        (data['message'] as String?) ??
+            'No pudimos iniciar sesión. Probá de nuevo.',
         attemptsLeft: (data['attempts_left'] as num?)?.toInt(),
         retryIn: (data['retry_in'] as num?)?.toInt(),
+        expired: data['expired'] == true,
       );
     }
     return data;
@@ -75,33 +120,79 @@ class AuthService {
   }
 
   Future<Map<String, String>> _deviceFields() async => {
-        'device_id': await SecureStorageService.getOrCreateDeviceId(),
-        'device_secret': await SecureStorageService.getOrCreateDeviceSecret(),
-        'org_id': AppConstants.organizationId,
-      };
+    'device_id': await SecureStorageService.getOrCreateDeviceId(),
+    'device_secret': await SecureStorageService.getOrCreateDeviceSecret(),
+    'org_id': AppConstants.organizationId,
+  };
+
+  /// `social`: entra con Google/Apple. El `id_token` lo verifica el SERVER
+  /// contra el JWKS del proveedor — nunca `supabase.auth.signInWithIdToken`
+  /// (ver el comentario largo en `social_auth_service.dart`).
+  Future<SocialResult> signInWithSocial(SocialCredential cred) async {
+    final data = await _invoke({
+      'action': 'social',
+      'provider': cred.provider.wire,
+      'id_token': cred.idToken,
+      if (cred.nonce != null) 'nonce': cred.nonce,
+      if ((cred.name ?? '').trim().isNotEmpty) 'name': cred.name!.trim(),
+      ...await _deviceFields(),
+    });
+
+    final status = data['status'] as String?;
+    if (status == 'need_phone') {
+      final token = data['signup_token'] as String?;
+      if (token == null || token.isEmpty) {
+        throw const AuthException(
+          'AUTH_FAILED',
+          'Respuesta incompleta del servidor.',
+        );
+      }
+      return SocialResult(
+        sessionReady: false,
+        signupToken: token,
+        suggestedName: (data['suggested_name'] as String?)?.trim(),
+        email: data['email'] as String?,
+      );
+    }
+
+    // `ok`: identidad ya vinculada → sesión de un toque, sin código.
+    final res = await _handle(
+      data,
+      fallbackPhone: (data['phone'] as String?) ?? '',
+    );
+    return SocialResult(sessionReady: true, clientKnown: res.clientKnown);
+  }
 
   /// `start`: login silencioso si el dispositivo es conocido; si no, manda el
-  /// código por WhatsApp.
-  Future<StartResult> startLogin({required String phone}) async {
+  /// código por WhatsApp. [signupToken] sólo va si se viene de `social`.
+  Future<StartResult> startLogin({
+    required String phone,
+    String? signupToken,
+  }) async {
     final data = await _invoke({
       'action': 'start',
       'phone': phone,
+      'signup_token': ?signupToken,
       ...await _deviceFields(),
     });
     return _handle(data, fallbackPhone: phone);
   }
 
-  /// `verify`: valida el código; `name` sólo hace falta si el cliente es nuevo.
+  /// `verify`: valida el código. `name` es obligatorio si el teléfono es nuevo
+  /// (el server contesta `NAME_REQUIRED` **sin consumir el desafío**, así que
+  /// se puede reintentar con el mismo código).
   Future<StartResult> verifyCode({
     required String phone,
     required String code,
     String? name,
+    String? signupToken,
   }) async {
     final data = await _invoke({
       'action': 'verify',
       'phone': phone,
       'code': code,
       if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
+      'signup_token': ?signupToken,
       ...await _deviceFields(),
     });
     return _handle(data, fallbackPhone: phone);
@@ -124,13 +215,17 @@ class AuthService {
         expiresIn: (data['expires_in'] as num?)?.toInt() ?? 600,
         resendIn: (data['resend_in'] as num?)?.toInt() ?? 45,
         clientKnown: data['client_known'] == true,
+        nameRequired: data['name_required'] == true,
         firstName: data['first_name'] as String?,
       );
     }
     if (status == 'ok') {
       final refresh = data['refresh_token'] as String?;
       if (refresh == null) {
-        throw const AuthException('AUTH_FAILED', 'Respuesta incompleta del servidor.');
+        throw const AuthException(
+          'AUTH_FAILED',
+          'Respuesta incompleta del servidor.',
+        );
       }
       await _client.auth.setSession(refresh);
       final clientId = data['client_id'] as String;
@@ -161,6 +256,10 @@ class AuthService {
     try {
       await _client.auth.signOut();
     } catch (_) {}
+    // Sesión local del SDK de Google, no la autorización: el cliente quiere
+    // salir, no romper el vínculo. La revocación (`disconnect`) es cosa del
+    // borrado de cuenta.
+    await SocialAuthService.cerrarSesionGoogle();
     await SecureStorageService.clearSession();
   }
 
@@ -176,9 +275,16 @@ class AuthService {
       );
       if (res.status >= 400) {
         final data = res.data;
-        final msg = data is Map<String, dynamic> ? data['error'] as String? : null;
+        final msg = data is Map<String, dynamic>
+            ? data['error'] as String?
+            : null;
         return msg ?? 'No se pudo eliminar la cuenta (HTTP ${res.status})';
       }
+      // Revocar la autorización de Google es parte del borrado: si no, el
+      // equipo sigue teniendo a Monaco entre las apps autorizadas de esa cuenta
+      // y el próximo "Continuar con Google" entra sin hoja a una cuenta que ya
+      // no existe.
+      await SocialAuthService.desvincularGoogle();
       await SecureStorageService.clearAll();
       try {
         await _client.auth.signOut();

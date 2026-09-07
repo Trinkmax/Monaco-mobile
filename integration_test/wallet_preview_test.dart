@@ -30,10 +30,13 @@ import 'package:monaco_mobile/features/appointments/providers/appointments_provi
 import 'package:monaco_mobile/features/appointments/providers/booking_provider.dart';
 import 'package:monaco_mobile/features/convenios/providers/convenios_provider.dart';
 import 'package:monaco_mobile/features/home/presentation/screens/home_screen.dart';
+import 'package:monaco_mobile/features/loyalty/data/loyalty_models.dart';
+import 'package:monaco_mobile/features/loyalty/presentation/screens/categoria_screen.dart';
+import 'package:monaco_mobile/features/loyalty/presentation/widgets/tier_up_celebration.dart';
+import 'package:monaco_mobile/features/loyalty/providers/loyalty_provider.dart';
 import 'package:monaco_mobile/features/notifications/data/notification_model.dart';
 import 'package:monaco_mobile/features/notifications/providers/notifications_provider.dart';
 import 'package:monaco_mobile/features/occupancy/providers/occupancy_provider.dart';
-import 'package:monaco_mobile/features/points/providers/points_provider.dart';
 import 'package:monaco_mobile/features/reviews/providers/reviews_provider.dart';
 import 'package:monaco_mobile/features/rewards/presentation/screens/premios_screen.dart';
 import 'package:monaco_mobile/features/rewards/providers/premios_provider.dart';
@@ -210,6 +213,98 @@ const _sucursales = <Map<String, dynamic>>[
   },
 ];
 
+// ── Programa de fidelización (get_client_loyalty) ─────────────────────────
+
+Map<String, dynamic> _tierJson(String code, String name, int sort, int min,
+        int? max, int mult, String p, String s, String t, List<String> b) =>
+    {
+      'code': code,
+      'name': name,
+      'sort': sort,
+      'min_visits': min,
+      'max_visits': max,
+      'multiplier_pct': mult,
+      'color_primary': p,
+      'color_secondary': s,
+      'text_color': t,
+      'benefits': b,
+    };
+
+// Seed de la mig 202: texto SIEMPRE blanco y extremos claros oscurecidos.
+final _tiers = [
+  _tierJson('bronce', 'Bronce', 1, 0, 2, 100, '#7A4A22', '#C78A4E', '#FFFFFF',
+      ['Sumás puntos en cada visita', 'Acceso al catálogo de premios']),
+  _tierJson('plata', 'Plata', 2, 3, 5, 105, '#3E444D', '#A9B1BA', '#FFFFFF',
+      ['5 % más de puntos por visita', 'Premios exclusivos Plata']),
+  _tierJson('oro', 'Oro', 3, 6, 8, 110, '#7A5A12', '#D8AE3C', '#FFFFFF',
+      ['10 % más de puntos por visita', 'Premios exclusivos Oro', 'Prioridad en novedades']),
+  _tierJson('platinum', 'Platinum', 4, 9, null, 115, '#0B0B0D', '#3A3A44', '#FFFFFF',
+      ['15 % más de puntos por visita', 'Premios exclusivos Platinum', 'Beneficios en comercios asociados']),
+];
+
+Map<String, dynamic> _programa() => {
+      'enabled': true,
+      'base_points': 100,
+      'expiry_days': 120,
+      'window_weeks': 12,
+      'grace_days': 14,
+      'welcome_bonus_points': 100,
+    };
+
+/// Cliente Oro: 7 visitas, faltan 2 para Platinum, 650 pts, 120 por vencer.
+LoyaltySummary _loyaltyOro({int saldo = 650, bool gracia = false}) =>
+    LoyaltySummary.fromJson({
+      'program': _programa(),
+      'client': {'id': 'c1', 'name': 'Nacho Baldovino', 'member_since': '2024-03-14T15:20:00Z'},
+      'tier': _tiers[2],
+      'next_tier': {..._tiers[3], 'faltan': 2},
+      'visits_in_window': 7,
+      'grace': gracia
+          ? {
+              'until': DateTime.now().add(const Duration(days: 5)).toUtc().toIso8601String(),
+              'days_left': 5,
+              'tier_after_code': 'plata',
+              'tier_after_name': 'Plata',
+            }
+          : null,
+      'points': {
+        'balance': saldo,
+        'expiring_soon_points': 120,
+        'expiring_soon_days': 14,
+        'next_expiry_at': DateTime.now().add(const Duration(days: 12)).toUtc().toIso8601String(),
+        'next_expiry_points': 120,
+        'earned_total': saldo + 600,
+        'redeemed_total': 600,
+      },
+      'referral': {'enabled': true, 'code': 'MNC7K2PQ', 'discount_pct': 20, 'referred_points': 100, 'referrer_points': 150, 'completed_count': 1},
+      'tiers': _tiers,
+    });
+
+LoyaltySummary _loyaltyPlatinum({int saldo = 2400}) => LoyaltySummary.fromJson({
+      'program': _programa(),
+      'client': {'id': 'c1', 'name': 'Nacho Baldovino', 'member_since': '2023-06-01T15:20:00Z'},
+      'tier': _tiers[3],
+      'next_tier': null,
+      'visits_in_window': 11,
+      'grace': null,
+      'points': {'balance': saldo, 'expiring_soon_points': 0, 'expiring_soon_days': 14, 'next_expiry_at': null, 'next_expiry_points': 0},
+      'referral': {'enabled': true, 'code': 'MNC7K2PQ'},
+      'tiers': _tiers,
+    });
+
+/// Lo que devuelve la RPC hoy en prod (programa apagado).
+LoyaltySummary _loyaltyApagado({int saldo = 240}) => LoyaltySummary.fromJson({
+      'program': {'enabled': false},
+      'client': {'id': 'c1', 'name': 'Nacho Baldovino', 'member_since': '2025-01-10T00:00:00Z'},
+      'tier': null,
+      'next_tier': null,
+      'visits_in_window': 0,
+      'grace': null,
+      'points': {'balance': saldo, 'expiring_soon_points': 0, 'next_expiry_at': null, 'next_expiry_points': 0},
+      'referral': {'enabled': false},
+      'tiers': _tiers,
+    });
+
 /// AuthNotifier de mentira: `AuthNotifier` real arranca escuchando Supabase.
 class _FakeAuth extends StateNotifier<AuthState> implements AuthNotifier {
   _FakeAuth()
@@ -224,13 +319,16 @@ class _FakeAuth extends StateNotifier<AuthState> implements AuthNotifier {
   dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
 }
 
-List<Override> _overrides({required bool conTurno, required int saldo}) => [
+List<Override> _overrides({
+  required bool conTurno,
+  required int saldo,
+  LoyaltySummary? loyalty,
+}) =>
+    [
       authProvider.overrideWith((ref) => _FakeAuth()),
-      globalPointsProvider.overrideWith((ref) async => {
-            'total_balance': saldo,
-            'total_earned': saldo + 1860,
-            'total_redeemed': 1860,
-          }),
+      loyaltyProvider.overrideWith(
+        (ref) async => loyalty ?? _loyaltyOro(saldo: saldo),
+      ),
       catalogoPremiosProvider.overrideWith((ref) async => _catalogo),
       conveniosProvider.overrideWith((ref) async => _convenios),
       clientWalletProvider.overrideWith((ref) async => _wallet),
@@ -328,6 +426,110 @@ void main() {
     await tester.drag(find.byType(CustomScrollView).first,
         const Offset(0, -420), warnIfMissed: false);
     await shot(binding, tester, 'wallet_07_premios_scroll');
+  });
+
+  // ── Programa de fidelización: tarjeta, categoría, platinum, apagado ─────
+
+  testWidgets('Home — cliente Oro (tarjeta + tira de estado)', (tester) async {
+    await tester.pumpWidget(ProviderScope(
+      overrides: _overrides(conTurno: true, saldo: 650, loyalty: _loyaltyOro()),
+      child: _app(const HomeScreen()),
+    ));
+    await shot(binding, tester, 'loyalty_01_home_oro');
+
+    // El dorso: anillo de visitas y cuánto falta.
+    final ver = find.text('Ver progreso');
+    if (ver.evaluate().isNotEmpty) {
+      await tester.tap(ver.first, warnIfMissed: false);
+      await shot(binding, tester, 'loyalty_02_home_oro_dorso');
+    }
+  });
+
+  testWidgets('Home — Oro en período de gracia', (tester) async {
+    await tester.pumpWidget(ProviderScope(
+      overrides: _overrides(
+        conTurno: false,
+        saldo: 650,
+        loyalty: _loyaltyOro(gracia: true),
+      ),
+      child: _app(const HomeScreen()),
+    ));
+    await shot(binding, tester, 'loyalty_03_home_oro_gracia');
+  });
+
+  testWidgets('Mi categoría — carrusel y cómo funciona', (tester) async {
+    await tester.pumpWidget(ProviderScope(
+      overrides: _overrides(conTurno: false, saldo: 650, loyalty: _loyaltyOro()),
+      child: _app(const CategoriaScreen()),
+    ));
+    await shot(binding, tester, 'loyalty_04_categoria');
+
+    await tester.drag(find.byType(PageView).first, const Offset(-260, 0),
+        warnIfMissed: false);
+    await shot(binding, tester, 'loyalty_05_categoria_platinum_page');
+
+    await tester.drag(find.byType(ListView).first, const Offset(0, -520),
+        warnIfMissed: false);
+    await shot(binding, tester, 'loyalty_06_categoria_scroll');
+  });
+
+  testWidgets('Mi categoría — en gracia', (tester) async {
+    await tester.pumpWidget(ProviderScope(
+      overrides: _overrides(
+        conTurno: false,
+        saldo: 650,
+        loyalty: _loyaltyOro(gracia: true),
+      ),
+      child: _app(const CategoriaScreen()),
+    ));
+    await shot(binding, tester, 'loyalty_07_categoria_gracia');
+  });
+
+  testWidgets('Home — Platinum (holográfica)', (tester) async {
+    await tester.pumpWidget(ProviderScope(
+      overrides: _overrides(conTurno: true, saldo: 2400, loyalty: _loyaltyPlatinum()),
+      child: _app(const HomeScreen()),
+    ));
+    await shot(binding, tester, 'loyalty_08_home_platinum');
+  });
+
+  testWidgets('Home — programa apagado (vidrio gris)', (tester) async {
+    await tester.pumpWidget(ProviderScope(
+      overrides: _overrides(conTurno: true, saldo: 240, loyalty: _loyaltyApagado()),
+      child: _app(const HomeScreen()),
+    ));
+    await shot(binding, tester, 'loyalty_09_home_apagado');
+  });
+
+  testWidgets('Mi categoría — programa apagado', (tester) async {
+    await tester.pumpWidget(ProviderScope(
+      overrides: _overrides(conTurno: false, saldo: 240, loyalty: _loyaltyApagado()),
+      child: _app(const CategoriaScreen()),
+    ));
+    await shot(binding, tester, 'loyalty_10_categoria_apagado');
+  });
+
+  testWidgets('Celebración — Plata → Oro', (tester) async {
+    final s = _loyaltyOro();
+    late BuildContext ctx;
+    await tester.pumpWidget(ProviderScope(
+      overrides: _overrides(conTurno: false, saldo: 650, loyalty: s),
+      child: _app(Builder(builder: (c) {
+        ctx = c;
+        return const HomeScreen();
+      })),
+    ));
+    await tester.pump(const Duration(milliseconds: 400));
+    if (!ctx.mounted) return;
+    TierUpCelebration.mostrar(
+      ctx,
+      summary: s,
+      desde: s.tierPorCode('plata')!,
+      hasta: s.tier!,
+    );
+    await tester.pump(const Duration(milliseconds: 600));
+    await shot(binding, tester, 'loyalty_11_celebracion_morph');
+    await shot(binding, tester, 'loyalty_12_celebracion');
   });
 
   // ── Wizard de turnos: los elementos que llevaban verde ──────────────────

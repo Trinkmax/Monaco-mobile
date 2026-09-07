@@ -7,6 +7,9 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/theme/monaco_theme.dart';
 import 'package:monaco_mobile/features/home/presentation/widgets/wallet_points_card.dart';
+import 'package:monaco_mobile/features/loyalty/data/loyalty_models.dart';
+import 'package:monaco_mobile/features/loyalty/presentation/widgets/card_tilt.dart';
+import 'package:monaco_mobile/features/loyalty/presentation/widgets/monaco_card.dart';
 import 'package:monaco_mobile/features/rewards/data/premio_item.dart';
 import 'package:monaco_mobile/features/rewards/presentation/widgets/premio_card.dart';
 import 'package:monaco_mobile/features/rewards/presentation/widgets/premio_listo_card.dart';
@@ -23,6 +26,8 @@ import 'package:monaco_mobile/features/rewards/presentation/widgets/premio_listo
 void main() {
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
+    // Sin plugins en el host: la tarjeta no toca el acelerómetro.
+    CardTilt.forzarSinSensor = true;
     // La tarjeta formatea el vencimiento con DateFormat('es'): sin esto tira
     // LocaleDataException dentro del build (en la app lo inicializa main.dart).
     await initializeDateFormatting('es');
@@ -68,6 +73,8 @@ void main() {
     String? subtitulo = 'Servicio',
     int? puntos = 300,
     int? stock,
+    bool lockedByTier = false,
+    String? tierRequiredName,
   }) =>
       PremioItem(
         id: 'p1',
@@ -77,10 +84,255 @@ void main() {
         subtitulo: subtitulo,
         puntos: puntos,
         stock: stock,
+        lockedByTier: lockedByTier,
+        tierRequiredName: tierRequiredName,
       );
 
-  group('WalletPointsCard', () {
-    testWidgets('muestra el saldo y el pie, y no desborda', (tester) async {
+  // ── MonacoCard: datos fijos de un cliente Oro ───────────────────────────
+  Map<String, dynamic> tierJson(String code, String name, int sort, int min,
+          int? max, int mult, String p, String sec, String t) =>
+      {
+        'code': code,
+        'name': name,
+        'sort': sort,
+        'min_visits': min,
+        'max_visits': max,
+        'multiplier_pct': mult,
+        'color_primary': p,
+        'color_secondary': sec,
+        'text_color': t,
+        'benefits': ['Beneficio uno', 'Beneficio dos'],
+      };
+  // Seed de la mig 202: texto SIEMPRE blanco.
+  final tiers = [
+    tierJson('bronce', 'Bronce', 1, 0, 2, 100, '#7A4A22', '#C78A4E', '#FFFFFF'),
+    tierJson('plata', 'Plata', 2, 3, 5, 105, '#3E444D', '#A9B1BA', '#FFFFFF'),
+    tierJson('oro', 'Oro', 3, 6, 8, 110, '#7A5A12', '#D8AE3C', '#FFFFFF'),
+    tierJson('platinum', 'Platinum', 4, 9, null, 115, '#0B0B0D', '#3A3A44', '#FFFFFF'),
+  ];
+  LoyaltySummary oro({
+    String nombre = 'Nacho Baldovino',
+    String textoOro = '#FFFFFF',
+    String nombreOro = 'Oro',
+  }) =>
+      LoyaltySummary.fromJson({
+        'program': {
+          'enabled': true,
+          'base_points': 100,
+          'expiry_days': 120,
+          'window_weeks': 12,
+          'grace_days': 14,
+          'welcome_bonus_points': 100,
+        },
+        'client': {'id': 'c1', 'name': nombre, 'member_since': '2024-03-14T15:20:00Z'},
+        'tier': {...tiers[2], 'text_color': textoOro, 'name': nombreOro},
+        'next_tier': {...tiers[3], 'faltan': 2},
+        'visits_in_window': 7,
+        'grace': null,
+        'points': {
+          'balance': 650,
+          'expiring_soon_points': 120,
+          'expiring_soon_days': 14,
+          'next_expiry_at': '2026-12-28T03:00:00Z',
+          'next_expiry_points': 120,
+        },
+        'referral': {'enabled': true, 'code': 'ABC'},
+        'tiers': tiers,
+      });
+  final apagado = LoyaltySummary.disabled(clientName: 'Nacho Baldovino', balance: 240);
+
+  group('MonacoCard', () {
+    testWidgets('pinta puntos, nombre, categoría y miembro desde', (tester) async {
+      await tester.pumpWidget(envolver(
+        MonacoCard(summary: oro(), saldo: 650, onTap: () {}),
+      ));
+      await frames(tester);
+
+      expect(find.text('650'), findsOneWidget);
+      expect(find.text('PUNTOS'), findsOneWidget);
+      expect(find.text('NACHO BALDOVINO'), findsOneWidget);
+      expect(find.text('CLIENTE ORO'), findsOneWidget);
+      expect(find.text('MIEMBRO DESDE 2024'), findsOneWidget);
+      expect(find.text('Ver progreso'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('tiene la proporción de una tarjeta de crédito', (tester) async {
+      await tester.pumpWidget(envolver(
+        MonacoCard(summary: oro(), saldo: 650),
+      ));
+      await frames(tester);
+      final r = tester.getSize(find.byType(MonacoCard));
+      expect(r.width, 390);
+      expect(r.width / r.height, closeTo(MonacoCard.proporcion, 0.01));
+    });
+
+    for (final ancho in const [390.0, 360.0, 320.0]) {
+      testWidgets('no desborda a $ancho pt con nombre largo y saldo de 6 cifras',
+          (tester) async {
+        await tester.pumpWidget(envolver(
+          MonacoCard(
+            summary: oro(nombre: 'Maximiliano Alejandro Fernández Gutiérrez'),
+            saldo: 128450,
+            onTap: () {},
+          ),
+          ancho: ancho,
+        ));
+        await frames(tester);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('modo apagado: vidrio gris, sin etiqueta de categoría ni progreso',
+        (tester) async {
+      await tester.pumpWidget(envolver(
+        MonacoCard(summary: apagado, saldo: 240, onTap: () {}),
+      ));
+      await frames(tester);
+
+      expect(find.text('240'), findsOneWidget);
+      expect(find.text('NACHO BALDOVINO'), findsOneWidget);
+      expect(find.textContaining('CLIENTE '), findsNothing);
+      expect(find.text('Ver progreso'), findsNothing);
+      expect(find.text('MIEMBRO MONACO'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('en modo apagado el número y el pie son CLAROS (vidrio gris)',
+        (tester) async {
+      // La versión blanca sólida se probó y el dueño la rechazó: rompía el
+      // lenguaje Liquid Glass del resto de la app. Sin categoría la tarjeta
+      // es vidrio oscuro y el texto tiene que ser claro.
+      await tester.pumpWidget(envolver(
+        MonacoCard(summary: apagado, saldo: 240),
+      ));
+      await frames(tester);
+
+      final numero = tester.widget<Text>(find.text('240')).style!;
+      expect(numero.color!.computeLuminance(), greaterThan(0.8));
+      final pie = tester.widget<Text>(find.text('PUNTOS')).style!;
+      expect(pie.color!.computeLuminance(), greaterThan(0.3));
+    });
+
+    testWidgets('los colores salen del tier, no del código', (tester) async {
+      // El seed es blanco (mig 202), así que para probar que el color VIAJA
+      // desde el JSON se manda un crema que no coincide con ningún fallback.
+      await tester.pumpWidget(envolver(
+        MonacoCard(summary: oro(textoOro: '#FFE9B0'), saldo: 650, animarContador: false),
+      ));
+      await frames(tester);
+      final numero = tester.widget<Text>(find.text('650')).style!;
+      expect(numero.color, const Color(0xFFFFE9B0));
+      final etiqueta = tester.widget<Text>(find.text('CLIENTE ORO')).style!;
+      expect(etiqueta.color, const Color(0xFFFFE9B0));
+    });
+
+    testWidgets('un nombre de categoría de 40 caracteres no desborda la tarjeta',
+        (tester) async {
+      // El Zod del dashboard admite `name` hasta 40 caracteres. Sin
+      // `Expanded` + ellipsis, la etiqueta desbordaba 150 px a 390 pt.
+      await tester.pumpWidget(envolver(
+        MonacoCard(
+          summary: oro(nombreOro: 'Cliente Frecuente Premium Plus Nivel 2'),
+          saldo: 650,
+          animarContador: false,
+        ),
+      ));
+      await frames(tester);
+      expect(tester.takeException(), isNull);
+      // Dorso: la misma etiqueta, misma regla.
+      await tester.tap(find.text('Ver progreso'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('"Ver progreso" da vuelta la tarjeta y muestra cuánto falta',
+        (tester) async {
+      var toques = 0;
+      await tester.pumpWidget(envolver(
+        MonacoCard(summary: oro(), saldo: 650, onTap: () => toques++),
+      ));
+      await frames(tester);
+
+      await tester.tap(find.text('Ver progreso'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.pump(const Duration(milliseconds: 700));
+
+      expect(find.text('Te faltan 2 para Platinum'), findsOneWidget);
+      expect(find.text('7 visitas en las últimas 12 semanas'), findsOneWidget);
+      expect(find.text('7/9'), findsOneWidget);
+      expect(find.text('120 pts vencen el 28/12'), findsOneWidget);
+      expect(toques, 0, reason: 'la pill no dispara el onTap del cuerpo');
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.text('Volver'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(find.text('Ver progreso'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('platinum: sin siguiente, el dorso dice que es la más alta',
+        (tester) async {
+      final s = LoyaltySummary.fromJson({
+        'program': {'enabled': true, 'window_weeks': 12},
+        'client': {'name': 'Ana'},
+        'tier': tiers[3],
+        'next_tier': null,
+        'visits_in_window': 11,
+        'points': {'balance': 2000},
+        'tiers': tiers,
+      });
+      await tester.pumpWidget(envolver(
+        MonacoCard(summary: s, saldo: 2000, animarContador: false),
+      ));
+      await frames(tester);
+      expect(find.text('CLIENTE PLATINUM'), findsOneWidget);
+      await tester.tap(find.text('Ver progreso'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(find.text('Sos Platinum, la categoría más alta'), findsOneWidget);
+      expect(find.text('11'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('compact (carrusel): sin pill de progreso, entra a 300 pt',
+        (tester) async {
+      await tester.pumpWidget(envolver(
+        MonacoCard(
+          summary: oro(),
+          saldo: 650,
+          compact: true,
+          animarContador: false,
+          tier: LoyaltyTier.fromJson(tiers[0]),
+        ),
+        ancho: 300,
+      ));
+      await frames(tester);
+      expect(find.text('CLIENTE BRONCE'), findsOneWidget);
+      expect(find.text('Ver progreso'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('tocar el cuerpo dispara onTap', (tester) async {
+      var toques = 0;
+      await tester.pumpWidget(envolver(
+        MonacoCard(summary: oro(), saldo: 650, onTap: () => toques++),
+      ));
+      await frames(tester);
+      await tester.tap(find.text('650'));
+      await frames(tester);
+      expect(toques, 1);
+    });
+  });
+
+  group('WalletPointsCard (legado, ya no se usa en el Home)', () {
+    testWidgets('sigue compilando y no desborda', (tester) async {
       await tester.pumpWidget(envolver(
         WalletPointsCard(
           saldo: 240,
@@ -91,88 +343,8 @@ void main() {
         ),
       ));
       await frames(tester);
-
-      expect(find.text('Tus puntos'), findsOneWidget);
       expect(find.text('240'), findsOneWidget);
-      expect(find.text('A 60 pts de Corte gratis'), findsOneWidget);
       expect(tester.takeException(), isNull);
-    });
-
-    testWidgets('un saldo de 6 cifras y un premio de nombre largo no desbordan',
-        (tester) async {
-      await tester.pumpWidget(envolver(
-        WalletPointsCard(
-          saldo: 128450,
-          progreso: 0.03,
-          pie: 'A 121.550 pts de Un año de cortes gratis más la camiseta',
-          onTap: () {},
-          onPremios: () {},
-        ),
-      ));
-      await frames(tester);
-      expect(tester.takeException(), isNull);
-    });
-
-    testWidgets('sin progreso no dibuja barra pero sí el pie', (tester) async {
-      await tester.pumpWidget(envolver(
-        WalletPointsCard(
-          saldo: 0,
-          progreso: null,
-          pie: 'Sumás puntos en cada visita',
-          onTap: () {},
-          onPremios: () {},
-        ),
-      ));
-      await frames(tester);
-      expect(find.text('Sumás puntos en cada visita'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
-
-    testWidgets('el número y el pie son CLAROS (la tarjeta es vidrio gris)',
-        (tester) async {
-      // La versión blanca sólida se probó y el dueño la rechazó: rompía el
-      // lenguaje Liquid Glass del resto de la app. Este test fija que no vuelva
-      // por accidente — sobre vidrio oscuro el texto tiene que ser claro.
-      await tester.pumpWidget(envolver(
-        WalletPointsCard(
-          saldo: 240,
-          progreso: 0.5,
-          pie: 'A 60 pts de Corte',
-          onTap: () {},
-          onPremios: () {},
-        ),
-      ));
-      await frames(tester);
-
-      final numero = tester.widget<Text>(find.text('240')).style!;
-      expect(numero.color!.computeLuminance(), greaterThan(0.8));
-      final pie = tester.widget<Text>(find.text('A 60 pts de Corte')).style!;
-      expect(pie.color!.computeLuminance(), greaterThan(0.3));
-    });
-
-    testWidgets('el botón de regalo es un destino aparte del cuerpo',
-        (tester) async {
-      var cuerpo = 0;
-      var regalo = 0;
-      await tester.pumpWidget(envolver(
-        WalletPointsCard(
-          saldo: 240,
-          progreso: 0.5,
-          pie: 'x',
-          onTap: () => cuerpo++,
-          onPremios: () => regalo++,
-        ),
-      ));
-      await frames(tester);
-
-      await tester.tap(find.byIcon(Icons.card_giftcard_rounded));
-      await frames(tester);
-      expect(regalo, 1);
-      expect(cuerpo, 0);
-
-      await tester.tap(find.text('240'));
-      await frames(tester);
-      expect(cuerpo, 1);
     });
   });
 
@@ -208,9 +380,55 @@ void main() {
       ));
       await frames(tester);
 
-      expect(find.text('Agotado'), findsOneWidget);
+      expect(find.text('AGOTADO'), findsOneWidget);
       expect(find.text('Sin stock por ahora'), findsOneWidget);
       expect(find.text('Canjear'), findsNothing);
+    });
+
+    testWidgets('bloqueado por categoría: "Solo Oro", sin "Canjear", aunque sobre saldo',
+        (tester) async {
+      await tester.pumpWidget(envolver(
+        PremioCard(
+          premio: premio(lockedByTier: true, tierRequiredName: 'Oro'),
+          saldo: 9999,
+          onTap: () {},
+          width: 162,
+        ),
+        ancho: 200,
+      ));
+      await frames(tester);
+
+      expect(find.text('Solo Oro'), findsOneWidget);
+      expect(find.text('Subí a Oro para canjearlo'), findsOneWidget);
+      expect(find.byIcon(Icons.lock_rounded), findsOneWidget);
+      expect(find.text('Canjear'), findsNothing);
+      expect(find.textContaining('Te faltan'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('bloqueado por categoría entra en la celda de la grilla con nombre largo',
+        (tester) async {
+      await tester.pumpWidget(envolver(
+        SizedBox(
+          width: 168,
+          height: PremioCard.altoPara(168),
+          child: PremioCard(
+            premio: premio(
+              nombre: 'Un año de cortes gratis más la camiseta',
+              subtitulo: 'Exclusivo',
+              puntos: 128450,
+              lockedByTier: true,
+              tierRequiredName: 'Platinum',
+            ),
+            saldo: 3,
+            onTap: () {},
+          ),
+        ),
+        ancho: 170,
+      ));
+      await frames(tester);
+      expect(find.text('Solo Platinum'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('un convenio dice GRATIS y "Activar", no puntos', (tester) async {
@@ -305,13 +523,15 @@ void main() {
 
   group('PremioListoCard', () {
     testWidgets('dibuja el QR real y el vencimiento', (tester) async {
-      final manana = DateTime.now().add(const Duration(days: 12));
+      // 12 días y un poco más: el mismo helper que el QR (`cuentaRegresiva`)
+      // redondea hacia arriba, así que dice "Vence en 13 días" en las dos.
+      final vence = DateTime.now().add(const Duration(days: 12, hours: 6));
       await tester.pumpWidget(envolver(
         PremioListoCard(
           reward: {
             'reward_name': 'Corte gratis',
             'qr_code': 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4',
-            'expires_at': manana.toIso8601String(),
+            'expires_at': vence.toIso8601String(),
             'client_reward_id': 'cr1',
           },
           onTap: () {},
@@ -323,8 +543,29 @@ void main() {
       expect(find.text('LISTO'), findsOneWidget);
       expect(find.text('Corte gratis'), findsOneWidget);
       expect(find.text('Mostrar código'), findsOneWidget);
-      expect(find.textContaining('Vence el'), findsOneWidget);
+      expect(find.text('Vence en 13 días'), findsOneWidget);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a las 23:00, un premio que vence mañana NO dice "Vence hoy"',
+        (tester) async {
+      // Con `inDays` (trunca) la tira decía "Vence hoy" y el QR, con la misma
+      // fila, "Vence mañana". Ahora comparten helper.
+      final vence = DateTime.now().add(const Duration(hours: 11));
+      await tester.pumpWidget(envolver(
+        PremioListoCard(
+          reward: {
+            'reward_name': 'Café',
+            'qr_code': 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4',
+            'expires_at': vence.toIso8601String(),
+          },
+          onTap: () {},
+        ),
+        ancho: 200,
+      ));
+      await frames(tester);
+      expect(find.text('Vence mañana'), findsOneWidget);
+      expect(find.text('Vence hoy'), findsNothing);
     });
 
     testWidgets('sin código no dibuja un QR vacío: cae al ícono', (tester) async {

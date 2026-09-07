@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 import 'package:monaco_mobile/core/push/push_handler.dart';
+import 'package:monaco_mobile/features/rewards/providers/premios_provider.dart';
 import '../../data/notification_model.dart';
 import '../../providers/notifications_provider.dart';
 
@@ -186,6 +187,12 @@ class _InboxList extends ConsumerWidget {
     final route = n.route;
     if (!context.mounted) return;
     final path = Uri.parse(route).path;
+    // Igual que el tap de un push del sistema: si la fila lleva a una pantalla
+    // de fidelización, refrescar sus providers (globales y cacheados) antes de
+    // navegar, para que "Tenés un nuevo beneficio" no abra la wallet vieja.
+    if (PushHandler.esRutaDeFidelizacion(route)) {
+      invalidarFidelizacionEn(ProviderScope.containerOf(context));
+    }
     if (const {
       '/home',
       '/turnos',

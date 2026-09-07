@@ -11,8 +11,14 @@
     <key>aps-environment</key>
     <string>development</string>
 
-  Las builds de Release/Profile usan RunnerRelease.entitlements (con push) —
-  esas requieren sí o sí el programa pago, pero son las que subís a App Store.
+  Lo mismo vale para "Sign in with Apple" (com.apple.developer.applesignin):
+  con Personal Team no se firma, así que en un `flutter run` de desarrollo el
+  botón "Continuar con Apple" va a fallar al abrir la hoja del sistema. Se
+  prueba en una build de Release con el Team pago, o con Google / teléfono.
+
+  Las builds de Release/Profile usan RunnerRelease.entitlements (con push y
+  Apple Sign In) — esas requieren sí o sí el programa pago, pero son las que
+  subís a App Store.
 -->
 <plist version="1.0">
 <dict>

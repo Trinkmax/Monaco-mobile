@@ -49,8 +49,66 @@ class AppConstants {
   static const int pinLength = 4;
   static const String defaultCountryCode = '54';
 
+  // ── Alta con Google / Apple ────────────────────────────────────────────
+  //
+  // **PENDIENTE DE CONFIGURACIÓN.** Los tres valores de abajo salen de la
+  // consola de Google Cloud (el mismo proyecto que Firebase, pero son clientes
+  // OAuth distintos del `google-services.json`) y hay que cargarlos ANTES de
+  // publicar. Mientras estén vacíos, `SocialAuthService.googleConfigurado` da
+  // `false` y la pantalla de entrada esconde el botón de Google en vez de
+  // ofrecer algo que va a fallar.
+  //
+  // Se pasan por `--dart-define` para no meter identificadores de la consola en
+  // el repo, y para poder tener build de prueba y de producción con clientes
+  // distintos:
+  //
+  //   flutter build ipa --release \
+  //     --dart-define=GOOGLE_IOS_CLIENT_ID=<...>.apps.googleusercontent.com \
+  //     --dart-define=GOOGLE_SERVER_CLIENT_ID=<...>.apps.googleusercontent.com
+  //
+  // Los MISMOS ids (iOS + Android + Web/server) tienen que estar en el secret
+  // `GOOGLE_CLIENT_IDS` de la edge function `client-auth`: es la lista cerrada
+  // de `aud` que acepta. Si el id de acá no está allá, el login devuelve
+  // `SOCIAL_TOKEN_INVALID` sin más explicación.
+
+  /// Client OAuth **de tipo iOS**. `google_sign_in` en iOS lo lee del
+  /// `GoogleService-Info.plist` si existe, pero acá se pasa explícito porque
+  /// Firebase todavía no está configurado y porque el valor explícito gana.
+  /// Necesita además el `CFBundleURLTypes` con el REVERSED_CLIENT_ID en
+  /// `ios/Runner/Info.plist` (ver el bloque marcado ahí).
+  static const String googleIosClientId = String.fromEnvironment(
+    'GOOGLE_IOS_CLIENT_ID',
+  );
+
+  /// Client OAuth **de tipo Web** (el "serverClientId"). Es el que hace que el
+  /// `id_token` de Android traiga nuestro `aud` en vez del de la app. En
+  /// Android sin esto el token no lo podemos validar del lado del server.
+  static const String googleServerClientId = String.fromEnvironment(
+    'GOOGLE_SERVER_CLIENT_ID',
+  );
+
   // ── Timeouts ───────────────────────────────────────────────────────────
   static const Duration apiTimeout = Duration(seconds: 15);
+
+  /// Timeout de los endpoints de SEÑA. Es más largo que el general a
+  /// propósito: crear la intención implica que nuestro server hable con
+  /// Mercado Pago (preferencia de checkout) y esa llamada sale de nuestra red.
+  ///
+  /// Con 15 s, un pico de latencia de MP le deja al cliente la peor pantalla
+  /// posible: "no pudimos" sobre una operación que quizá sí se creó. Preferimos
+  /// que espere unos segundos más y reciba una respuesta cierta.
+  static const Duration senaTimeout = Duration(seconds: 45);
+
+  // ── Deep link de vuelta del checkout ───────────────────────────────────
+  /// `monaco://pago?deposit=<uuid>`. Mercado Pago sólo acepta `back_urls`
+  /// https, así que el retorno es MP → `\$apiBaseUrl/pago/<id>` → esta URL.
+  ///
+  /// **El parámetro NO puede llamarse `code`**: `supabase_flutter` engancha
+  /// todos los deep links del proceso y trata cualquiera que traiga `code`
+  /// como callback de OAuth (intenta canjearlo por sesión y falla).
+  static const String deepLinkScheme = 'monaco';
+  static const String deepLinkPagoHost = 'pago';
+  static const String deepLinkPagoParam = 'deposit';
 
   // ── Legal y soporte ────────────────────────────────────────────────────
   static const String privacyPolicyUrl = '$apiBaseUrl/privacidad';
@@ -63,7 +121,8 @@ class AppConstants {
   /// existe.
   static const String supportPhoneDisplay = '+54 9 3517 69-1830';
   static const String supportWhatsappUrl = 'https://wa.me/5493517691830';
-  static const String instagramUrl = 'https://www.instagram.com/monaco.barberia';
+  static const String instagramUrl =
+      'https://www.instagram.com/monaco.barberia';
 
   // ── Push ───────────────────────────────────────────────────────────────
   static const String androidNotificationChannelId = 'monaco_default';

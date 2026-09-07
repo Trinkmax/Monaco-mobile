@@ -52,6 +52,49 @@
 	<key>NSFaceIDUsageDescription</key>
 	<string>Usamos Face ID para proteger el acceso a tu cuenta, tus puntos y tus canjes. El reconocimiento ocurre sólo en tu dispositivo.</string>
 
+	<!-- Vuelta del checkout de Mercado Pago: monaco://pago?deposit=<id>.
+	     MP sólo acepta back_urls https y no admite esquemas propios, así que el
+	     camino real es MP → https://…/pago/<id> → esta URL.
+	     El parámetro se llama `deposit` y NO `code`: supabase_flutter engancha
+	     todos los deep links del proceso y trata cualquiera con `code` como
+	     callback de OAuth. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.monacobarber.monacoMobile.pago</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>monaco</string>
+			</array>
+		</dict>
+		<!-- ⚠️ PLACEHOLDER — REEMPLAZAR ANTES DE PUBLICAR.
+		     Ingreso con Google. `google_sign_in` en iOS vuelve del navegador por
+		     este esquema, que es el REVERSED_CLIENT_ID del client OAuth **de tipo
+		     iOS**: el client id `123-abc.apps.googleusercontent.com` invertido da
+		     `com.googleusercontent.apps.123-abc`.
+
+		     **`google_sign_in` NO lee el GoogleService-Info.plist para esto** (lo
+		     dice explícito su README): necesita su propio URL scheme, aunque el
+		     valor salga del mismo proyecto de Google Cloud que Firebase. Sin esta
+		     entrada la hoja de Google abre y nunca vuelve a la app.
+
+		     El mismo client id va en --dart-define=GOOGLE_IOS_CLIENT_ID y en el
+		     secret GOOGLE_CLIENT_IDS de la edge function `client-auth`. -->
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.monacobarber.monacoMobile.google</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.PLACEHOLDER-REEMPLAZAR</string>
+			</array>
+		</dict>
+	</array>
+
 	<!-- Esquemas que la app consulta con canLaunchUrl (url_launcher): sin esta lista, los
 	     links a la política de privacidad, soporte por mail, WhatsApp y teléfono no abren. -->
 	<key>LSApplicationQueriesSchemes</key>

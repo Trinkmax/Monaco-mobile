@@ -12,6 +12,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app/app.dart';
 import 'app/theme/monaco_colors.dart';
 import 'core/auth/secure_local_storage.dart';
+import 'core/deeplink/deep_link_handler.dart';
 import 'core/push/push_handler.dart';
 import 'core/push/push_service.dart';
 import 'core/router/app_router.dart';
@@ -73,11 +74,18 @@ Future<void> main() async {
       ),
     );
 
+    // El navigator lo necesitan los push Y los deep links (la vuelta del
+    // checkout de Mercado Pago), así que se registra siempre: hoy Firebase
+    // está sin configurar y sin esta línea los deep links no navegarían.
+    PushHandler.setNavigatorKey(rootNavigatorKey);
     if (firebaseReady) {
-      PushHandler.setNavigatorKey(rootNavigatorKey);
       await PushService.bootstrap();
       PushHandler.init();
     }
+
+    // `monaco://pago?deposit=<id>` — best-effort: si nunca llega, el cliente
+    // igual encuentra su pago en Mis turnos.
+    unawaited(DeepLinkHandler.init());
 
     runApp(const ProviderScope(child: MonacoApp()));
   }, (error, stack) {

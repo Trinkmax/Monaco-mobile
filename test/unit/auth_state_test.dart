@@ -59,15 +59,17 @@ void main() {
       expect(copied.isNewClient, isTrue);
     });
 
-    test('copyWith sin error lo limpia (es deliberado: error no se arrastra)',
-        () {
-      const state = AuthState(
-        status: AuthStatus.authenticated,
-        error: 'error previo',
-      );
-      final copied = state.copyWith(status: AuthStatus.unauthenticated);
-      expect(copied.error, isNull);
-    });
+    test(
+      'copyWith sin error lo limpia (es deliberado: error no se arrastra)',
+      () {
+        const state = AuthState(
+          status: AuthStatus.authenticated,
+          error: 'error previo',
+        );
+        final copied = state.copyWith(status: AuthStatus.unauthenticated);
+        expect(copied.error, isNull);
+      },
+    );
 
     group('firstName', () {
       test('devuelve el primer token del nombre', () {
@@ -78,8 +80,10 @@ void main() {
       });
 
       test('ignora espacios de más', () {
-        expect(const AuthState(clientName: '  Nacho   Baldovino ').firstName,
-            'Nacho');
+        expect(
+          const AuthState(clientName: '  Nacho   Baldovino ').firstName,
+          'Nacho',
+        );
       });
 
       test('nombre vacío o nulo → vacío', () {
@@ -87,25 +91,48 @@ void main() {
         expect(const AuthState(clientName: '   ').firstName, '');
       });
 
-      test('un nombre que es sólo dígitos (cuenta vieja sin nombre) → vacío',
-          () {
-        expect(const AuthState(clientName: '3512125249').firstName, '');
-      });
+      test(
+        'un nombre que es sólo dígitos (cuenta vieja sin nombre) → vacío',
+        () {
+          expect(const AuthState(clientName: '3512125249').firstName, '');
+        },
+      );
     });
   });
 
   group('AuthStatus', () {
-    test('tiene los 4 estados del contrato, en orden', () {
+    test('tiene los 5 estados del contrato, en orden', () {
       expect(AuthStatus.values, [
         AuthStatus.initial,
         AuthStatus.unauthenticated,
+        // `guest` = "Seguir mirando": no hay sesión y está bien. Es distinto de
+        // `unauthenticated` ("todavía no decidió") y es requisito de App Store
+        // (5.1.1) que exista.
+        AuthStatus.guest,
         AuthStatus.needsBiometric,
         AuthStatus.authenticated,
       ]);
     });
 
-    test(
-        'no existe needsBranch: la app no tiene sucursal global desde el '
+    test('isGuest y tieneCuenta no son lo mismo que !isAuthenticated', () {
+      const invitado = AuthState(status: AuthStatus.guest);
+      expect(invitado.isGuest, isTrue);
+      expect(invitado.tieneCuenta, isFalse);
+      expect(invitado.isAuthenticated, isFalse);
+
+      const nadie = AuthState(status: AuthStatus.unauthenticated);
+      expect(nadie.isGuest, isFalse);
+
+      // Con sesión pero sin `clientId` NO hay cuenta usable: las pantallas
+      // personales miran `tieneCuenta`, no `isAuthenticated`.
+      const sinId = AuthState(status: AuthStatus.authenticated);
+      expect(sinId.tieneCuenta, isFalse);
+      const conId = AuthState(status: AuthStatus.authenticated, clientId: 'c1');
+      expect(conId.tieneCuenta, isTrue);
+      expect(conId.isGuest, isFalse);
+    });
+
+    test('no existe needsBranch: la app no tiene sucursal global desde el '
         'rediseño de ago/2026 (se elige en el paso 1 de la reserva)', () {
       expect(
         AuthStatus.values.map((e) => e.name),
@@ -125,7 +152,11 @@ void main() {
     });
 
     test('sesión lista (dispositivo conocido) no manda código', () {
-      const r = StartResult(sessionReady: true, otpSent: false, clientKnown: true);
+      const r = StartResult(
+        sessionReady: true,
+        otpSent: false,
+        clientKnown: true,
+      );
       expect(r.sessionReady, isTrue);
       expect(r.otpSent, isFalse);
       expect(r.clientKnown, isTrue);

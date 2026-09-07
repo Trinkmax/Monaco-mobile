@@ -6,17 +6,24 @@ import 'package:go_router/go_router.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_theme.dart';
 import 'package:monaco_mobile/core/auth/pin_service.dart';
+import 'package:monaco_mobile/core/auth/secure_storage.dart';
+import 'package:monaco_mobile/core/auth/social_auth_service.dart';
 import 'package:monaco_mobile/features/onboarding/presentation/screens/login_code_screen.dart';
-import 'package:monaco_mobile/features/onboarding/presentation/screens/login_name_screen.dart';
 import 'package:monaco_mobile/features/onboarding/presentation/screens/login_phone_screen.dart';
 import 'package:monaco_mobile/features/onboarding/presentation/screens/welcome_screen.dart';
 import 'package:monaco_mobile/features/onboarding/providers/login_flow_provider.dart';
 import 'package:monaco_mobile/features/profile/presentation/screens/pin_setup_screen.dart';
+import 'package:monaco_mobile/features/profile/presentation/screens/pin_verify_screen.dart';
 
 /// Smoke de las pantallas de onboarding que no necesitan Supabase para
-/// dibujarse (welcome, teléfono, código, nombre, alta de PIN). El `submit`
-/// real contra `client-auth` no se ejercita acá: eso toca `authProvider`, que
-/// exige `Supabase.initialize`.
+/// dibujarse (welcome, teléfono, código, alta de PIN). El `submit` real contra
+/// `client-auth` no se ejercita acá: eso toca `authProvider`, que exige
+/// `Supabase.initialize`.
+///
+/// **Los botones de Google y Apple no aparecen en este harness**: se gatean con
+/// `Platform.isIOS` / `Platform.isAndroid` y `flutter test` corre en el host
+/// (macOS), donde los dos son `false`. Para verlos hay que correr la preview de
+/// `integration_test/alta_preview_test.dart` en el simulador.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -39,11 +46,8 @@ void main() {
           path: '/login/codigo',
           builder: (_, _) => const LoginCodeScreen(),
         ),
-        GoRoute(
-          path: '/login/nombre',
-          builder: (_, _) => const LoginNameScreen(),
-        ),
         GoRoute(path: '/pin-setup', builder: (_, _) => const PinSetupScreen()),
+        GoRoute(path: '/pin', builder: (_, _) => const PinVerifyScreen()),
       ],
     );
     return ProviderScope(
@@ -59,27 +63,54 @@ void main() {
     await t.pump(Duration(milliseconds: ms));
   }
 
-  testWidgets('welcome: tres slides, "Ingresar con mi número" lleva a /login', (t) async {
+  LoginFlow flujo({
+    bool clientKnown = false,
+    bool nameRequired = false,
+    String? firstName,
+    int resendIn = 45,
+  }) => LoginFlow(
+    phone: '3512125249',
+    phoneMasked: '+54 9 351 ••• 5249',
+    clientKnown: clientKnown,
+    nameRequired: nameRequired,
+    firstName: firstName,
+    resendIn: resendIn,
+    expiresIn: 600,
+    sentAt: DateTime.now(),
+  );
+
+  testWidgets('welcome: las opciones de entrada están en la primera pantalla', (
+    t,
+  ) async {
     await t.pumpWidget(harness(initial: '/welcome'));
     await settle(t);
 
     expect(find.textContaining('Tu barbería'), findsOneWidget);
-    expect(find.text('Siguiente'), findsOneWidget);
-    expect(find.text('Ya soy cliente, ingresar'), findsOneWidget);
+    // El teléfono y el modo invitado, sí o sí visibles sin deslizar los slides.
+    expect(find.text('Usar mi número de teléfono'), findsOneWidget);
+    expect(find.text('Seguir mirando'), findsOneWidget);
+    // Lo que murió con el alta propia: la app ya no manda a nadie al local.
+    expect(find.text('¿Aún no sos cliente?'), findsNothing);
 
-    await t.tap(find.text('Siguiente'));
-    await settle(t);
-    expect(find.textContaining('Sumá puntos'), findsOneWidget);
-
-    await t.tap(find.text('Siguiente'));
-    await settle(t);
-    expect(find.textContaining('Turnos en'), findsOneWidget);
-    expect(find.text('Ingresar con mi número'), findsOneWidget);
-    expect(find.text('¿Aún no sos cliente?'), findsOneWidget);
-
-    await t.tap(find.text('Ingresar con mi número'));
+    await t.tap(find.text('Usar mi número de teléfono'));
     await settle(t);
     expect(find.text('Ingresá tu número'), findsOneWidget);
+  });
+
+  testWidgets('welcome: entra en una pantalla chica sin desbordar', (t) async {
+    // El pie pasó de un CTA a tres botones de 56 + link + legales, sobre un
+    // carrusel. En un iPhone SE (320×568 lógicos) es donde revienta si el
+    // carrusel no cede alto. Un overflow de RenderFlex hace fallar el test.
+    t.view.physicalSize = const Size(640, 1136);
+    t.view.devicePixelRatio = 2.0;
+    addTearDown(t.view.reset);
+
+    await t.pumpWidget(harness(initial: '/welcome'));
+    await settle(t);
+
+    expect(find.text('Usar mi número de teléfono'), findsOneWidget);
+    expect(find.text('Seguir mirando'), findsOneWidget);
+    expect(t.takeException(), isNull);
   });
 
   testWidgets('teléfono: formatea en vivo y valida antes de llamar al server', (
@@ -110,143 +141,130 @@ void main() {
     expect(find.textContaining('sin el 0 ni el 15'), findsNothing);
   });
 
+  testWidgets('teléfono: con alta social pendiente explica por qué lo pide', (
+    t,
+  ) async {
+    await t.pumpWidget(
+      harness(
+        initial: '/login',
+        overrides: [
+          signupPendienteProvider.overrideWith(
+            (ref) => SignupPendiente(
+              token: 'v1.token',
+              proveedor: SocialProvider.google,
+              nombreSugerido: 'Nacho Baldovino',
+              email: 'nacho@gmail.com',
+            ),
+          ),
+        ],
+      ),
+    );
+    await settle(t);
+
+    expect(find.text('Falta tu teléfono'), findsOneWidget);
+    expect(find.textContaining('nacho@gmail.com'), findsOneWidget);
+  });
+
   testWidgets('código: sin flujo muestra "Este paso venció"', (t) async {
     await t.pumpWidget(harness(initial: '/login/codigo'));
     await settle(t);
     expect(find.text('Este paso venció'), findsOneWidget);
   });
 
-  testWidgets('código: cliente nuevo → el código viaja al paso del nombre', (
-    t,
-  ) async {
-    final flow = LoginFlow(
-      phone: '3512125249',
-      phoneMasked: '+54 9 351 ••• 5249',
-      clientKnown: false,
-      firstName: null,
-      resendIn: 45,
-      expiresIn: 600,
-      sentAt: DateTime.now(),
-    );
+  testWidgets(
+    'código: cliente conocido saluda por el nombre y no pide nombre',
+    (t) async {
+      await t.pumpWidget(
+        harness(
+          initial: '/login/codigo',
+          overrides: [
+            loginFlowProvider.overrideWith(
+              (ref) =>
+                  flujo(clientKnown: true, firstName: 'Nacho', resendIn: 0),
+            ),
+          ],
+        ),
+      );
+      await settle(t);
+
+      expect(find.text('Hola de nuevo, Nacho'), findsOneWidget);
+      expect(find.text('Reenviar código'), findsOneWidget);
+      expect(find.text('TU NOMBRE'), findsNothing);
+      expect(find.text('Confirmar'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'código: teléfono nuevo → el NOMBRE se pide en la MISMA pantalla',
+    (t) async {
+      await t.pumpWidget(
+        harness(
+          initial: '/login/codigo',
+          overrides: [
+            loginFlowProvider.overrideWith((ref) => flujo(nameRequired: true)),
+          ],
+        ),
+      );
+      await settle(t);
+
+      expect(find.text('Revisá tu WhatsApp'), findsOneWidget);
+      expect(find.text('TU NOMBRE'), findsOneWidget);
+      expect(find.text('Crear mi cuenta'), findsOneWidget);
+
+      // El CTA no se habilita con el código solo: falta el nombre. Y el sexto
+      // dígito NO auto-envía (el cliente todavía puede estar por escribirlo).
+      final campos = find.byType(TextField);
+      await t.enterText(campos.first, '123456');
+      await settle(t, 400);
+      expect(find.text('Revisá tu WhatsApp'), findsOneWidget);
+
+      // Un nombre de una sola letra tampoco alcanza.
+      await t.enterText(campos.last, 'I');
+      await settle(t, 300);
+      expect(find.text('Revisá tu WhatsApp'), findsOneWidget);
+    },
+  );
+
+  testWidgets('código: el nombre que trajo Google llega precargado', (t) async {
     await t.pumpWidget(
       harness(
         initial: '/login/codigo',
-        overrides: [loginFlowProvider.overrideWith((ref) => flow)],
+        overrides: [
+          loginFlowProvider.overrideWith((ref) => flujo(nameRequired: true)),
+          signupPendienteProvider.overrideWith(
+            (ref) => SignupPendiente(
+              token: 'v1.token',
+              proveedor: SocialProvider.google,
+              nombreSugerido: 'Nacho Baldovino',
+            ),
+          ),
+        ],
       ),
     );
     await settle(t);
 
-    expect(find.text('Revisá tu WhatsApp'), findsOneWidget);
-    expect(find.textContaining('+54 9 351 ••• 5249'), findsOneWidget);
-    expect(find.textContaining('Reenviar en 0:4'), findsOneWidget);
-    expect(find.text('Cambiar número'), findsOneWidget);
-
-    await t.enterText(find.byType(TextField), '123456');
-    await settle(t);
-
-    expect(find.text('¿Cómo te llamás?'), findsOneWidget);
-    // Es un `push`: la uri de la configuración sigue siendo la base, el
-    // destino está en el último match.
-    expect(
-      router.routerDelegate.currentConfiguration.last.matchedLocation,
-      '/login/nombre',
-    );
+    expect(find.text('Nacho Baldovino'), findsOneWidget);
   });
 
-  testWidgets('código: al volver del nombre con error lo muestra y vacía', (
+  testWidgets('cerrar sesión borra el PIN y la biometría del equipo', (
     t,
   ) async {
-    final flow = LoginFlow(
-      phone: '3512125249',
-      phoneMasked: '+54 9 351 ••• 5249',
-      clientKnown: false,
-      firstName: null,
-      resendIn: 45,
-      expiresIn: 600,
-      sentAt: DateTime.now(),
-    );
-    await t.pumpWidget(
-      harness(
-        initial: '/login/codigo',
-        overrides: [loginFlowProvider.overrideWith((ref) => flow)],
-      ),
-    );
-    await settle(t);
-    final container = ProviderScope.containerOf(
-      t.element(find.byType(LoginCodeScreen)),
-    );
+    // El gate es de ESTA cuenta en ESTE equipo: si sobrevive al logout, el que
+    // entra después se encuentra un candado que no puede abrir (el PIN es un
+    // hash local, no hay "olvidé mi PIN").
+    await PinService.setPin('2580');
+    await SecureStorageService.setBiometricEnabled(true);
+    await SecureStorageService.setGuestMode(true);
+    final secret = await SecureStorageService.getOrCreateDeviceSecret();
 
-    await t.enterText(find.byType(TextField), '123456');
-    await settle(t);
-    expect(find.text('¿Cómo te llamás?'), findsOneWidget);
+    await SecureStorageService.clearSession();
 
-    // El paso del nombre "vuelve" con el error que dejó el server.
-    final notifier = container.read(loginFlowProvider.notifier);
-    notifier.state = notifier.state!.copyWith(
-      pendingCodeError: 'El código venció. Pedí uno nuevo.',
-      clearCode: true,
-    );
-    router.pop();
-    await settle(t, 600);
-
-    expect(find.text('Revisá tu WhatsApp'), findsOneWidget);
-    expect(find.text('El código venció. Pedí uno nuevo.'), findsOneWidget);
-    // El error se consumió (no se vuelve a mostrar) y el código se vació.
-    expect(container.read(loginFlowProvider)!.pendingCodeError, isNull);
-    expect(container.read(loginFlowProvider)!.code, isNull);
-    // Vencido → "Reenviar código" disponible aunque el countdown no terminó.
-    expect(find.text('Reenviar código'), findsOneWidget);
-  });
-
-  testWidgets('código: cliente conocido saluda por el nombre', (t) async {
-    final flow = LoginFlow(
-      phone: '3512125249',
-      phoneMasked: '+54 9 351 ••• 5249',
-      clientKnown: true,
-      firstName: 'Nacho',
-      resendIn: 0,
-      expiresIn: 600,
-      sentAt: DateTime.now(),
-    );
-    await t.pumpWidget(
-      harness(
-        initial: '/login/codigo',
-        overrides: [loginFlowProvider.overrideWith((ref) => flow)],
-      ),
-    );
-    await settle(t);
-    expect(find.text('Hola de nuevo, Nacho'), findsOneWidget);
-    expect(find.text('Reenviar código'), findsOneWidget);
-  });
-
-  testWidgets('nombre: exige al menos 2 letras y arma la vista previa', (
-    t,
-  ) async {
-    final flow = LoginFlow(
-      phone: '3512125249',
-      phoneMasked: '+54 9 351 ••• 5249',
-      clientKnown: false,
-      firstName: null,
-      resendIn: 45,
-      expiresIn: 600,
-      sentAt: DateTime.now(),
-      code: '123456',
-    );
-    await t.pumpWidget(
-      harness(
-        initial: '/login/nombre',
-        overrides: [loginFlowProvider.overrideWith((ref) => flow)],
-      ),
-    );
-    await settle(t);
-
-    expect(find.text('¿Cómo te llamás?'), findsOneWidget);
-    final fields = find.byType(TextField);
-    expect(fields, findsNWidgets(2));
-
-    await t.enterText(fields.first, 'Ignacio');
-    await settle(t, 300);
-    expect(find.text('Hola, Ignacio'), findsOneWidget);
+    expect(await PinService.hasPin(), isFalse);
+    expect(await SecureStorageService.isPinEnabled(), isFalse);
+    expect(await SecureStorageService.isBiometricEnabled(), isFalse);
+    expect(await SecureStorageService.isGuestMode(), isFalse);
+    // El device_secret NO se rota: es lo que habilita el login silencioso.
+    expect(await SecureStorageService.getOrCreateDeviceSecret(), secret);
   });
 
   testWidgets('PIN: rechaza obvios, confirma en dos pasos y guarda el hash', (

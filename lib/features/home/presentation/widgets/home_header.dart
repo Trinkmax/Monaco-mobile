@@ -5,7 +5,9 @@ import 'package:go_router/go_router.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
+import 'package:monaco_mobile/core/auth/auth_provider.dart';
 import 'package:monaco_mobile/features/notifications/providers/notifications_provider.dart';
+import 'package:monaco_mobile/features/onboarding/presentation/widgets/muro_login.dart';
 
 /// Cabecera del Home: marca a la izquierda, campana a la derecha.
 ///
@@ -17,6 +19,7 @@ class HomeHeader extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final noLeidas = ref.watch(unreadNotificationsCountProvider);
+    final invitado = ref.watch(authProvider.select((a) => a.isGuest));
 
     return Row(
       children: [
@@ -25,7 +28,12 @@ class HomeHeader extends ConsumerWidget {
         const Spacer(),
         _Campana(
           count: noLeidas,
-          onTap: () => context.push('/notificaciones'),
+          // La campana sigue estando para el invitado: esconderla haría que la
+          // cabecera cambie de forma según el estado de sesión. Lo que cambia
+          // es el destino — la bandeja es personal, así que va al muro.
+          onTap: invitado
+              ? () => pedirCuenta(context, ref, AccionConCuenta.notificaciones)
+              : () => context.push('/notificaciones'),
         ),
       ],
     ).animate().fadeIn(duration: 400.ms);
@@ -43,9 +51,7 @@ class _Campana extends StatelessWidget {
     final hay = count > 0;
     return Semantics(
       button: true,
-      label: hay
-          ? 'Notificaciones, $count sin leer'
-          : 'Notificaciones',
+      label: hay ? 'Notificaciones, $count sin leer' : 'Notificaciones',
       child: LiquidTapEffect(
         onTap: onTap,
         scaleTo: 0.9,
@@ -67,42 +73,44 @@ class _Campana extends StatelessWidget {
               ),
               if (hay)
                 Positioned(
-                  top: 5,
-                  right: 5,
-                  child: Container(
-                    constraints: const BoxConstraints(minWidth: 17),
-                    height: 17,
-                    padding: const EdgeInsets.symmetric(horizontal: 4.5),
-                    decoration: BoxDecoration(
-                      color: MonacoColors.brandRed,
-                      borderRadius: BorderRadius.circular(999),
-                      // El anillo del color del fondo separa el globo del ícono
-                      // que tiene debajo; sin él, con 2+ dígitos, se leen como
-                      // una sola mancha.
-                      border: Border.all(
-                        color: MonacoColors.background,
-                        width: 2,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: MonacoColors.brandRed.withValues(alpha: 0.55),
-                          blurRadius: 8,
+                      top: 5,
+                      right: 5,
+                      child: Container(
+                        constraints: const BoxConstraints(minWidth: 17),
+                        height: 17,
+                        padding: const EdgeInsets.symmetric(horizontal: 4.5),
+                        decoration: BoxDecoration(
+                          color: MonacoColors.brandRed,
+                          borderRadius: BorderRadius.circular(999),
+                          // El anillo del color del fondo separa el globo del ícono
+                          // que tiene debajo; sin él, con 2+ dígitos, se leen como
+                          // una sola mancha.
+                          border: Border.all(
+                            color: MonacoColors.background,
+                            width: 2,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: MonacoColors.brandRed.withValues(
+                                alpha: 0.55,
+                              ),
+                              blurRadius: 8,
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                    child: Center(
-                      child: Text(
-                        count > 9 ? '9+' : '$count',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w900,
-                          height: 1,
+                        child: Center(
+                          child: Text(
+                            count > 9 ? '9+' : '$count',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w900,
+                              height: 1,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                )
+                    )
                     .animate(onPlay: (c) => c.repeat(reverse: true))
                     .scaleXY(begin: 1, end: 1.12, duration: 1200.ms),
             ],

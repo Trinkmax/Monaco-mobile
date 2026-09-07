@@ -44,6 +44,12 @@ android {
         // Application ID publicado: no cambiar después del primer upload a Play.
         applicationId = "com.monacobarber.monaco_mobile"
         minSdk = flutter.minSdkVersion
+        // Play exige API 36 para toda subida desde el 31/8/2026. Con Flutter
+        // 3.38.4 `flutter.targetSdkVersion` YA es 36 (verificado en
+        // packages/flutter_tools/gradle/.../FlutterExtension.kt), así que se deja
+        // heredado: fijarlo a mano acá sería congelarlo el día que Flutter suba.
+        // Si alguna vez se baja el Flutter del proyecto, revisar este número
+        // ANTES de armar el bundle: Play rechaza el upload, no avisa antes.
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -100,3 +106,16 @@ if (file("google-services.json").exists()) {
 } else {
     logger.lifecycle("[monaco] android/app/google-services.json no existe: se omite el plugin google-services (push deshabilitado).")
 }
+
+// -- Ingreso con Google en Android -------------------------------------------
+// `google_sign_in` NO necesita el plugin de arriba ni el google-services.json:
+// le alcanza con el `serverClientId` (el client OAuth de tipo **Web**), que la
+// app pasa por Dart con --dart-define=GOOGLE_SERVER_CLIENT_ID. Sin ese id el
+// SDK autentica pero **no emite id_token** y no hay nada que validar del lado
+// del server.
+//
+// Lo que sí hace falta en la consola de Google Cloud es un client OAuth de tipo
+// **Android** con el `applicationId` de arriba y el SHA-1 del keystore de
+// release (`keytool -list -v -keystore <store> -alias <alias>`), y también el
+// SHA-1 del keystore de debug, o el login sólo anda en el build firmado de
+// release. Ese client NO se pasa por Dart: Google lo resuelve por firma.

@@ -21,11 +21,17 @@ class TurnoTiles extends StatelessWidget {
   /// ¿Alguna sucursal toma turnos online? Si no, no se ofrece reservar.
   final bool reservable;
 
+  /// Qué hacer al tocar "Reservar". Por defecto abre el wizard; el Home de un
+  /// **invitado** lo usa para abrir el muro de login en vez de mandarlo a una
+  /// reserva que no va a poder terminar.
+  final VoidCallback? onReservar;
+
   const TurnoTiles({
     super.key,
     required this.proximo,
     required this.cargando,
     required this.reservable,
+    this.onReservar,
   });
 
   /// 152 y no 138: el tile del próximo turno apila ícono + hora grande +
@@ -41,24 +47,27 @@ class TurnoTiles extends StatelessWidget {
     final a = proximo;
     if (a == null) {
       if (!reservable) return const SizedBox.shrink();
-      return const _CtaAncho();
+      return _CtaAncho(onTap: onReservar);
     }
 
     return SizedBox(
-      height: _alto,
-      child: Row(
-        children: [
-          if (reservable) ...[
-            const Expanded(child: _TileReservar()),
-            const SizedBox(width: 10),
-          ],
-          Expanded(
-            flex: reservable ? 1 : 2,
-            child: _TileProximoTurno(appointment: a),
+          height: _alto,
+          child: Row(
+            children: [
+              if (reservable) ...[
+                Expanded(child: _TileReservar(onTap: onReservar)),
+                const SizedBox(width: 10),
+              ],
+              Expanded(
+                flex: reservable ? 1 : 2,
+                child: _TileProximoTurno(appointment: a),
+              ),
+            ],
           ),
-        ],
-      ),
-    ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.08, end: 0, duration: 400.ms);
+        )
+        .animate()
+        .fadeIn(duration: 400.ms)
+        .slideY(begin: 0.08, end: 0, duration: 400.ms);
   }
 }
 
@@ -67,7 +76,8 @@ class TurnoTiles extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════
 
 class _TileReservar extends StatelessWidget {
-  const _TileReservar();
+  final VoidCallback? onTap;
+  const _TileReservar({this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -75,7 +85,7 @@ class _TileReservar extends StatelessWidget {
       button: true,
       label: 'Reservar turno',
       child: LiquidGlass(
-        onTap: () => context.push('/turnos/reservar'),
+        onTap: onTap ?? () => context.push('/turnos/reservar'),
         padding: const EdgeInsets.fromLTRB(16, 15, 14, 15),
         borderRadius: 24,
         // Vidrio neutro, igual que la tarjeta de puntos de arriba (decisión del
@@ -143,12 +153,14 @@ class _TileProximoTurno extends StatelessWidget {
       diaCorto,
       if ((a.branchName ?? '').trim().isNotEmpty) a.branchName!.trim(),
     ].join(' · ');
-    final faltaPoco = enElLocal ||
+    final faltaPoco =
+        enElLocal ||
         a.startInstant.difference(DateTime.now().toUtc()).inHours < 24;
 
     return Semantics(
       button: true,
-      label: 'Tu próximo turno, ${a.horaLabel}, ${a.etiquetaDia()}. Ver detalle',
+      label:
+          'Tu próximo turno, ${a.horaLabel}, ${a.etiquetaDia()}. Ver detalle',
       child: LiquidGlass(
         onTap: () => context.push('/turnos/${a.id}'),
         padding: const EdgeInsets.fromLTRB(16, 15, 14, 15),
@@ -202,8 +214,9 @@ class _TileProximoTurno extends StatelessWidget {
               AppointmentCountdown(
                 appointment: a,
                 style: TextStyle(
-                  color: (enElLocal ? MonacoColors.info : MonacoColors.monacoGreen)
-                      .withValues(alpha: 0.95),
+                  color:
+                      (enElLocal ? MonacoColors.info : MonacoColors.monacoGreen)
+                          .withValues(alpha: 0.95),
                   fontSize: 11.5,
                   fontWeight: FontWeight.w800,
                   letterSpacing: -0.1,
@@ -262,7 +275,8 @@ class _IconoTile extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════
 
 class _CtaAncho extends StatelessWidget {
-  const _CtaAncho();
+  final VoidCallback? onTap;
+  const _CtaAncho({this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -270,7 +284,7 @@ class _CtaAncho extends StatelessWidget {
       button: true,
       label: 'Reservá tu turno',
       child: LiquidGlass(
-        onTap: () => context.push('/turnos/reservar'),
+        onTap: onTap ?? () => context.push('/turnos/reservar'),
         padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
         borderRadius: 24,
         // Vidrio neutro, como la tarjeta de puntos. Lo que lo hace tocable es la
@@ -297,8 +311,11 @@ class _CtaAncho extends StatelessWidget {
                   width: 0.8,
                 ),
               ),
-              child: const Icon(Icons.calendar_month_rounded,
-                  color: Colors.white, size: 22),
+              child: const Icon(
+                Icons.calendar_month_rounded,
+                color: Colors.white,
+                size: 22,
+              ),
             ),
             const SizedBox(width: 14),
             const Expanded(
@@ -346,8 +363,11 @@ class _CtaAncho extends StatelessWidget {
                   ),
                 ],
               ),
-              child: const Icon(Icons.arrow_forward_rounded,
-                  size: 18, color: MonacoColors.background),
+              child: const Icon(
+                Icons.arrow_forward_rounded,
+                size: 18,
+                color: MonacoColors.background,
+              ),
             ),
           ],
         ),

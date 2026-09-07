@@ -96,21 +96,32 @@ class MobileApi {
     );
   }
 
+  /// `timeout` sólo se pasa donde el default de 15 s es corto de verdad: hoy,
+  /// los endpoints de seña, que del otro lado tienen que hablar con Mercado
+  /// Pago. No subir el default: protege a toda la app de quedarse colgada.
   Future<Map<String, dynamic>> getJson(
     String path, {
     Map<String, String>? query,
+    Duration? timeout,
   }) =>
-      _send(() async => _http.get(_uri(path, query), headers: await _headers()));
+      _send(
+        () async => _http.get(_uri(path, query), headers: await _headers()),
+        timeout: timeout,
+      );
 
   Future<Map<String, dynamic>> postJson(
     String path,
-    Map<String, dynamic> body,
-  ) =>
-      _send(() async => _http.post(
-            _uri(path),
-            headers: await _headers(),
-            body: jsonEncode(body),
-          ));
+    Map<String, dynamic> body, {
+    Duration? timeout,
+  }) =>
+      _send(
+        () async => _http.post(
+          _uri(path),
+          headers: await _headers(),
+          body: jsonEncode(body),
+        ),
+        timeout: timeout,
+      );
 
   Future<Map<String, dynamic>> deleteJson(
     String path,
@@ -123,11 +134,12 @@ class MobileApi {
           ));
 
   Future<Map<String, dynamic>> _send(
-    Future<http.Response> Function() run,
-  ) async {
+    Future<http.Response> Function() run, {
+    Duration? timeout,
+  }) async {
     http.Response res;
     try {
-      res = await run().timeout(AppConstants.apiTimeout);
+      res = await run().timeout(timeout ?? AppConstants.apiTimeout);
     } on TimeoutException {
       throw const MobileApiException(
         'TIMEOUT',

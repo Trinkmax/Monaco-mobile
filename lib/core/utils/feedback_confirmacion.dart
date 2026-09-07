@@ -28,10 +28,13 @@ class FeedbackConfirmacion {
     try {
       await p.setAudioContext(
         AudioContext(
-          iOS: AudioContextIOS(
-            category: AVAudioSessionCategory.ambient,
-            options: const {AVAudioSessionOptions.mixWithOthers},
-          ),
+          // `ambient` YA mezcla con lo que esté sonando y respeta el switch de
+          // silencio; pedir además `mixWithOthers` dispara un assert de
+          // audioplayers ("sólo con playback/playAndRecord/multiRoute") que
+          // hacía fallar la configuración entera y dejaba el "ta-da" mudo en
+          // todos los iPhone. Se ve en el log de cualquier corrida del banco
+          // visual: "[feedback] no se pudo configurar el audio".
+          iOS: AudioContextIOS(category: AVAudioSessionCategory.ambient),
           android: const AudioContextAndroid(
             contentType: AndroidContentType.sonification,
             usageType: AndroidUsageType.assistanceSonification,
