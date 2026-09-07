@@ -120,5 +120,13 @@
 	<!-- Export compliance: sólo HTTPS estándar, no hay que subir documentación de cifrado -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- El motor de Flutter, con esto en true (su default), entrega los deep links
+	     de esquema propio DIRECTO al router, con la URI entera
+	     (`monaco://pago/?deposit=<id>`). go_router no matchea eso y muere con
+	     "no routes for location" — pantalla negra después de pagar, verificado el
+	     7/9/2026. Apagado, el link llega sólo por `app_links` y lo traduce
+	     `DeepLinkHandler.rutaPara`, que es donde vive la regla. -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
 </dict>
 </plist>

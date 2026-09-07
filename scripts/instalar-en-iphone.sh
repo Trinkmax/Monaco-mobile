@@ -108,6 +108,18 @@ if [[ "$MODO" == "reinstalar" ]]; then
   exit 0
 fi
 
+# El backup SÓLO se toma si el archivo está en su estado bueno. Sin este guard,
+# una corrida que muere sin disparar el trap (kill -9, disco lleno, el pipe que
+# se corta) deja el pbxproj swapeado, y la corrida siguiente lo respalda ASÍ y
+# después "restaura" el estado malo. Pasó el 7/9/2026: el proyecto quedó dos
+# configuraciones sin `aps-environment` y nadie se hubiera enterado hasta que
+# App Store Connect rechazara el build por entitlements faltantes.
+if ! grep -q "CODE_SIGN_ENTITLEMENTS = Runner/RunnerRelease.entitlements;" "$PBXPROJ"; then
+  echo "✗ El project.pbxproj ya está swapeado (sin Push) de una corrida anterior que no restauró." >&2
+  echo "  Restauralo antes de seguir:  git checkout -- $PBXPROJ" >&2
+  exit 1
+fi
+
 cp "$PBXPROJ" "$PBXPROJ.bak-instalador"
 sed -i '' 's|CODE_SIGN_ENTITLEMENTS = Runner/RunnerRelease.entitlements;|CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;|g' "$PBXPROJ"
 echo "→ Firmando sin Push Notifications (limitación del Apple ID gratuito)."

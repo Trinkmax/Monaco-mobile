@@ -52,10 +52,12 @@ class DeepLinkHandler {
 
   /// Ruta interna para un link entrante, o `null` si no es nuestro.
   ///
-  /// Es `visibleForTesting` para poder fijar en un test que
-  /// `monaco://pago?deposit=…` mapea a `/pago/…` y que nada más lo hace: un
-  /// deep link que navega a cualquier lado es una puerta abierta.
-  @visibleForTesting
+  /// Es la ÚNICA regla que decide qué link entrante es legítimo, y por eso la
+  /// usan los dos caminos por los que puede llegar uno: este handler (vía
+  /// `app_links`) y el `redirect` del router, que recibe la URI cruda cuando el
+  /// motor de Flutter se adelanta. Un deep link que navega a cualquier lado es
+  /// una puerta abierta; tener dos implementaciones de esta regla es tenerla
+  /// abierta a medias.
   static String? rutaPara(Uri uri) {
     if (uri.scheme.toLowerCase() != AppConstants.deepLinkScheme) return null;
     if (uri.host.toLowerCase() != AppConstants.deepLinkPagoHost) return null;

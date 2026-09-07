@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/widgets/glass/liquid.dart';
 import '../auth/auth_provider.dart';
+import '../deeplink/deep_link_handler.dart';
 import '../../features/onboarding/presentation/screens/splash_screen.dart';
 import '../../features/onboarding/presentation/screens/welcome_screen.dart';
 import '../../features/onboarding/presentation/screens/login_phone_screen.dart';
@@ -99,6 +100,27 @@ final routerProvider = Provider<GoRouter>((ref) {
       final auth = ref.read(authProvider);
       final path = state.matchedLocation;
       final status = auth.status;
+
+      // El motor de Flutter entrega los deep links de esquema propio DIRECTO al
+      // router, antes de que `DeepLinkHandler` los vea, y lo hace con la URI
+      // entera: `monaco://pago/?deposit=<id>`. go_router no tiene ninguna ruta
+      // con esa forma y muere con "no routes for location", que es la pantalla
+      // negra que vio el cliente el 7/9/2026 después de PAGAR.
+      //
+      // Se traduce acá además de deshabilitar `FlutterDeepLinkingEnabled` en el
+      // Info.plist: son dos defensas contra la misma clase de error, y ésta
+      // cubre también a Android y a cualquier link que entre por un camino que
+      // todavía no conocemos. `DeepLinkHandler.rutaPara` es la ÚNICA que decide
+      // qué link es legítimo — acá no se inventa una regla nueva.
+      if (path.contains('://')) {
+        final traducida = DeepLinkHandler.rutaPara(Uri.parse(path));
+        return traducida ?? '/home';
+      }
+
+      // El "Home" de la pantalla de error de go_router navega a `/`, que no es
+      // ninguna de nuestras rutas: sin esto, el que ya estaba perdido se choca
+      // una segunda pantalla de error.
+      if (path == '/') return '/home';
 
       if (path == '/splash') return null;
       if (status == AuthStatus.initial) return '/splash';
