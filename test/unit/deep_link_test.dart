@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:monaco_mobile/core/deeplink/deep_link_handler.dart';
@@ -34,13 +36,76 @@ void main() {
     });
 
     test('el parámetro NO se llama code', () {
-      // supabase_flutter engancha todos los deep links del proceso y trata
-      // cualquiera con `code` como callback de OAuth. Si algún día alguien
-      // "simplifica" el nombre, este test cae.
+      // Con el observer de deep links de supabase_flutter prendido, cualquier
+      // link con `code` se trata como callback de OAuth. Hoy está apagado
+      // (`detectSessionInUri: false`), así que esto ya no es lo único que nos
+      // separa de ese choque — pero el nombre se mantiene igual para no
+      // depender de una opción que alguien puede revertir de pasada.
       expect(
         DeepLinkHandler.rutaPara(Uri.parse('monaco://pago?code=abc12345678')),
         isNull,
       );
+    });
+  });
+
+  group('destinos de contenido (link_value cargado a mano)', () {
+    test('acepta las rutas conocidas, con y sin query', () {
+      expect(esRutaInternaDeContenido('/home'), isTrue);
+      expect(esRutaInternaDeContenido('/rewards'), isTrue);
+      // El QR del local manda al wizard con la sucursal ya elegida.
+      expect(esRutaInternaDeContenido('/turnos/reservar?branch=rondeau'),
+          isTrue);
+      expect(esRutaInternaDeContenido('/branch/8f2c1d3e'), isTrue);
+      expect(esRutaInternaDeContenido('/convenio/12'), isTrue);
+    });
+
+    test('rechaza lo que le pintaría al cliente la pantalla de error', () {
+      const invalidos = [
+        // Rutas que existieron y el dueño puede tener guardadas.
+        '/catalog',
+        '/elegir-sucursal',
+        // Typos.
+        '/premios',
+        '/Home',
+        // Prefijo sin id: `/branch/` solo no es ninguna sucursal.
+        '/branch/',
+        // No empieza con barra, o no es una ruta.
+        'rewards',
+        'https://monacobarber.vercel.app/turnos/monaco',
+        '//evil.example.com',
+        '',
+      ];
+      for (final v in invalidos) {
+        expect(esRutaInternaDeContenido(v), isFalse, reason: v);
+      }
+    });
+
+    test('sólo http y https se abren en el navegador', () {
+      expect(esUrlExterna('https://instagram.com/monaco.barberia'), isTrue);
+      expect(esUrlExterna('HTTP://monacobarber.vercel.app'), isTrue);
+      for (final v in const [
+        'javascript:alert(1)',
+        'monaco://pago?deposit=abc12345',
+        'ftp://archivos',
+        '/rewards',
+      ]) {
+        expect(esUrlExterna(v), isFalse, reason: v);
+      }
+    });
+
+    test('cada ruta de la lista blanca existe de verdad en el router', () {
+      // La lista espeja `app_router.dart` (que `core/deeplink` no puede
+      // importar sin ciclo). Si alguien renombra una ruta, la entrada queda
+      // apuntando a la nada y el link deja de funcionar en silencio.
+      final fuente = File('lib/core/router/app_router.dart').readAsStringSync();
+      final delRouter = RegExp(r"path:\s*'([^']+)'")
+          .allMatches(fuente)
+          .map((m) => m.group(1)!)
+          .toSet();
+      expect(delRouter, contains('/home'), reason: 'no se pudo leer el router');
+      for (final ruta in rutasInternasDeContenido) {
+        expect(delRouter, contains(ruta));
+      }
     });
   });
 

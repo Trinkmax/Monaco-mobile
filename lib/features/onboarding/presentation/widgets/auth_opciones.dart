@@ -137,6 +137,15 @@ class _AuthOpcionesState extends ConsumerState<AuthOpciones> {
   @override
   Widget build(BuildContext context) {
     final ocupado = _cargando != null;
+    final google = SocialAuthService.googleConfigurado;
+    final apple = SocialAuthService.appleDisponible;
+    // Sin ningún proveedor social (Android sin client id, o una build con
+    // `SOCIAL_LOGIN_ENABLED=false`) la columna quedaba con UNA sola pastilla
+    // translúcida y ningún botón primario: una bienvenida que se ve inconclusa.
+    // El teléfono toma la lámina sólida sólo en ese caso — con Google o Apple
+    // en pantalla, el primario es el social y dos superficies blancas juntas
+    // anularían la jerarquía.
+    final telefonoEsPrimario = !google && !apple;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -145,7 +154,7 @@ class _AuthOpcionesState extends ConsumerState<AuthOpciones> {
           OnboardingErrorBox(message: _error!),
           const SizedBox(height: 12),
         ],
-        if (SocialAuthService.googleConfigurado) ...[
+        if (google) ...[
           _BotonSocial(
             label: 'Continuar con Google',
             glyph: const GoogleG(size: 20),
@@ -158,16 +167,22 @@ class _AuthOpcionesState extends ConsumerState<AuthOpciones> {
         // Apple SÓLO en iOS. En Android `sign_in_with_apple` abre un Custom Tab
         // contra un servidor propio (deja de ser nativo) y la guideline 4.8 —la
         // que obliga a ofrecer Apple si ofrecemos Google— es de la App Store.
-        if (SocialAuthService.appleDisponible) ...[
+        //
+        // Va con el MISMO peso visual que Google (lámina blanca sólida, logo
+        // negro): la HIG de Sign in with Apple pide que el botón no sea más
+        // chico ni menos prominente que los otros, y App Review lo mira bajo la
+        // 4.8. El borde blanco sobre negro que tenía antes es una forma válida
+        // del botón, pero al lado de una lámina opaca se leía como secundario.
+        if (apple) ...[
           _BotonSocial(
             label: 'Continuar con Apple',
-            glyph: SizedBox.square(
+            glyph: const SizedBox.square(
               dimension: 20,
               child: CustomPaint(
-                painter: AppleLogoPainter(color: Colors.white),
+                painter: AppleLogoPainter(color: Colors.black),
               ),
             ),
-            solido: false,
+            solido: true,
             cargando: _cargando == SocialProvider.apple,
             onPressed: ocupado ? null : () => _social(SocialProvider.apple),
           ),
@@ -175,12 +190,16 @@ class _AuthOpcionesState extends ConsumerState<AuthOpciones> {
         ],
         _BotonSocial(
           label: 'Usar mi número de teléfono',
-          glyph: const Icon(
+          glyph: Icon(
             Icons.chat_rounded,
             size: 20,
-            color: MonacoColors.monacoGreen,
+            // Sobre la lámina blanca el verde de marca pierde contraste: se
+            // usa el profundo, que es el mismo verde con el valor bajado.
+            color: telefonoEsPrimario
+                ? MonacoColors.monacoGreenDeep
+                : MonacoColors.monacoGreen,
           ),
-          solido: false,
+          solido: telefonoEsPrimario,
           cargando: false,
           onPressed: ocupado ? null : _telefono,
         ),
@@ -192,11 +211,11 @@ class _AuthOpcionesState extends ConsumerState<AuthOpciones> {
 /// Botón de 56 de alto con el glifo del proveedor a la izquierda y el texto
 /// centrado ópticamente.
 ///
-/// [solido] = lámina blanca opaca. Se reserva para **un solo** botón de la
-/// columna (el primario): sobre vidrio oscuro, lo opaco es lo que el ojo lee
-/// como "esto se toca", y dos superficies blancas juntas anulan esa jerarquía.
-/// El de Apple va con borde blanco sobre negro, que es una de las tres formas
-/// que admiten las guías de Apple.
+/// [solido] = lámina blanca opaca. Sobre vidrio oscuro es lo que el ojo lee
+/// como "esto se toca", así que se reserva para los botones que la pantalla
+/// quiere que se usen: **los sociales** (Google y Apple con el mismo peso, que
+/// es lo que exige la HIG de Sign in with Apple) o, cuando no hay ninguno, el
+/// del teléfono. Nunca dos láminas blancas compitiendo con una tercera.
 class _BotonSocial extends StatelessWidget {
   final String label;
   final Widget glyph;

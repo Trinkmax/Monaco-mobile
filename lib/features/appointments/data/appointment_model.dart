@@ -1,4 +1,83 @@
+import 'package:monaco_mobile/features/senas/data/sena_models.dart';
+
 import 'fechas.dart';
+
+/// La seña del turno (fila de `booking_deposits`), cuando la hay.
+///
+/// Viaja embebida en la lectura de `appointments` (RLS
+/// `booking_deposits_select_own_client`: el cliente ve las suyas). Existe por
+/// una sola razón: **cancelar un turno señado sin decir una palabra sobre la
+/// plata es lo que genera el reclamo**. Lo que la app sabe es que hay una seña
+/// y cuánto; lo que NO sabe es si corresponde devolución —eso lo decide
+/// `branch_deposit_settings.refund_on_early_cancel`, que el cliente no puede
+/// leer— así que el copy nombra el monto y no promete el reintegro.
+class AppointmentDeposit {
+  final String id;
+  final EstadoSena estado;
+  final num amount;
+  final num refundedAmount;
+  final DateTime? paidAt;
+  final DateTime? refundedAt;
+  final DateTime? createdAt;
+
+  const AppointmentDeposit({
+    required this.id,
+    required this.estado,
+    required this.amount,
+    this.refundedAmount = 0,
+    this.paidAt,
+    this.refundedAt,
+    this.createdAt,
+  });
+
+  /// La plata salió del bolsillo del cliente y sigue del lado del local.
+  /// `perdida` cuenta: la seña se la quedó el local, que es exactamente el caso
+  /// en que hay algo que explicar.
+  bool get plataDelLocal =>
+      estado == EstadoSena.pagada ||
+      estado == EstadoSena.consumida ||
+      estado == EstadoSena.perdida;
+
+  /// Ya se devolvió (total o parcialmente).
+  bool get devuelta => estado == EstadoSena.devuelta || refundedAt != null;
+
+  factory AppointmentDeposit.fromJson(Map<String, dynamic> j) =>
+      AppointmentDeposit(
+        id: (j['id'] as String?) ?? '',
+        estado: EstadoSena.desde(j['status']),
+        amount: (j['amount'] as num?) ?? num.tryParse('${j['amount']}') ?? 0,
+        refundedAmount: (j['refunded_amount'] as num?) ?? 0,
+        paidAt: DateTime.tryParse('${j['paid_at']}'),
+        refundedAt: DateTime.tryParse('${j['refunded_at']}'),
+        createdAt: DateTime.tryParse('${j['created_at']}'),
+      );
+
+  /// El embed llega como LISTA (`booking_deposits` apunta a `appointments`, o
+  /// sea que es una relación a-muchos aunque en la práctica sea una sola).
+  ///
+  /// Un mismo turno puede tener más de una fila: el cliente que abandona un
+  /// checkout y vuelve a intentar deja una `cancelada`/`expirada` atrás. Manda
+  /// **la que tiene la plata**, y recién después la más nueva.
+  static AppointmentDeposit? deLista(Object? raw) {
+    if (raw is Map) return AppointmentDeposit.fromJson(Map<String, dynamic>.from(raw));
+    if (raw is! List) return null;
+    final filas = raw
+        .whereType<Map>()
+        .map((e) => AppointmentDeposit.fromJson(Map<String, dynamic>.from(e)))
+        .where((d) => d.id.isNotEmpty)
+        .toList();
+    if (filas.isEmpty) return null;
+    final epoch = DateTime.fromMillisecondsSinceEpoch(0);
+    filas.sort((a, b) => (b.createdAt ?? epoch).compareTo(a.createdAt ?? epoch));
+    for (final d in filas) {
+      if (d.plataDelLocal) return d;
+    }
+    for (final d in filas) {
+      if (d.devuelta) return d;
+    }
+    return filas.first;
+  }
+}
 
 /// Servicio asociado a un turno (snapshot al momento de agendar).
 class AppointmentService {
@@ -187,6 +266,9 @@ class Appointment {
   final String? notes;
   final List<AppointmentService> services;
 
+  /// La seña, si este turno se reservó pagando una (`null` = no tiene).
+  final AppointmentDeposit? deposit;
+
   const Appointment({
     required this.id,
     required this.organizationId,
@@ -212,6 +294,7 @@ class Appointment {
     this.tokenExpiresAt,
     this.notes,
     this.services = const [],
+    this.deposit,
   });
 
   factory Appointment.fromJson(Map<String, dynamic> json) {
@@ -286,6 +369,7 @@ class Appointment {
           : null,
       notes: json['notes'] as String?,
       services: services,
+      deposit: AppointmentDeposit.deLista(json['deposit'] ?? json['booking_deposits']),
       branchName: branchName,
       branchSlug: branchSlug,
       branchAddress: branchAddress,
@@ -408,5 +492,6 @@ class Appointment {
         tokenExpiresAt: tokenExpiresAt,
         notes: notes,
         services: services,
+        deposit: deposit,
       );
 }

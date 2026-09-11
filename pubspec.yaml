@@ -53,6 +53,17 @@ dependencies:
   firebase_messaging: ^15.2.4
   flutter_local_notifications: ^18.0.1
 
+  # Telemetría de crashes. **Condicional**: `main.dart` sólo engancha los
+  # handlers si Firebase arrancó de verdad (`firebase_options.dart` sin
+  # placeholders), así que hasta que el dueño corra `flutterfire configure`
+  # esto es peso muerto y nada más — no rompe ni cambia el arranque.
+  #
+  # El rango es `^4.3.10` y NO `^5`: la 5.x pide firebase_core 4.x y este
+  # proyecto está clavado en core 3.15.x junto con firebase_messaging 15.x
+  # (subir esa major es un ciclo aparte, ver "Deuda de dependencias" en el
+  # README). Un `pub upgrade --major-versions` distraído arrastraría las tres.
+  firebase_crashlytics: ^4.3.10
+
   # UI & Animations
   flutter_animate: ^4.5.2
   qr_flutter: ^4.1.0
@@ -81,6 +92,14 @@ dependencies:
   # Ya venía como dependencia transitiva de supabase_flutter; se declara
   # explícita porque ahora hay código nuestro que la importa.
   app_links: ^6.4.1
+
+  # Almacén que **se borra con la desinstalación** (NSUserDefaults / Shared-
+  # Preferences), que es exactamente lo que el Keychain no hace: lo usa
+  # `core/auth/install_guard.dart` para detectar una reinstalación y limpiar la
+  # sesión que sobrevivió. Ya venía transitiva por `supabase_flutter` (es su
+  # storage por defecto); se declara directa porque hay código nuestro que la
+  # importa. Versión: la que ya resuelve el lock (2.5.5).
+  shared_preferences: ^2.5.5
   package_info_plus: ^8.1.3
   share_plus: ^10.1.2
 
@@ -110,8 +129,11 @@ flutter:
 
   assets:
     - assets/images/
-    - assets/brand/
     - assets/sounds/
+    # `assets/brand/` NO va acá: son los INSUMOS de flutter_launcher_icons y
+    # flutter_native_splash (ver más abajo), que los leen del path del proyecto,
+    # no del bundle. Ningún .dart los referencia (verificado con grep), así que
+    # empaquetarlos era mandar 164 KB de PNG al teléfono para nada.
 
   fonts:
     - family: Poppins
@@ -139,8 +161,15 @@ flutter_launcher_icons:
   remove_alpha_ios: true
   image_path: assets/brand/app_icon.png
   adaptive_icon_background: "#0A0A0A"
-  adaptive_icon_foreground: assets/brand/app_icon_foreground.png
-  adaptive_icon_monochrome: assets/brand/app_icon_foreground.png
+  # Foreground/monochrome del ícono adaptativo (Android 8+): la M al 60 % del
+  # canvas. flutter_launcher_icons le suma su inset del 16 %, así que en el
+  # canvas de 108 dp queda de ~44 dp, dentro de la zona segura de 66 dp y con
+  # el mismo peso visual que la M del ícono de iOS/legacy (56 % del lado).
+  # `app_icon_foreground.png` (la M al 42 %) sumado al inset la dejaba al 43 %
+  # del círculo visible: doble margen. Ese archivo sigue siendo la fuente de
+  # `drawable/ic_notification` y no se toca.
+  adaptive_icon_foreground: assets/brand/app_icon_foreground_adaptive.png
+  adaptive_icon_monochrome: assets/brand/app_icon_foreground_adaptive.png
   min_sdk_android: 24
 
 # ── Splash nativo (flutter_native_splash) ───────────────────────────────────
@@ -150,7 +179,13 @@ flutter_native_splash:
   image: assets/brand/splash_logo.png
   android_12:
     color: "#0A0A0A"
-    image: assets/brand/splash_logo.png
+    # Android 12+ enmascara el ícono del splash con un círculo de 2/3 del
+    # canvas (240 dp de ícono, 160 dp visibles): con `splash_logo.png` (la M
+    # al 49 % del alto) las cuatro puntas quedaban afuera y se veían cortadas.
+    # Este archivo lleva la misma M al 40 % del alto (radio máximo 30 % del
+    # lado, contra 33 % de la máscara). `image:` (API < 31, iOS) no tiene
+    # máscara y sigue con el logo original.
+    image: assets/brand/splash_logo_android12.png
     icon_background_color: "#0A0A0A"
   ios: true
   android: true

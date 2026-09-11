@@ -77,7 +77,7 @@ class LiquidButton extends StatelessWidget {
       shadow: primary
           ? [
               BoxShadow(
-                color: accent.withOpacity(0.35),
+                color: accent.withValues(alpha: 0.35),
                 blurRadius: 18,
                 spreadRadius: -4,
                 offset: const Offset(0, 8),

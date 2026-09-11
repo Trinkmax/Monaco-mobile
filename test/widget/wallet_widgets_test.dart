@@ -183,6 +183,33 @@ void main() {
       });
     }
 
+    testWidgets('sin saldo dibuja un guión, nunca un 0', (tester) async {
+      // `saldo: null` es "no se pudo leer" (RPC caída, primera carga sin red).
+      // Un 0 en la tarjeta le dice al cliente que se quedó sin puntos, que es
+      // la peor lectura posible de una billetera y encima es falsa.
+      await tester.pumpWidget(envolver(
+        MonacoCard(summary: oro(), saldo: null, onTap: () {}),
+      ));
+      await frames(tester);
+
+      expect(find.text('—'), findsOneWidget);
+      expect(find.text('0'), findsNothing);
+      expect(find.text('PUNTOS'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('sin saldo y sin categoría también dibuja el guión',
+        (tester) async {
+      await tester.pumpWidget(envolver(
+        MonacoCard(summary: apagado, saldo: null),
+      ));
+      await frames(tester);
+
+      expect(find.text('—'), findsOneWidget);
+      expect(find.text('0'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('modo apagado: vidrio gris, sin etiqueta de categoría ni progreso',
         (tester) async {
       await tester.pumpWidget(envolver(

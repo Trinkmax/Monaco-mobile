@@ -5,31 +5,75 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
 
-    <!-- Ubicación: sólo para ordenar las sucursales por cercanía (opcional, best-effort). -->
+    <!-- Ubicación APROXIMADA, y sólo ésa: se usa para ordenar las sucursales por
+         cercanía (opcional, best-effort). `LocationAccuracy.medium` es
+         PRIORITY_BALANCED_POWER_ACCURACY, que funciona con COARSE; declarar
+         además FINE hacía que geolocator lo pidiera en runtime (el diálogo
+         "Precisa/Aproximada" de Android 12+), obligaba a declarar "ubicación
+         precisa" en Data safety y, desde 2027, a justificar ante Play por qué
+         un buscador de sucursales necesita precisión. iOS ya corre con
+         NSLocationDefaultAccuracyReduced = true. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <!-- Pedir ACCESS_COARSE_LOCATION le IMPLICA a Play que la app requiere
+         hardware de ubicación (`aapt2 dump badging` lo lista como
+         uses-implied-feature) y filtra del catálogo los equipos que no lo
+         tienen. Acá la ubicación es opcional: si no hay, las sucursales se
+         listan sin ordenar por cercanía y no se pierde ninguna función. Se
+         declara explícitamente required="false" para no achicar el alcance.
+         (Sacar ACCESS_FINE_LOCATION ya eliminó la implicación de
+         android.hardware.location.gps, que era la más restrictiva.) -->
+    <uses-feature android:name="android.hardware.location" android:required="false"/>
 
-    <!-- Push (Android 13+ pide el permiso en runtime) y notificaciones locales. -->
+    <!-- Push (Android 13+ pide el permiso en runtime). La app NO programa
+         notificaciones locales (sólo `show()` para el push en primer plano),
+         así que no lleva RECEIVE_BOOT_COMPLETED ni los receivers de
+         flutter_local_notifications: si algún día se usa `zonedSchedule`, hay
+         que volver a agregarlos junto con SCHEDULE_EXACT_ALARM/USE_EXACT_ALARM. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 
     <!-- Biometría (local_auth). -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
 
     <!--
-      allowBackup=false: la sesión y el device_secret viven en
-      EncryptedSharedPreferences (flutter_secure_storage), cifrados con una
+      Sin backup ni transferencia de datos: la sesión y el device_secret viven
+      en EncryptedSharedPreferences (flutter_secure_storage), cifrados con una
       clave del Keystore que NO viaja en el backup. Restaurar esos archivos en
       otro equipo deja datos indescifrables y la app crashea al arrancar.
-      Sin backup, el cliente simplemente vuelve a entrar con el código de WhatsApp.
+      Sin backup, el cliente simplemente vuelve a entrar con el código de
+      WhatsApp (o con Google/Apple, de un toque).
+
+      Son TRES atributos porque cubren cosas distintas:
+      - allowBackup=false: apaga el backup en API < 31.
+      - dataExtractionRules (API 31+): desde Android 12 allowBackup=false NO
+        frena la transferencia directa entre equipos ("cambiar de teléfono")
+        en varios fabricantes; hay que excluirlo explícitamente en
+        <device-transfer>. Sin eso, el teléfono nuevo recibía la sesión
+        cifrada con la clave del viejo y la app quedaba clavada en el splash.
+      - fullBackupContent (API < 31): red por si alguien vuelve a prender
+        allowBackup; excluye lo mismo.
     -->
     <application
         android:label="@string/app_name"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true">
+
+        <!-- Android 16 (targetSdk 36) ignora el bloqueo a vertical
+             (`SystemChrome.setPreferredOrientations` en main.dart) en pantallas
+             de 600 dp o más: tablets y plegables abiertos mostrarían la app
+             apaisada y estirada a toda la pantalla, y no hay layout para eso
+             (la UI es phone-only, como en iOS con TARGETED_DEVICE_FAMILY = 1).
+             Esta property es el puente que Google ofrece hasta API 37, donde
+             deja de valer: antes de subir el targetSdk a 37 hay que decidir
+             entre un shell con ancho máximo o excluir tablets desde Play
+             Console (el manifest no las filtra). -->
+        <property
+            android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY"
+            android:value="true" />
 
         <activity
             android:name=".MainActivity"
@@ -46,6 +90,16 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- El deep link lo entrega app_links → DeepLinkHandler, NO el motor
+                 de Flutter (mismo criterio que FlutterDeepLinkingEnabled=false en
+                 el Info.plist). Desde Flutter 3.27 el default es true y el motor
+                 entregaba `monaco://pago?deposit=…` al router como cambio de
+                 ruta (equivale a un `go`: la pila quedaba sólo con /pago/<id> y
+                 "atrás" salía de la app en vez de volver a Turnos), además de
+                 la entrega de app_links: el mismo link llegaba dos veces. -->
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
@@ -86,22 +140,6 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_color"
             android:resource="@color/notification_accent" />
-
-        <!-- flutter_local_notifications: receivers para notificaciones programadas
-             (sobreviven al reinicio del equipo). -->
-        <receiver
-            android:exported="false"
-            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
-        <receiver
-            android:exported="false"
-            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED"/>
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
-                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
-                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
-            </intent-filter>
-        </receiver>
 
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

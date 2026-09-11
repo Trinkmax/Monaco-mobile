@@ -8,6 +8,7 @@ import 'package:monaco_mobile/core/utils/constants.dart';
 import 'package:monaco_mobile/features/appointments/data/fechas.dart';
 
 import '../../data/sena_models.dart';
+import 'arrepentimiento_link.dart';
 
 /// Lo que el cliente está por reservar, para que el resumen de la hoja no
 /// dependa del estado del wizard.
@@ -124,25 +125,15 @@ class _CuerpoHojaState extends State<_CuerpoHoja> {
         // El botón de arrepentimiento va donde está el derecho: al lado del
         // párrafo que lo anuncia. En la web el mismo párrafo lleva el link a
         // /arrepentimiento; sin él, la app anunciaba un derecho y no decía
-        // dónde ejercerlo (Res. 424/2020 pide que esté accesible).
+        // dónde ejercerlo (la Disp. 954/2025 —que derogó la Res. 424/2020—
+        // exige que esté visible y de fácil acceso).
+        //
+        // El MISMO link aparece después de pagar (pantalla de estado del pago y
+        // detalle del turno señado): los 10 días del art. 1110 CCyC empiezan a
+        // correr con el pago, así que ofrecerlo sólo acá es ofrecerlo antes de
+        // que sirva para algo.
         if (intencion.politica.arrepentimiento != null) ...[
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: () => _abrir('${AppConstants.apiBaseUrl}/arrepentimiento'),
-              icon: const Icon(Icons.undo_rounded, size: 15),
-              label: const Text(
-                'Botón de arrepentimiento',
-                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
-              ),
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.white.withValues(alpha: 0.75),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                minimumSize: const Size(0, 34),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-            ),
-          ),
+          const ArrepentimientoLink(),
           const SizedBox(height: 6),
         ],
         // La aceptación, pegada al botón que cobra y con el monto adentro.

@@ -24,6 +24,11 @@ plugins {
     // Firebase: se declara acá (en el classpath) pero app/build.gradle.kts lo aplica
     // sólo si existe android/app/google-services.json.
     id("com.google.gms.google-services") version "4.4.3" apply false
+    // Crashlytics: el SDK reporta igual sin este plugin; lo que agrega es la
+    // subida automática del mapping de R8 y de los símbolos nativos, o sea que
+    // el stack del panel se lea. Se aplica junto con google-services (mismo
+    // `if`), porque sin google-services.json no hay proyecto al que subirlos.
+    id("com.google.firebase.crashlytics") version "3.0.8" apply false
 }
 
 include(":app")

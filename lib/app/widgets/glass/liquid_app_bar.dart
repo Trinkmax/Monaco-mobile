@@ -44,10 +44,10 @@ class LiquidAppBar extends StatelessWidget implements PreferredSizeWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 240),
           decoration: BoxDecoration(
-            color: MonacoColors.background.withOpacity(scrolled ? 0.55 : 0.18),
+            color: MonacoColors.background.withValues(alpha: scrolled ? 0.55 : 0.18),
             border: Border(
               bottom: BorderSide(
-                color: Colors.white.withOpacity(scrolled ? 0.10 : 0.0),
+                color: Colors.white.withValues(alpha: scrolled ? 0.10 : 0.0),
                 width: 0.5,
               ),
             ),
@@ -111,7 +111,7 @@ class _BackArrow extends StatelessWidget {
       child: IconButton(
         icon: Icon(
           Icons.arrow_back_ios_new_rounded,
-          color: Colors.white.withOpacity(0.9),
+          color: Colors.white.withValues(alpha: 0.9),
           size: 20,
         ),
         onPressed: onBack ?? () => context.pop(),

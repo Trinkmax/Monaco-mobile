@@ -139,8 +139,8 @@ class _LiquidBackdropState extends State<LiquidBackdrop>
               shape: BoxShape.circle,
               gradient: RadialGradient(
                 colors: [
-                  color.withOpacity(0.28 * widget.intensity),
-                  color.withOpacity(0.09 * widget.intensity),
+                  color.withValues(alpha: 0.28 * widget.intensity),
+                  color.withValues(alpha: 0.09 * widget.intensity),
                   Colors.transparent,
                 ],
                 stops: const [0.0, 0.45, 1.0],

@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 import 'package:monaco_mobile/core/auth/auth_provider.dart';
+import 'package:monaco_mobile/core/deeplink/deep_link_handler.dart';
 import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
 import 'package:monaco_mobile/features/appointments/data/fechas.dart';
 import 'package:monaco_mobile/features/appointments/presentation/widgets/turno_links.dart';
@@ -17,6 +18,7 @@ import 'package:monaco_mobile/features/loyalty/presentation/widgets/loyalty_stat
 import 'package:monaco_mobile/features/loyalty/presentation/widgets/monaco_card.dart';
 import 'package:monaco_mobile/features/loyalty/presentation/widgets/tier_up_celebration.dart';
 import 'package:monaco_mobile/features/loyalty/providers/loyalty_provider.dart';
+import 'package:monaco_mobile/features/home/presentation/widgets/banda_sin_conexion.dart';
 import 'package:monaco_mobile/features/home/presentation/widgets/home_header.dart';
 import 'package:monaco_mobile/features/home/presentation/widgets/occupancy_mini_card.dart';
 import 'package:monaco_mobile/features/home/presentation/widgets/turno_tiles.dart';
@@ -92,6 +94,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }, fireImmediately: true);
   }
 
+  /// Todo lo que muestra el Home, de nuevo. Lo usan el pull-to-refresh y el
+  /// "Reintentar" de la banda de sin conexión: dos botones que prometen lo
+  /// mismo tienen que hacer lo mismo.
+  Future<void> _refrescar() async {
+    ref.invalidate(loyaltyProvider);
+    ref.invalidate(pendingReviewsProvider);
+    ref.invalidate(branchSignalsProvider);
+    ref.invalidate(billboardProvider);
+    ref.invalidate(conveniosProvider);
+    ref.invalidate(catalogoPremiosProvider);
+    ref.invalidate(clientWalletProvider);
+    ref.invalidate(upcomingAppointmentsProvider);
+    ref.invalidate(mobileBranchesProvider);
+    await Future.wait([
+      ref.read(loyaltyProvider.future).then((_) {}, onError: (_) {}),
+      ref
+          .read(upcomingAppointmentsProvider.future)
+          .then((_) {}, onError: (_) {}),
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
@@ -108,6 +131,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final firstName = auth.firstName;
     final saludo = firstName.isEmpty ? 'Hola' : 'Hola, $firstName';
 
+    // Las fuentes que alimentan la pantalla. Las del cliente sólo cuentan si
+    // hay cuenta: para un invitado no se piden y su `AsyncValue` no dice nada
+    // de la red.
+    final fuentes = <AsyncValue<Object?>>[
+      branches,
+      billboard,
+      premios,
+      if (!invitado) ...[loyalty, saldo, proximoTurno],
+    ];
+    final sinConexion = sinConexionEn(fuentes);
+
     return Scaffold(
       backgroundColor: MonacoColors.background,
       extendBody: true,
@@ -117,23 +151,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           child: RefreshIndicator(
             color: Colors.white,
             backgroundColor: MonacoColors.surface,
-            onRefresh: () async {
-              ref.invalidate(loyaltyProvider);
-              ref.invalidate(pendingReviewsProvider);
-              ref.invalidate(branchSignalsProvider);
-              ref.invalidate(billboardProvider);
-              ref.invalidate(conveniosProvider);
-              ref.invalidate(catalogoPremiosProvider);
-              ref.invalidate(clientWalletProvider);
-              ref.invalidate(upcomingAppointmentsProvider);
-              ref.invalidate(mobileBranchesProvider);
-              await Future.wait([
-                ref.read(loyaltyProvider.future).then((_) {}, onError: (_) {}),
-                ref
-                    .read(upcomingAppointmentsProvider.future)
-                    .then((_) {}, onError: (_) {}),
-              ]);
-            },
+            onRefresh: _refrescar,
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 130),
@@ -149,13 +167,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                   const SizedBox(height: 18),
 
+                  // ── Sin conexión ──
+                  // Va ARRIBA de la tarjeta: es lo primero que explica por qué
+                  // el resto de la pantalla está a medias. Sin esto, un
+                  // arranque en frío sin internet se ve igual que una cuenta
+                  // recién creada (0 puntos, sin turnos, sin sucursales) y
+                  // ningún texto dice que falta la red.
+                  if (sinConexion)
+                    BandaSinConexion(
+                      conDatosPrevios: hayDatosPreviosEn(fuentes),
+                      onReintentar: _refrescar,
+                    ),
+
                   // ── La tarjeta Monaco (o la invitación a tener una) ──
                   if (invitado)
                     const _TarjetaInvitado()
                   else
                     _TarjetaMonaco(
+                      // `valueOrNull` y NO `?? 0`: `saldoPuntosProvider`
+                      // conserva el último saldo bueno, así que `null` acá
+                      // significa que nunca se pudo leer. Un 0 en la tarjeta
+                      // le dice al cliente que se quedó sin puntos.
                       loyalty: loyalty,
-                      saldo: saldo.valueOrNull ?? 0,
+                      saldo: saldo.valueOrNull,
                       nombre: auth.clientName ?? '',
                     ),
                   const SizedBox(height: 14),
@@ -308,17 +342,41 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  void _avisarLinkInvalido(BuildContext context, String valor) {
+    debugPrint('[cartelera] destino desconocido: "$valor"');
+    showLiquidToast(
+      context,
+      'Este enlace no está disponible.',
+      tone: LiquidToastTone.error,
+    );
+  }
+
+  /// El destino de una tarjeta de cartelera **lo tipea el dueño** en
+  /// `/dashboard/app-movil`, así que se valida antes de navegar: desde que el
+  /// router tiene `errorBuilder`, un `link_value` con un typo le pinta al
+  /// cliente la pantalla de "no encontramos esa página" en lugar de no hacer
+  /// nada. La regla de qué ruta es legítima vive en un solo lugar
+  /// (`esRutaInternaDeContenido`), compartida con `/billboard`.
   void _abrirCartelera(BuildContext context, Map<String, dynamic> item) {
     final linkType = item['link_type'] as String?;
     final linkValue = (item['link_value'] as String?)?.trim();
     if (linkType == null || linkValue == null || linkValue.isEmpty) return;
     switch (linkType) {
       case 'route':
-        if (linkValue.startsWith('/')) context.push(linkValue);
-      case 'url':
-        if (linkValue.startsWith('http://') ||
-            linkValue.startsWith('https://')) {
+        // Una URL cargada como "ruta" es el typo más probable de los dos
+        // campos: se abre en el navegador en vez de tirarla.
+        if (esUrlExterna(linkValue)) {
           abrirUrlExterna(context, linkValue);
+        } else if (esRutaInternaDeContenido(linkValue)) {
+          context.push(linkValue);
+        } else {
+          _avisarLinkInvalido(context, linkValue);
+        }
+      case 'url':
+        if (esUrlExterna(linkValue)) {
+          abrirUrlExterna(context, linkValue);
+        } else {
+          _avisarLinkInvalido(context, linkValue);
         }
       case 'branch':
         context.push('/branch/$linkValue');
@@ -376,11 +434,13 @@ class _Saludo extends StatelessWidget {
 
 /// La tarjeta y su tira. Tres estados y ninguno vacío:
 ///   - cargando → esqueleto con la proporción exacta de la tarjeta (no salta);
-///   - error → la tarjeta en modo apagado con el último saldo conocido (o 0);
+///   - error → la tarjeta en modo apagado con el último saldo conocido, o con
+///     un guión si nunca se pudo leer (nunca un 0, que se lee como "gastaste
+///     todo");
 ///   - datos → la tarjeta de la categoría (o apagada si el programa no está).
 class _TarjetaMonaco extends StatelessWidget {
   final AsyncValue<LoyaltySummary> loyalty;
-  final int saldo;
+  final int? saldo;
   final String nombre;
 
   const _TarjetaMonaco({
@@ -399,7 +459,7 @@ class _TarjetaMonaco extends StatelessWidget {
     }
     final summary =
         loyalty.valueOrNull ??
-        LoyaltySummary.disabled(clientName: nombre, balance: saldo);
+        LoyaltySummary.disabled(clientName: nombre, balance: saldo ?? 0);
     final conNombre = summary.clientName.isEmpty
         ? summary.copyWith(clientName: nombre)
         : summary;

@@ -15,10 +15,16 @@ import '../utils/constants.dart';
 /// propios, así que el camino real es: MP → `https://…/pago/<id>` → esa página
 /// rebota a este esquema.
 ///
-/// **El parámetro no puede llamarse `code`.** `supabase_flutter` engancha todos
-/// los deep links del proceso y cualquiera que traiga `code` lo trata como
-/// callback de OAuth: intenta canjearlo por una sesión, falla, y de paso puede
-/// ensuciar la sesión buena del cliente.
+/// **El parámetro se llama `deposit` y no `code`.** Cuando el observer de deep
+/// links de `supabase_flutter` está prendido, cualquier link con `code` lo
+/// trata como callback de OAuth: intenta canjearlo por una sesión, falla, y de
+/// paso puede ensuciar la sesión buena del cliente. Desde el 10/sep/2026 ese
+/// observer está apagado (`detectSessionInUri: false` en `main.dart`: la app no
+/// usa OAuth de Supabase por deep link, el login social va por `client-auth`
+/// con el `id_token`), así que hoy el nombre ya no es lo único que nos separa
+/// de ese choque — **pero se mantiene igual**: `detectSessionInUri` es una
+/// línea que alguien puede revertir mientras agrega otra cosa, y el precio de
+/// no depender de ella es cero. Fijado en `test/unit/deep_link_test.dart`.
 ///
 /// Todo esto es **best-effort**: el deep link puede no llegar nunca (el cliente
 /// vuelve con el botón de atrás, o el navegador se quedó abierto en otra app).
@@ -87,4 +93,66 @@ class DeepLinkHandler {
     _sub = null;
     _initialized = false;
   }
+}
+
+// ── Destinos que la app abre desde un link cargado a mano ────────────────
+
+/// Destinos internos que la app sabe abrir cuando la ruta la **tipea una
+/// persona**: los `link_value` de la cartelera y de las campañas, que el dueño
+/// carga a mano en `/dashboard/app-movil`.
+///
+/// Es una lista blanca y no un `startsWith('/')` porque un valor que no matchea
+/// ninguna ruta ya no falla en silencio: desde que el router tiene
+/// `errorBuilder`, `context.push('/promo')` le pinta al cliente la pantalla de
+/// "no encontramos esa página" —y un typo del dueño se ve como una app rota—.
+/// Con la lista, un destino desconocido simplemente no navega.
+///
+/// **Espeja las rutas de `app_router.dart`** (que este archivo no puede
+/// importar sin ciclo) y a propósito NO están todas: las de login, el gate de
+/// PIN y el splash no son destinos de una promo. `test/unit/deep_link_test.dart`
+/// verifica que cada entrada exista de verdad en el router.
+const Set<String> rutasInternasDeContenido = {
+  '/home',
+  '/turnos',
+  '/turnos/reservar',
+  '/occupancy',
+  '/rewards',
+  '/profile',
+  '/points',
+  '/categoria',
+  '/invitar',
+  '/mis-premios',
+  '/mis-canjes',
+  '/convenios',
+  '/reviews',
+  '/visits',
+  '/billboard',
+  '/notificaciones',
+};
+
+/// ¿El valor es una URL que hay que abrir en el navegador?
+///
+/// Sólo `http`/`https`: un `javascript:` o un esquema propio de otra app
+/// entrado por un campo de texto del dashboard no es un destino de cartelera.
+bool esUrlExterna(String valor) {
+  final v = valor.toLowerCase();
+  return v.startsWith('http://') || v.startsWith('https://');
+}
+
+/// Rutas con id: se valida la FORMA, no el id. Que el id exista lo resuelve la
+/// pantalla, que ya sabe decir "no lo encontramos".
+const List<String> _prefijosInternosDeContenido = ['/branch/', '/convenio/'];
+
+/// ¿`ruta` es un destino interno que la app sabe abrir?
+///
+/// Acepta query string (`/turnos/reservar?branch=rondeau` es un link legítimo
+/// del local: el wizard lee ese parámetro y saltea el paso de sucursal), y por
+/// eso valida sólo el camino. Quien navega manda el valor **entero**.
+bool esRutaInternaDeContenido(String ruta) {
+  if (!ruta.startsWith('/')) return false;
+  final camino = ruta.split(RegExp(r'[?#]')).first;
+  if (rutasInternasDeContenido.contains(camino)) return true;
+  return _prefijosInternosDeContenido.any(
+    (p) => camino.startsWith(p) && camino.length > p.length,
+  );
 }

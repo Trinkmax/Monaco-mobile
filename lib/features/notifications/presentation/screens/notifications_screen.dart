@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -93,7 +95,7 @@ class NotificationsScreen extends ConsumerWidget {
   }
 
   Future<void> _markAll(BuildContext context, WidgetRef ref) async {
-    HapticFeedback.lightImpact();
+    unawaited(HapticFeedback.lightImpact());
     try {
       await ref.read(notificationsActionsProvider).markAllRead();
       if (context.mounted) {
@@ -181,28 +183,23 @@ class _InboxList extends ConsumerWidget {
     WidgetRef ref,
     ClientNotification n,
   ) async {
-    HapticFeedback.selectionClick();
+    unawaited(HapticFeedback.selectionClick());
     // Marcar leída es fire-and-forget: la navegación no espera al server.
-    ref.read(notificationsActionsProvider).markRead(n);
+    unawaited(ref.read(notificationsActionsProvider).markRead(n));
     final route = n.route;
     if (!context.mounted) return;
-    final path = Uri.parse(route).path;
     // Igual que el tap de un push del sistema: si la fila lleva a una pantalla
     // de fidelización, refrescar sus providers (globales y cacheados) antes de
     // navegar, para que "Tenés un nuevo beneficio" no abra la wallet vieja.
     if (PushHandler.esRutaDeFidelizacion(route)) {
       invalidarFidelizacionEn(ProviderScope.containerOf(context));
     }
-    if (const {
-      '/home',
-      '/turnos',
-      '/occupancy',
-      '/rewards',
-      '/profile',
-    }.contains(path)) {
+    // Las rutas del shell con dock se reemplazan (`go`); el resto se apila.
+    // La lista vive en `PushHandler`: acá estaba duplicada y se desincronizaba.
+    if (PushHandler.esRutaDeShell(route)) {
       context.go(route);
     } else if (PushHandler.isInternalPath(route)) {
-      context.push(route);
+      unawaited(context.push(route));
     }
   }
 }

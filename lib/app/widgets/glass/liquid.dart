@@ -4,6 +4,8 @@
 /// ```dart
 /// import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 /// ```
+library;
+
 export 'liquid_app_bar.dart';
 export 'liquid_avatar.dart';
 export 'liquid_backdrop.dart';
@@ -12,6 +14,7 @@ export 'liquid_dialog.dart';
 export 'liquid_dock.dart';
 export 'liquid_enter.dart';
 export 'liquid_glass.dart';
+export 'liquid_glass_capability.dart';
 export 'liquid_pill.dart';
 export 'liquid_section.dart';
 export 'liquid_sheet.dart';

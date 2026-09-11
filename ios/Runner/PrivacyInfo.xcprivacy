@@ -1,5 +1,47 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  PrivacyInfo.xcprivacy — manifiesto de privacidad de la app de clientes.
+
+  Este archivo y el cuestionario "App Privacy" de App Store Connect tienen que
+  decir LO MISMO: Apple cruza los dos. Cada dato de abajo lleva un comentario con
+  por qué se declara, qué propósitos tiene y de dónde sale la evidencia, para que
+  las etiquetas de la ficha se llenen igual sin volver a leer el código.
+
+  Regla para "recolectado" (Apple y Google usan la misma): un dato cuenta como
+  recolectado sólo si SALE del teléfono hacia nuestros servidores. Lo que se usa
+  únicamente en el dispositivo no se declara.
+
+  Propósitos (revisado el 10/sep/2026):
+  - AppFunctionality: cuenta, fila, turnos, puntos, canjes, notificaciones
+    transaccionales (recordatorios de turno, premio nuevo, etc.).
+  - DeveloperAdvertising ("Developer's Advertising or Marketing"): el dashboard
+    manda campañas push a los dispositivos registrados
+    (MonacoSmartBarber/src/lib/actions/push-notifications.ts → push_campaigns →
+    push_outbox → FCM) y difusiones de WhatsApp a `clients.phone`
+    personalizadas con {{nombre}} / {{primer_nombre}}
+    (MonacoSmartBarber/src/lib/actions/broadcasts.ts). Apple define ese
+    propósito como "sending marketing communications directly to your users":
+    es exactamente esto. Si el dueño decide que la app NUNCA se use para
+    marketing, hay que sacar el propósito de acá Y dejar de dirigir campañas a
+    los tokens de la app / a los teléfonos que vienen de ella.
+
+  Todo va "Linked" (vinculado a la identidad: el cliente se identifica por
+  teléfono) y sin "Tracking" (no se cruza con datos de terceros ni hay SDKs de
+  ads; NSPrivacyTracking = false y sin dominios de tracking).
+
+  NO declarado a propósito:
+  - Ubicación (Coarse/Precise): `lib/core/location/` sólo pide la posición para
+    ordenar sucursales por cercanía con `Geolocator.distanceBetween` en el
+    teléfono (`branch_picker_step.dart`). Ningún endpoint de `lib/core/api/` ni
+    repositorio manda lat/lng: no es "recolectada". Se conserva
+    `NSLocationWhenInUseUsageDescription` en Info.plist porque el permiso sí se
+    pide. Si algún día la ubicación viaja al server, volver a declararla acá y
+    en la ficha (App Privacy → Location, y Data safety de Play).
+  - Fotos/cámara, contactos, salud, datos financieros: no se acceden. La seña de
+    Mercado Pago se paga en el navegador del sistema; la app nunca ve la
+    tarjeta.
+-->
 <plist version="1.0">
 <dict>
   <key>NSPrivacyTracking</key>
@@ -9,6 +51,12 @@
 
   <key>NSPrivacyCollectedDataTypes</key>
   <array>
+    <!-- Teléfono: es LA identidad del cliente (alta por OTP de WhatsApp,
+         `clients.phone`). AppFunctionality: cuenta, fila, turnos, avisos
+         transaccionales por WhatsApp. DeveloperAdvertising: es el destinatario
+         de las difusiones de WhatsApp (`broadcasts.ts` → `scheduled_messages`).
+         Ficha: Contact Info → Phone Number · Linked · App Functionality +
+         Developer's Advertising or Marketing. -->
     <dict>
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypePhoneNumber</string>
@@ -19,11 +67,18 @@
       <key>NSPrivacyCollectedDataTypePurposes</key>
       <array>
         <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+        <string>NSPrivacyCollectedDataTypePurposeDeveloperAdvertising</string>
       </array>
     </dict>
-    <!-- Google y Apple devuelven el email de la cuenta al crearla, y se guarda
-         en `clients.email`. Apple puede mandar un relay (@privaterelay.appleid.com):
-         sigue siendo un email y hay que declararlo igual. -->
+    <!-- Email: Google y Apple lo devuelven al crear la cuenta y se guarda en
+         `clients.email` (migración 210). Apple puede mandar un relay
+         (@privaterelay.appleid.com): sigue siendo un email y se declara igual.
+         SÓLO AppFunctionality: verificado el 10/sep/2026 que ningún código del
+         dashboard lee `clients.email` para mandar nada (el helper de Resend,
+         `src/lib/email/send.ts`, es para la facturación de la plataforma a los
+         dueños de barberías, no a clientes). Si aparece email marketing a
+         clientes, agregar DeveloperAdvertising acá y en la ficha.
+         Ficha: Contact Info → Email Address · Linked · App Functionality. -->
     <dict>
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypeEmailAddress</string>
@@ -36,6 +91,14 @@
         <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
       </array>
     </dict>
+    <!-- Nombre: `clients.name` (lo escribe el cliente en el alta o lo trae
+         Google/Apple). AppFunctionality: la tablet, la fila y el barbero lo
+         usan. DeveloperAdvertising: las difusiones de WhatsApp reemplazan
+         {{nombre}} / {{primer_nombre}} en la plantilla con este dato
+         (`broadcasts.ts`, `resolveTemplateVariables`); las notificaciones
+         automáticas también lo usan, pero ésas son transaccionales.
+         Ficha: Contact Info → Name · Linked · App Functionality +
+         Developer's Advertising or Marketing. -->
     <dict>
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypeName</string>
@@ -46,8 +109,16 @@
       <key>NSPrivacyCollectedDataTypePurposes</key>
       <array>
         <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+        <string>NSPrivacyCollectedDataTypePurposeDeveloperAdvertising</string>
       </array>
     </dict>
+    <!-- User ID: `clients.id` / `auth.uid()` (y el `subject` de Google/Apple en
+         `client_social_identities`). AppFunctionality: toda la sesión.
+         DeveloperAdvertising: las campañas push eligen la audiencia por
+         `client_id` (segmentos, visitas, selección manual en
+         `client-segments.ts`) y encolan por ese id en `push_outbox`.
+         Ficha: Identifiers → User ID · Linked · App Functionality +
+         Developer's Advertising or Marketing. -->
     <dict>
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypeUserID</string>
@@ -58,8 +129,16 @@
       <key>NSPrivacyCollectedDataTypePurposes</key>
       <array>
         <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+        <string>NSPrivacyCollectedDataTypePurposeDeveloperAdvertising</string>
       </array>
     </dict>
+    <!-- Device ID: el `device_id` propio de la app (no el IDFA/IDFV: no se leen)
+         que viaja en `client-auth` y en `POST /api/mobile/push/token` junto con
+         el token FCM (`client_device_tokens`). AppFunctionality: login
+         silencioso y push transaccional. DeveloperAdvertising: las campañas
+         push se entregan a esos mismos tokens/dispositivos.
+         Ficha: Identifiers → Device ID · Linked · App Functionality +
+         Developer's Advertising or Marketing. -->
     <dict>
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypeDeviceID</string>
@@ -70,20 +149,12 @@
       <key>NSPrivacyCollectedDataTypePurposes</key>
       <array>
         <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+        <string>NSPrivacyCollectedDataTypePurposeDeveloperAdvertising</string>
       </array>
     </dict>
-    <dict>
-      <key>NSPrivacyCollectedDataType</key>
-      <string>NSPrivacyCollectedDataTypeCoarseLocation</string>
-      <key>NSPrivacyCollectedDataTypeLinked</key>
-      <false/>
-      <key>NSPrivacyCollectedDataTypeTracking</key>
-      <false/>
-      <key>NSPrivacyCollectedDataTypePurposes</key>
-      <array>
-        <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
-      </array>
-    </dict>
+    <!-- Soporte: mensajes que el cliente manda desde la app (reseñas internas,
+         casos de CRM). Ficha: User Content → Customer Support · Linked ·
+         App Functionality. -->
     <dict>
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypeCustomerSupport</string>
@@ -96,6 +167,11 @@
         <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
       </array>
     </dict>
+    <!-- Interacción con el producto: turnos reservados/cancelados, canjes,
+         notificaciones leídas (`client_notifications.read_at`), visitas.
+         Ficha: Usage Data → Product Interaction · Linked · App Functionality.
+         (Las campañas se segmentan por visitas, pero ese dato nace en la
+         tablet del local, no en la app: no se declara marketing acá.) -->
     <dict>
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypeProductInteraction</string>
@@ -108,6 +184,9 @@
         <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
       </array>
     </dict>
+    <!-- Otro contenido del usuario: texto libre de reseñas y comentarios.
+         Ficha: User Content → Other User Content · Linked · App Functionality +
+         Customer Support. -->
     <dict>
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypeOtherUserContent</string>
@@ -121,6 +200,11 @@
         <string>NSPrivacyCollectedDataTypePurposeCustomerSupport</string>
       </array>
     </dict>
+    <!-- Historial de compras: la seña de Mercado Pago (`booking_deposits`) y el
+         historial de visitas/canjes que la app muestra. La tarjeta NUNCA pasa
+         por la app (checkout en el navegador del sistema), por eso no se
+         declara "Payment Info". Ficha: Purchases → Purchase History · Linked ·
+         App Functionality. -->
     <dict>
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypePurchaseHistory</string>
@@ -135,6 +219,11 @@
     </dict>
   </array>
 
+  <!-- APIs con "required reason". Las razones son las que usan los plugins de
+       Flutter (shared_preferences / flutter_secure_storage / path_provider /
+       sensores): CA92.1 (UserDefaults propios), C617.1 (timestamps de archivos
+       propios), 35F9.1 (boot time para medir tiempo transcurrido) y E174.1
+       (espacio en disco para escribir archivos propios). -->
   <key>NSPrivacyAccessedAPITypes</key>
   <array>
     <dict>

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -5,6 +6,7 @@ import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart' as lgr;
 
+import 'liquid_glass_capability.dart';
 import 'liquid_tokens.dart';
 
 class LiquidDockItem {
@@ -37,6 +39,13 @@ class LiquidDockItem {
 ///
 /// `currentIndex` sigue siendo la fuente de verdad: si cambia desde afuera
 /// (deep link, push), la burbuja se mueve sola.
+///
+/// **Las dos piezas de vidrio pasan por [LiquidGlassCapability]**: con el
+/// shader apagado (`--dart-define=LIQUID_GLASS=false`, o porque el warmup no
+/// pudo compilarlo) se dibujan con `fake: true`, o sea el `BackdropFilter`
+/// del propio paquete. El dock sigue estando; lo que se pierde es la
+/// refracción. Sin ese camino, un shader que no compila deja cinco íconos
+/// blancos flotando sin barra ni resalte del activo.
 class LiquidDock extends StatefulWidget {
   final List<LiquidDockItem> items;
   final int currentIndex;
@@ -210,10 +219,9 @@ class _LiquidDockState extends State<LiquidDock>
 
                     // ── Barra de vidrio ──
                     Positioned.fill(
-                      child: lgr.LiquidGlass.withOwnLayer(
+                      child: _Vidrio(
                         shape: const lgr.LiquidRoundedSuperellipse(borderRadius: 33),
                         settings: _barra,
-                        child: const SizedBox.expand(),
                       ),
                     ),
 
@@ -259,10 +267,9 @@ class _LiquidDockState extends State<LiquidDock>
                                   child: SizedBox(
                                     width: sw,
                                     height: alturaBurbuja,
-                                    child: lgr.LiquidGlass.withOwnLayer(
+                                    child: _Vidrio(
                                       shape: const lgr.LiquidRoundedSuperellipse(borderRadius: 25),
                                       settings: _burbuja,
-                                      child: const SizedBox.expand(),
                                     ),
                                   ),
                                 ),
@@ -283,13 +290,59 @@ class _LiquidDockState extends State<LiquidDock>
   }
 }
 
-/// Precalienta los shaders del vidrio durante el splash: una lente de 2×2 px
-/// invisible que obliga al paquete a cargar y cachear sus `FragmentProgram`.
-/// Sin esto, el dock aparece sin vidrio durante los primeros frames de la
-/// app (el shader se carga en forma asincrónica) y después "aparece": un
-/// parpadeo que se nota justo en la primera impresión.
-class LiquidGlassWarmup extends StatelessWidget {
+/// Una pieza de vidrio que respeta el interruptor global.
+///
+/// Es el ÚNICO lugar de la app que llama al paquete de shaders. Escucha
+/// [LiquidGlassCapability.disponible], así que apagar el vidrio en runtime
+/// repinta el dock en el frame siguiente sin reiniciar nada.
+class _Vidrio extends StatelessWidget {
+  final lgr.LiquidShape shape;
+  final lgr.LiquidGlassSettings settings;
+
+  const _Vidrio({required this.shape, required this.settings});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: LiquidGlassCapability.disponible,
+      builder: (context, conShader, _) {
+        return lgr.LiquidGlass.withOwnLayer(
+          shape: shape,
+          settings: settings,
+          fake: !conShader,
+          child: const SizedBox.expand(),
+        );
+      },
+    );
+  }
+}
+
+/// Precalienta los shaders del vidrio durante el splash: compila los cuatro
+/// `FragmentProgram` del paquete y deja una lente de 2×2 px invisible para que
+/// además arme su propio cache de widget. Sin esto, el dock aparece sin vidrio
+/// durante los primeros frames de la app (el shader se carga en forma
+/// asincrónica) y después "aparece": un parpadeo que se nota justo en la
+/// primera impresión.
+///
+/// Es también el detector del fallback: si alguno de los cuatro no compila,
+/// [LiquidGlassCapability.calentar] apaga el vidrio para toda la app y el dock
+/// pasa al camino simple. La compilación va en un `try/catch` porque el
+/// paquete reporta ese error por `FlutterError.reportError` (asincrónico) y
+/// sigue dibujando un `SizedBox` vacío en lugar de la barra.
+class LiquidGlassWarmup extends StatefulWidget {
   const LiquidGlassWarmup({super.key});
+
+  @override
+  State<LiquidGlassWarmup> createState() => _LiquidGlassWarmupState();
+}
+
+class _LiquidGlassWarmupState extends State<LiquidGlassWarmup> {
+  @override
+  void initState() {
+    super.initState();
+    // Sin await: el splash no espera al vidrio. Si falla, el notifier avisa.
+    unawaited(LiquidGlassCapability.calentar());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -297,7 +350,7 @@ class LiquidGlassWarmup extends StatelessWidget {
       child: SizedBox(
         width: 2,
         height: 2,
-        child: lgr.LiquidGlass.withOwnLayer(
+        child: _Vidrio(
           shape: const lgr.LiquidOval(),
           settings: const lgr.LiquidGlassSettings(
             thickness: 1,
@@ -305,7 +358,6 @@ class LiquidGlassWarmup extends StatelessWidget {
             glassColor: Color(0x00FFFFFF),
             lightIntensity: 0,
           ),
-          child: const SizedBox.expand(),
         ),
       ),
     );

@@ -271,6 +271,28 @@ void main() {
       );
     });
 
+    test('el mensaje NO lleva el texto técnico: eso va en `detail`', () async {
+      // `e.message` se imprime tal cual en el wizard de reserva, en la grilla
+      // de horarios y en el toast de cancelar. Un reviewer probando en modo
+      // avión no puede ver «Failed host lookup: 'monacobarber.vercel.app'».
+      final api = buildApi(
+        (_) => throw const SocketException(
+          "Failed host lookup: 'monacobarber.vercel.app'",
+        ),
+      );
+      try {
+        await api.getJson('/x');
+        fail('tenía que tirar');
+      } on MobileApiException catch (e) {
+        expect(e.message, 'Sin conexión. Revisá tu internet e intentá de nuevo.');
+        expect(e.message, isNot(contains('Failed host lookup')));
+        expect(e.message, isNot(contains(':')));
+        expect(e.detail, contains('Failed host lookup'));
+        // El detalle técnico sí queda en el log.
+        expect(e.toString(), contains('Failed host lookup'));
+      }
+    });
+
     test('una request que no responde corta en apiTimeout con TIMEOUT', () {
       fakeAsync((async) {
         final api = buildApi((_) => Completer<http.Response>().future);
@@ -291,6 +313,71 @@ void main() {
         expect(e.code, 'TIMEOUT');
         expect(e.isNetwork, isTrue);
       });
+    });
+  });
+
+  group('sesión zombi', () {
+    test('un 401 avisa una vez y la excepción igual llega a quien llamó',
+        () async {
+      final avisos = <MobileApiException>[];
+      final api = MobileApi(
+        supabase,
+        client: MockClient((_) async => json({'message': 'expirado'}, 401)),
+        baseUrl: 'https://api.test',
+        onSesionInvalida: avisos.add,
+      );
+
+      await expectLater(
+        api.getJson('/api/mobile/me'),
+        throwsA(isA<MobileApiException>()),
+      );
+      expect(avisos, hasLength(1));
+      expect(avisos.single.esSesionMuerta, isTrue);
+    });
+
+    test('NO_CLIENT también avisa: la ficha se borró o se fusionó', () async {
+      // El JWT sigue siendo válido, así que Supabase no emite `signedOut` y sin
+      // este aviso la app falla en TODAS las pantallas sin ofrecer salida.
+      final avisos = <MobileApiException>[];
+      final api = MobileApi(
+        supabase,
+        client: MockClient(
+          (_) async => json({'error': 'NO_CLIENT', 'message': 'sin ficha'}, 403),
+        ),
+        baseUrl: 'https://api.test',
+        onSesionInvalida: avisos.add,
+      );
+
+      await expectLater(api.getJson('/x'), throwsA(isA<MobileApiException>()));
+      expect(avisos.single.code, 'NO_CLIENT');
+    });
+
+    test('un error común NO cierra la sesión', () async {
+      final avisos = <MobileApiException>[];
+      final api = MobileApi(
+        supabase,
+        client: MockClient(
+          (_) async => json({'error': 'SLOT_TAKEN'}, 409),
+        ),
+        baseUrl: 'https://api.test',
+        onSesionInvalida: avisos.add,
+      );
+
+      await expectLater(api.getJson('/x'), throwsA(isA<MobileApiException>()));
+      expect(avisos, isEmpty);
+    });
+
+    test('una caída de red tampoco: la sesión puede estar perfecta', () async {
+      final avisos = <MobileApiException>[];
+      final api = MobileApi(
+        supabase,
+        client: MockClient((_) async => throw const SocketException('sin red')),
+        baseUrl: 'https://api.test',
+        onSesionInvalida: avisos.add,
+      );
+
+      await expectLater(api.getJson('/x'), throwsA(isA<MobileApiException>()));
+      expect(avisos, isEmpty);
     });
   });
 

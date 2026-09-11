@@ -20,8 +20,22 @@ class AppConstants {
   );
 
   /// Slug de la sucursal de pruebas: la app la esconde salvo "modo prueba"
-  /// (7 toques sobre la versión en Perfil).
+  /// (7 toques sobre la versión en Perfil + [testModeCode]).
   static const String testBranchSlug = 'test';
+
+  /// Código que se pide después de los 7 toques sobre la versión para prender
+  /// el modo prueba. Existe porque la sucursal Test es una sucursal REAL de
+  /// producción (toma turnos): sin código, cualquiera que descubriera el
+  /// gesto —un reviewer, un cliente curioso— podía reservar ahí.
+  ///
+  /// No es un secreto criptográfico, es un candado de puerta: alcanza con que
+  /// no sea `0000`/`1234`. Se pisa por build con
+  /// `--dart-define=TEST_MODE_CODE=...`; **vacío desactiva el gesto entero**
+  /// (para una build de tienda donde el modo prueba no tiene que existir).
+  static const String testModeCode = String.fromEnvironment(
+    'TEST_MODE_CODE',
+    defaultValue: '731942',
+  );
 
   // ── Supabase ───────────────────────────────────────────────────────────
   static const String supabaseUrl = String.fromEnvironment(
@@ -51,6 +65,24 @@ class AppConstants {
 
   // ── Alta con Google / Apple ────────────────────────────────────────────
   //
+  // **Interruptor de emergencia del login social.** Con `false` la pantalla de
+  // entrada esconde Google Y Apple y queda sólo el teléfono. Es para el día en
+  // que el backend no pueda validar los tokens (falta `APPLE_BUNDLE_IDS` o
+  // `GOOGLE_CLIENT_IDS` en `client-auth`, o el JWKS del proveedor no baja) y
+  // haya que sacar una build sin un botón que siempre falla —que es rechazo
+  // 2.1 en App Review—. **La app NO intenta detectar la configuración del
+  // backend**: se decide en el build, con
+  //
+  //   flutter build ipa --release --dart-define=SOCIAL_LOGIN_ENABLED=false
+  //
+  // Ojo con la 4.8: si Google está visible, Apple TIENE que estar visible y
+  // funcionar. Este interruptor apaga los dos juntos justamente para no dejar
+  // uno solo a medias.
+  static const bool socialLoginEnabled = bool.fromEnvironment(
+    'SOCIAL_LOGIN_ENABLED',
+    defaultValue: true,
+  );
+
   // **PENDIENTE DE CONFIGURACIÓN.** Los tres valores de abajo salen de la
   // consola de Google Cloud (el mismo proyecto que Firebase, pero son clientes
   // OAuth distintos del `google-services.json`) y hay que cargarlos ANTES de
@@ -103,16 +135,36 @@ class AppConstants {
   /// `monaco://pago?deposit=<uuid>`. Mercado Pago sólo acepta `back_urls`
   /// https, así que el retorno es MP → `\$apiBaseUrl/pago/<id>` → esta URL.
   ///
-  /// **El parámetro NO puede llamarse `code`**: `supabase_flutter` engancha
-  /// todos los deep links del proceso y trata cualquiera que traiga `code`
-  /// como callback de OAuth (intenta canjearlo por sesión y falla).
+  /// **El parámetro no debería llamarse `code`**: `supabase_flutter`, con su
+  /// observer de deep links prendido, trata cualquiera que traiga `code` como
+  /// callback de OAuth (intenta canjearlo por sesión y falla). Ese observer
+  /// está **apagado** desde el 10/sep/2026 (`detectSessionInUri: false` en
+  /// `main.dart`: la app no usa OAuth de Supabase por deep link, el login
+  /// social va por `client-auth` con el `id_token`), así que hoy es una
+  /// defensa más y no la única.
   static const String deepLinkScheme = 'monaco';
   static const String deepLinkPagoHost = 'pago';
   static const String deepLinkPagoParam = 'deposit';
 
   // ── Legal y soporte ────────────────────────────────────────────────────
+  //
+  // **Estas cuatro URL las declaran las fichas de tienda**, así que no son
+  // links decorativos del Perfil: `supportUrl` es el *Support URL* de App
+  // Store Connect (campo obligatorio), `privacyPolicyUrl` es el *Privacy
+  // Policy URL* que piden las dos tiendas, `deleteAccountUrl` es el recurso de
+  // borrado de cuenta que Play exige declarar en Data safety —y que Apple
+  // acepta como la vía "desde la web" de la 5.1.1(v)— y `arrepentimientoUrl`
+  // es el botón que manda la Disp. 954/2025.
+  //
+  // **Las cuatro tienen que contestar 200 antes de enviar la app**: una ficha
+  // con un Support URL que da 404 es rechazo en App Review (2.1) y una URL de
+  // borrado caída es motivo de baja de la ficha en Play.
+  // `scripts/preflight-tiendas.sh` las verifica.
   static const String privacyPolicyUrl = '$apiBaseUrl/privacidad';
   static const String termsOfServiceUrl = '$apiBaseUrl/terminos';
+  static const String supportUrl = '$apiBaseUrl/soporte';
+  static const String deleteAccountUrl = '$apiBaseUrl/eliminar-cuenta';
+  static const String arrepentimientoUrl = '$apiBaseUrl/arrepentimiento';
   static const String supportEmail = 'studios.sys.work@gmail.com';
 
   /// WhatsApp de atención de Monaco: +54 9 3517 69-1830 (confirmado por el

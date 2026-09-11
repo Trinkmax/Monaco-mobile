@@ -64,8 +64,8 @@ class LiquidSkeletonList extends StatelessWidget {
       physics: const NeverScrollableScrollPhysics(),
       padding: padding,
       itemCount: count,
-      separatorBuilder: (_, __) => SizedBox(height: gap),
-      itemBuilder: (_, __) => LiquidSkeleton(height: itemHeight),
+      separatorBuilder: (_, _) => SizedBox(height: gap),
+      itemBuilder: (_, _) => LiquidSkeleton(height: itemHeight),
     );
   }
 }

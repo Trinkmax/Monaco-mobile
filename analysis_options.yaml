@@ -1,28 +1,54 @@
-# This file configures the analyzer, which statically analyzes Dart code to
-# check for errors, warnings, and lints.
+# Análisis estático de la app.
 #
-# The issues identified by the analyzer are surfaced in the UI of Dart-enabled
-# IDEs (https://dart.dev/tools#ides-and-editors). The analyzer can also be
-# invoked from the command line by running `flutter analyze`.
-
-# The following line activates a set of recommended lints for Flutter apps,
-# packages, and plugins designed to encourage good coding practices.
+# `flutter analyze` crashea a veces en este proyecto: el comando confiable es
+#   dart analyze lib/ test/ integration_test/
+# y la barra es **0 errores y 0 warnings**. Desde el 10/sep/2026 también son
+# 0 los infos: si aparece uno, es nuevo y hay que mirarlo, no acostumbrarse.
 include: package:flutter_lints/flutter.yaml
 
 linter:
-  # The lint rules applied to this project can be customized in the
-  # section below to disable rules from the `package:flutter_lints/flutter.yaml`
-  # included above or to enable additional rules. A list of all available lints
-  # and their documentation is published at https://dart.dev/lints.
+  # Regla para agregar una regla: **tiene que dar 0 hallazgos hoy**. Un lint que
+  # nace con 40 infos que nadie va a arreglar no protege nada — enseña a
+  # ignorar la salida de `dart analyze`, que es justo lo contrario.
   #
-  # Instead of disabling a lint rule for the entire project in the
-  # section below, it can also be suppressed for a single line of code
-  # or a specific dart file by using the `// ignore: name_of_lint` and
-  # `// ignore_for_file: name_of_lint` syntax on the line or in the file
-  # producing the lint.
+  # Lo que está deliberadamente AFUERA (medido el 10/sep/2026, antes de
+  # publicar; ver "Deuda de dependencias" en el README para el orden):
+  #   - unawaited_futures ......... 37 hallazgos en 22 archivos
+  #   - prefer_const_constructors . 21
+  #   - directives_ordering ....... 52
+  #   - unnecessary_lambdas ....... 8
+  #   - avoid_dynamic_calls ....... 2
+  #   - analyzer strict-casts ..... 21 (y ésos son ERRORES, no infos)
+  #   - cancel_subscriptions ...... 1, falso positivo sobre los StreamSubscription
+  #     estáticos de PushService (viven lo que vive el proceso, a propósito)
+  #   - no_adjacent_strings_in_list  1, falso positivo: es un string largo
+  #     partido en dos líneas dentro de una lista, no una coma que falta
   rules:
-    # avoid_print: false  # Uncomment to disable the `avoid_print` rule
-    # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
+    # `debugPrint('[modulo] …')`, nunca `print`: en release `print` va al log
+    # del sistema sin filtro y esta app maneja teléfonos, códigos de OTP e
+    # importes.
+    - avoid_print
+    - prefer_final_locals
+    - use_super_parameters
+    - always_declare_return_types
+    - avoid_void_async
+    - unnecessary_await_in_return
+    - unnecessary_parenthesis
+    - prefer_single_quotes
+    # Un `Sink`/`StreamController` sin cerrar en una pantalla que se abre y se
+    # cierra decenas de veces por sesión es una fuga real.
+    - close_sinks
+    - throw_in_finally
+    - avoid_slow_async_io
+    - avoid_returning_null_for_void
+    - avoid_type_to_string
+    - test_types_in_equals
+    - no_self_assignments
+    - literal_only_boolean_expressions
+    # `list.contains(unaCosaDeOtroTipo)` compila y siempre da false.
+    - collection_methods_unrelated_type
+    - implicit_call_tearoffs
+    - deprecated_member_use_from_same_package
 
-# Additional information about this file can be found at
-# https://dart.dev/guides/language/analysis-options
+# `use_build_context_synchronously` ya viene en flutter_lints y NO hay que
+# repetirla acá: es la que atrapa el `context` usado después de un `await`.

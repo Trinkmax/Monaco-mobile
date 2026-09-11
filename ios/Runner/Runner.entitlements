@@ -1,24 +1,55 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Runner.entitlements — DEBUG configuration.
+  Runner.entitlements — configuración DEBUG (pbxproj: CODE_SIGN_ENTITLEMENTS de
+  Debug). Release y Profile usan RunnerRelease.entitlements.
 
-  Intencionalmente vacío: el Personal Team (Apple ID gratuito) NO soporta la
-  capability "Push Notifications". Si agregamos aps-environment acá, `flutter run`
-  falla con "Personal development teams do not support Push Notifications".
+  Intencionalmente vacío: el Personal Team (Apple ID gratuito, A3WAXVR55Z) NO
+  puede firmar "Push Notifications" ni "Sign in with Apple". Con cualquiera de
+  las dos acá, `flutter run` muere con:
+    "Personal development teams ... do not support the Push Notifications
+     capability" (o el equivalente para Sign in with Apple).
 
-  Cuando tengas el Apple Developer Program pago ($99/año), podés cambiarlo a:
-    <key>aps-environment</key>
-    <string>development</string>
+  CONSECUENCIA MIENTRAS ESTÉ VACÍO: en un `flutter run` de desarrollo,
+  "Continuar con Apple" abre la hoja del sistema y falla con el error 1000
+  (AuthorizationError.unknown): el entitlement `applesignin` no está en la
+  firma. El flujo de Apple sólo se puede probar en una build firmada con el
+  Team pago (TestFlight o Release por cable). Google y teléfono sí andan.
 
-  Lo mismo vale para "Sign in with Apple" (com.apple.developer.applesignin):
-  con Personal Team no se firma, así que en un `flutter run` de desarrollo el
-  botón "Continuar con Apple" va a fallar al abrir la hoja del sistema. Se
-  prueba en una build de Release con el Team pago, o con Google / teléfono.
+  ═══════════════════════════════════════════════════════════════════════════
+  CUANDO EXISTA EL APPLE DEVELOPER PROGRAM PAGO ($99/año), reemplazar el
+  <dict/> vacío de abajo por ESTE bloque, tal cual:
 
-  Las builds de Release/Profile usan RunnerRelease.entitlements (con push y
-  Apple Sign In) — esas requieren sí o sí el programa pago, pero son las que
-  subís a App Store.
+    <dict>
+      <key>aps-environment</key>
+      <string>development</string>
+      <key>com.apple.developer.applesignin</key>
+      <array>
+        <string>Default</string>
+      </array>
+    </dict>
+
+  Notas:
+  - `aps-environment = development` acá es correcto aunque en Release diga
+    `production`: Xcode reescribe ese valor según el perfil de aprovisionamiento
+    al firmar (development para builds por cable, production para App Store /
+    TestFlight). Unificar Debug y Release NO rompe la distribución.
+  - Antes de que compile: en developer.apple.com → Certificates, Identifiers &
+    Profiles → Identifiers → `com.monacobarber.monacoMobile` → prender las
+    capabilities "Push Notifications" y "Sign in with Apple", y en Xcode
+    (Runner → Signing & Capabilities) cambiar el Team al pago para que
+    regenere el perfil. Con el entitlement acá pero la capability apagada en
+    el App ID, la firma falla.
+  - Después de pegar el bloque, retirar de `scripts/instalar-en-iphone.sh` el
+    swap temporal de CODE_SIGN_ENTITLEMENTS (RunnerRelease → Runner): existe
+    sólo porque este archivo está vacío y el Personal Team no firma push. Con
+    el Team pago, `flutter run --release` firma con push directo.
+  - Alternativa equivalente: apuntar también Debug a RunnerRelease.entitlements
+    en el pbxproj (CODE_SIGN_ENTITLEMENTS = Runner/RunnerRelease.entitlements)
+    y borrar este archivo. Da lo mismo; lo que importa es que Debug y Release
+    tengan los MISMOS entitlements para que el flujo más frágil de la revisión
+    (Sign in with Apple) se pruebe antes del build que se sube.
+  ═══════════════════════════════════════════════════════════════════════════
 -->
 <plist version="1.0">
 <dict>

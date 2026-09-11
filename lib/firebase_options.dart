@@ -6,8 +6,10 @@
 //     no se puede atrapar desde Dart).
 //   - `PushService` / `PushHandler` consultan `Firebase.apps.isEmpty` y no
 //     hacen nada: no se pide permiso, no se registra token, no se rutea nada.
-//   - Las pantallas de Perfil y Preferencias muestran "No disponible en esta
-//     versión" en el bloque de notificaciones del sistema.
+//   - Perfil y Preferencias **ocultan** el bloque de notificaciones del
+//     sistema (la bandeja in-app y los toggles por tipo siguen a la vista):
+//     un interruptor que no se puede prender es contenido de relleno y App
+//     Review lo rechaza por la 2.1.
 //
 // Para habilitar push de verdad (una sola vez, lo hace el dueño):
 //
@@ -25,19 +27,39 @@
 //            --ios-bundle-id=com.monacobarber.monacoMobile \
 //            --android-package-name=com.monacobarber.monaco_mobile
 //      Eso sobreescribe ESTE archivo con los valores reales y deja
-//      `ios/Runner/GoogleService-Info.plist` (agregarlo al target Runner en
-//      Xcode si el CLI no lo hizo) y `android/app/google-services.json`.
-//   4. Android: plugin `com.google.gms.google-services` en
-//      `android/settings.gradle.kts` (`apply false`) y en
-//      `android/app/build.gradle.kts`; en `AndroidManifest.xml`:
-//        <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-//        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id"
-//                   android:value="monaco_default"/>
-//      (el canal `monaco_default` lo crea `PushService.bootstrap()`).
+//      `ios/Runner/GoogleService-Info.plist` y `android/app/google-services.json`.
+//      Dos cosas del CLI que conviene mirar en el `git diff` antes de commitear:
+//        - agrega al target Runner un build phase "FlutterFire: flutterfire
+//          bundle-service-file" que necesita `flutterfire` en el PATH del build.
+//          Si falla, se puede borrar: en iOS la init es por Dart
+//          (`DefaultFirebaseOptions`), el plist es opcional.
+//        - puede volver a inyectar `com.google.gms.google-services` en
+//          `android/settings.gradle.kts` / `android/app/build.gradle.kts`. Este
+//          repo ya lo declara y lo aplica SÓLO si existe `google-services.json`;
+//          si el CLI lo duplica o lo aplica siempre, dejar la forma del repo.
+//   4. Android: **no hay que tocar el manifest**. `POST_NOTIFICATIONS`, el
+//      `default_notification_channel_id = monaco_default`, el ícono
+//      `@drawable/ic_notification` y el color ya están declarados.
 //   5. iOS: `Runner.entitlements` (Debug) con `aps-environment = development`;
 //      Release ya tiene `RunnerRelease.entitlements` con `production`.
-//   6. Backend: cargar `FCM_SERVICE_ACCOUNT_JSON` (service account del MISMO
-//      proyecto Firebase) como secreto de la edge function `send-push`.
+//   6. Backend, y son TRES cosas, no una:
+//        - en Google Cloud (mismo proyecto): habilitar "Firebase Cloud
+//          Messaging API (V1)";
+//        - darle a la service account el rol "Firebase Cloud Messaging API
+//          Admin". Sin eso FCM contesta 403 PERMISSION_DENIED, que
+//          `classifyFcmResponse` clasifica como `fatal` y deja la fila de
+//          `push_outbox` en `failed` sin reintento;
+//        - cargar `FCM_SERVICE_ACCOUNT_JSON` como secreto de la edge function
+//          `send-push`. Acepta el JSON crudo **o en base64**
+//          (`parseServiceAccountJson`), que es lo cómodo para
+//          `supabase secrets set`.
+//
+// Trampa al terminar: si `google-services.json` y este archivo difieren en
+// `apiKey` o `storageBucket`, `Firebase.initializeApp` TIRA (chequeo de
+// firebase_core contra la app nativa por default) y `main.dart` se lo come con
+// un `debugPrint` — o sea, push apagado y la app funcionando. Después de correr
+// el CLI, arrancar con `flutter run` y confirmar que NO aparece
+// "[main] Firebase.initializeApp falló".
 //
 // Nada del código Dart cambia: el contrato del payload y el registro del token
 // ya están implementados en `lib/core/push/`.

@@ -17,8 +17,8 @@ import 'appointments_provider.dart';
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Sucursales de la org con `bookable` resuelto por el server. Esconde Test
-/// salvo en modo prueba (§6.6). Lo usa Home para saber si la sucursal elegida
-/// toma turnos online y el wizard para el selector.
+/// salvo en modo prueba (§6.6). Lo usan el Home —vía [hayTurnosOnlineProvider],
+/// para saber si HAY turnos online— y el wizard para el selector del paso 1.
 final mobileBranchesProvider = FutureProvider<List<MobileBranch>>((ref) async {
   final testMode = await ref.watch(testModeProvider.future);
   final res = await ref.read(bookingApiProvider).fetchBranches();
@@ -107,6 +107,14 @@ class BookingWizardState {
   final bool branchesLoading;
   final String? loadError;
 
+  /// La excepción que produjo [loadError], tal cual la tiró el API. Las dos
+  /// cosas hacen falta: [loadError] ya viene traducido al español, y
+  /// `LiquidErrorState` reconoce "sin conexión" por la forma CRUDA del error
+  /// —igual que cuando la recibe de un `AsyncValue.error`—, así que sin la
+  /// excepción la pantalla de error del wizard dibujaba el ícono y el título
+  /// genéricos en modo avión.
+  final Object? loadErrorCausa;
+
   final List<String> selectedServiceIds;
   final String? selectedDate;
   final Map<String, SlotsOutcome> slotsByDate;
@@ -138,6 +146,7 @@ class BookingWizardState {
     this.branches = const [],
     this.branchesLoading = false,
     this.loadError,
+    this.loadErrorCausa,
     this.selectedServiceIds = const [],
     this.selectedDate,
     this.slotsByDate = const {},
@@ -166,6 +175,7 @@ class BookingWizardState {
     List<MobileBranch>? branches,
     bool? branchesLoading,
     Object? loadError = _unset,
+    Object? loadErrorCausa = _unset,
     List<String>? selectedServiceIds,
     Object? selectedDate = _unset,
     Map<String, SlotsOutcome>? slotsByDate,
@@ -193,6 +203,8 @@ class BookingWizardState {
       branches: branches ?? this.branches,
       branchesLoading: branchesLoading ?? this.branchesLoading,
       loadError: loadError == _unset ? this.loadError : loadError as String?,
+      loadErrorCausa:
+          loadErrorCausa == _unset ? this.loadErrorCausa : loadErrorCausa,
       selectedServiceIds: selectedServiceIds ?? this.selectedServiceIds,
       selectedDate: selectedDate == _unset ? this.selectedDate : selectedDate as String?,
       slotsByDate: slotsByDate ?? this.slotsByDate,
@@ -391,7 +403,11 @@ class BookingWizardController extends StateNotifier<BookingWizardState> {
   }
 
   Future<void> retryLoad() async {
-    state = state.copyWith(phase: WizardPhase.loading, loadError: null);
+    state = state.copyWith(
+      phase: WizardPhase.loading,
+      loadError: null,
+      loadErrorCausa: null,
+    );
     if (state.slug.isNotEmpty) {
       await _loadBootstrap(state.slug, fromPicker: state.originalNotBookable);
     } else {
@@ -400,7 +416,12 @@ class BookingWizardController extends StateNotifier<BookingWizardState> {
   }
 
   Future<void> _loadBootstrap(String slug, {required bool fromPicker}) async {
-    state = state.copyWith(phase: WizardPhase.loading, slug: slug, loadError: null);
+    state = state.copyWith(
+      phase: WizardPhase.loading,
+      slug: slug,
+      loadError: null,
+      loadErrorCausa: null,
+    );
     try {
       final boot = await _api.fetchBootstrap(slug);
       if (!mounted) return;
@@ -429,13 +450,18 @@ class BookingWizardController extends StateNotifier<BookingWizardState> {
         await _loadBranches(originalNotBookable: true);
         return;
       }
-      state = state.copyWith(phase: WizardPhase.failed, loadError: e.message);
+      state = state.copyWith(
+        phase: WizardPhase.failed,
+        loadError: e.message,
+        loadErrorCausa: e,
+      );
     } catch (e) {
       if (!mounted) return;
       debugPrint('[turnos] bootstrap $slug falló: $e');
       state = state.copyWith(
         phase: WizardPhase.failed,
         loadError: 'No pudimos cargar el turnero. Probá de nuevo.',
+        loadErrorCausa: e,
       );
     }
   }
@@ -450,6 +476,7 @@ class BookingWizardController extends StateNotifier<BookingWizardState> {
       originalNotBookable: originalNotBookable,
       branchesLoading: state.branches.isEmpty,
       loadError: null,
+      loadErrorCausa: null,
     );
     try {
       final testMode = await _ref.read(testModeProvider.future);
@@ -461,17 +488,17 @@ class BookingWizardController extends StateNotifier<BookingWizardState> {
       state = state.copyWith(branches: list, branchesLoading: false);
     } on MobileApiException catch (e) {
       if (!mounted) return;
-      _branchesFallaron(e.message);
+      _branchesFallaron(e.message, e);
     } catch (e) {
       if (!mounted) return;
       debugPrint('[turnos] branches falló: $e');
-      _branchesFallaron('No pudimos cargar las sucursales. Probá de nuevo.');
+      _branchesFallaron('No pudimos cargar las sucursales. Probá de nuevo.', e);
     }
   }
 
   /// Si YA teníamos la lista (volvimos al paso 1), un refresco fallido no puede
   /// tirar al cliente a la pantalla de error: se queda con la lista que tenía.
-  void _branchesFallaron(String mensaje) {
+  void _branchesFallaron(String mensaje, Object? causa) {
     if (state.branches.isNotEmpty) {
       state = state.copyWith(branchesLoading: false);
       return;
@@ -480,6 +507,7 @@ class BookingWizardController extends StateNotifier<BookingWizardState> {
       phase: WizardPhase.failed,
       branchesLoading: false,
       loadError: mensaje,
+      loadErrorCausa: causa,
     );
   }
 
@@ -488,7 +516,7 @@ class BookingWizardController extends StateNotifier<BookingWizardState> {
     await _loadBootstrap(branch.slug, fromPicker: true);
   }
 
-  // ── Paso 1: servicios ──────────────────────────────────────────────────
+  // ── Paso 2: servicios ──────────────────────────────────────────────────
 
   void toggleService(String id) {
     final ids = List<String>.from(state.selectedServiceIds);
@@ -581,6 +609,7 @@ class BookingWizardController extends StateNotifier<BookingWizardState> {
           bootstrap: null,
           slug: '',
           loadError: null,
+          loadErrorCausa: null,
           error: null,
         );
         return true;
@@ -594,7 +623,7 @@ class BookingWizardController extends StateNotifier<BookingWizardState> {
     if (state.error != null) state = state.copyWith(error: null);
   }
 
-  // ── Paso 2: día y horario ──────────────────────────────────────────────
+  // ── Paso 3: día y horario ──────────────────────────────────────────────
 
   void selectDate(String date) {
     if (state.selectedDate == date && state.slotsByDate.containsKey(date)) {

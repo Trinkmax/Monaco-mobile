@@ -34,7 +34,7 @@ class LiquidStatusPill extends StatelessWidget {
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.7),
+            color: color.withValues(alpha: 0.7),
             blurRadius: 6,
             spreadRadius: 0.5,
           ),
@@ -55,11 +55,11 @@ class LiquidStatusPill extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            color.withOpacity(0.22),
-            color.withOpacity(0.10),
+            color.withValues(alpha: 0.22),
+            color.withValues(alpha: 0.10),
           ],
         ),
-        border: Border.all(color: color.withOpacity(0.35), width: 0.8),
+        border: Border.all(color: color.withValues(alpha: 0.35), width: 0.8),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

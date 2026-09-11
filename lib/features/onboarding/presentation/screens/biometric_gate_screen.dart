@@ -12,6 +12,7 @@ import 'package:monaco_mobile/core/auth/biometric_service.dart';
 import 'package:monaco_mobile/core/auth/pin_service.dart';
 import 'package:monaco_mobile/core/auth/secure_storage.dart';
 
+import '../widgets/copy_sesion.dart';
 import '../widgets/onboarding_scaffold.dart';
 
 /// Gate local: hay sesión pero el cliente pidió Face ID / huella para abrir.
@@ -119,8 +120,7 @@ class _BiometricGateScreenState extends ConsumerState<BiometricGateScreen> {
     final ok = await showLiquidDialog<bool>(
       context,
       title: '¿Cerrar sesión?',
-      message:
-          'Vas a tener que volver a ingresar tu número y un código de WhatsApp.',
+      message: kCerrarSesionDetalle,
       icon: Icons.logout_rounded,
       iconColor: MonacoColors.destructive,
       actions: const [

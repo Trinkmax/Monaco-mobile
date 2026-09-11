@@ -9,8 +9,31 @@ import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 import 'package:monaco_mobile/core/auth/auth_provider.dart';
 import 'package:monaco_mobile/core/auth/biometric_service.dart';
 import 'package:monaco_mobile/core/auth/pin_service.dart';
+import 'package:monaco_mobile/core/auth/secure_storage.dart';
+import 'package:monaco_mobile/features/onboarding/presentation/widgets/copy_sesion.dart';
 import 'package:monaco_mobile/features/onboarding/presentation/widgets/onboarding_scaffold.dart';
 import 'package:monaco_mobile/features/onboarding/presentation/widgets/pin_pad.dart';
+
+/// ¿Esta pantalla puede ofrecer volver a la biometría?
+///
+/// Las tres condiciones tienen que darse juntas y la que faltaba es la
+/// primera: [preferida] es lo que el cliente eligió en Perfil, y sin mirarla
+/// alguien que protege la app SÓLO con PIN veía el botón de Face ID en el
+/// teclado y una flecha atrás. Los dos llevan a `/biometric`, que con la
+/// biometría apagada rebota a `/pin` — o sea, dos controles que parpadean y lo
+/// dejan donde estaba.
+///
+/// [status] tiene que ser `needsBiometric`: si alguien llegó acá con la sesión
+/// ya abierta (desde Perfil), no hay ningún gate que resolver.
+@visibleForTesting
+bool debeOfrecerBiometria({
+  required bool preferida,
+  required BiometricKind kind,
+  required AuthStatus status,
+}) =>
+    preferida &&
+    kind != BiometricKind.none &&
+    status == AuthStatus.needsBiometric;
 
 /// Gate por PIN local (fallback de la biometría). Verifica contra el hash del
 /// dispositivo; a los 5 fallos ofrece cerrar sesión.
@@ -42,15 +65,18 @@ class _PinVerifyScreenState extends ConsumerState<PinVerifyScreen> {
   Future<void> _load() async {
     final hasPin = await PinService.hasPin();
     final kind = await BiometricService.availableKind();
+    // **La preferencia del cliente manda, no lo que el teléfono soporta.**
+    final bioPreferida = await SecureStorageService.isBiometricEnabled();
     final status = ref.read(authProvider).status;
     if (!mounted) return;
     setState(() {
       _hasPin = hasPin;
       _bioKind = kind;
-      // Sólo ofrecemos volver a la biometría si estamos en el gate (no si
-      // alguien llegó acá con la sesión ya abierta).
-      _bioEnabled =
-          kind != BiometricKind.none && status == AuthStatus.needsBiometric;
+      _bioEnabled = debeOfrecerBiometria(
+        preferida: bioPreferida,
+        kind: kind,
+        status: status,
+      );
     });
   }
 
@@ -104,8 +130,8 @@ class _PinVerifyScreenState extends ConsumerState<PinVerifyScreen> {
       context,
       title: 'Demasiados intentos',
       message: _bioEnabled
-          ? 'Podés volver a probar con ${_bioKind.label}, seguir intentando el PIN o cerrar sesión y entrar de nuevo con tu número.'
-          : 'Podés seguir intentando o cerrar sesión y entrar de nuevo con tu número y un código de WhatsApp.',
+          ? 'Podés volver a probar con ${_bioKind.label}, seguir intentando el PIN o cerrar sesión y entrar de nuevo.'
+          : 'Podés seguir intentando o cerrar sesión y entrar de nuevo con tu número, Google o Apple.',
       icon: Icons.lock_clock_rounded,
       iconColor: MonacoColors.warning,
       barrierDismissible: false,
@@ -143,8 +169,7 @@ class _PinVerifyScreenState extends ConsumerState<PinVerifyScreen> {
     final ok = await showLiquidDialog<bool>(
       context,
       title: '¿Cerrar sesión?',
-      message:
-          'Vas a tener que volver a ingresar tu número y un código de WhatsApp.',
+      message: kCerrarSesionDetalle,
       icon: Icons.logout_rounded,
       iconColor: MonacoColors.destructive,
       actions: const [

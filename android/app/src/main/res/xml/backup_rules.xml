@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Reglas de backup para API < 31 (android:fullBackupContent). Con
+  android:allowBackup="false" el sistema no las consulta; están como red por si
+  alguien vuelve a prender el backup: excluyen lo mismo que
+  data_extraction_rules.xml (ver ahí el porqué: la sesión cifrada con el
+  Keystore no es transferible a otro equipo).
+-->
+<full-backup-content>
+    <exclude domain="root" path="." />
+    <exclude domain="file" path="." />
+    <exclude domain="database" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="external" path="." />
+    <exclude domain="device_root" path="." />
+    <exclude domain="device_file" path="." />
+    <exclude domain="device_database" path="." />
+    <exclude domain="device_sharedpref" path="." />
+</full-backup-content>

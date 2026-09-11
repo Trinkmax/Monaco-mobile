@@ -45,7 +45,7 @@ class _Divider extends StatelessWidget {
     return Container(
       height: 0.5,
       margin: const EdgeInsets.symmetric(horizontal: 16),
-      color: Colors.white.withOpacity(0.06),
+      color: Colors.white.withValues(alpha: 0.06),
     );
   }
 }
@@ -97,7 +97,7 @@ class LiquidListTile extends StatelessWidget {
                   Text(
                     subtitle!,
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.45),
+                      color: Colors.white.withValues(alpha: 0.45),
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                     ),
@@ -111,7 +111,7 @@ class LiquidListTile extends StatelessWidget {
           else if (onTap != null)
             Icon(
               Icons.chevron_right_rounded,
-              color: Colors.white.withOpacity(0.3),
+              color: Colors.white.withValues(alpha: 0.3),
               size: 22,
             ),
         ],
@@ -140,14 +140,14 @@ class _MiniGlassIcon extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            color.withOpacity(0.24),
-            color.withOpacity(0.10),
+            color.withValues(alpha: 0.24),
+            color.withValues(alpha: 0.10),
           ],
         ),
-        border: Border.all(color: color.withOpacity(0.32), width: 0.8),
+        border: Border.all(color: color.withValues(alpha: 0.32), width: 0.8),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.15),
+            color: color.withValues(alpha: 0.15),
             blurRadius: 8,
             spreadRadius: -2,
           ),
@@ -218,24 +218,24 @@ class LiquidSwitch extends StatelessWidget {
             end: Alignment.bottomRight,
             colors: value
                 ? [
-                    LiquidTokens.monacoGreen.withOpacity(0.95),
-                    LiquidTokens.monacoGreenDeep.withOpacity(0.75),
+                    LiquidTokens.monacoGreen.withValues(alpha: 0.95),
+                    LiquidTokens.monacoGreenDeep.withValues(alpha: 0.75),
                   ]
                 : [
-                    Colors.white.withOpacity(0.10),
-                    Colors.white.withOpacity(0.04),
+                    Colors.white.withValues(alpha: 0.10),
+                    Colors.white.withValues(alpha: 0.04),
                   ],
           ),
           border: Border.all(
             color: value
-                ? LiquidTokens.monacoGreen.withOpacity(0.55)
-                : Colors.white.withOpacity(0.14),
+                ? LiquidTokens.monacoGreen.withValues(alpha: 0.55)
+                : Colors.white.withValues(alpha: 0.14),
             width: 0.8,
           ),
           boxShadow: value
               ? [
                   BoxShadow(
-                    color: LiquidTokens.monacoGreen.withOpacity(0.38),
+                    color: LiquidTokens.monacoGreen.withValues(alpha: 0.38),
                     blurRadius: 12,
                     spreadRadius: -3,
                   ),
@@ -258,7 +258,7 @@ class LiquidSwitch extends StatelessWidget {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.32),
+                  color: Colors.black.withValues(alpha: 0.32),
                   blurRadius: 4,
                   offset: const Offset(0, 1),
                 ),

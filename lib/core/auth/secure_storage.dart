@@ -161,7 +161,27 @@ class SecureStorageService {
     ]);
   }
 
-  // Clear all on logout
+  // ── Guard de reinstalación ───────────────────────────────────────────────
+  // En iOS el Keychain NO se borra al desinstalar la app: sesión, `device_secret`,
+  // PIN y biometría reaparecen al reinstalar. `InstallGuard` (main.dart) usa
+  // esto para saber si lo que hay en la caja fuerte es de una instalación
+  // anterior. Tira si el almacenamiento está roto: quien lo llama lo trata.
+  static Future<bool> tieneRastroDeUsoPrevio() async {
+    for (final key in const [
+      _keyClientId,
+      _keyDeviceSecret,
+      _keyLocalPinHash,
+      _keyBiometricEnabled,
+      _keyGuestMode,
+    ]) {
+      if (await _storage.read(key: key) != null) return true;
+    }
+    return false;
+  }
+
+  /// Borra TODO (identidad del dispositivo incluida). Se usa al eliminar la
+  /// cuenta, en el guard de reinstalación y cuando el almacenamiento seguro
+  /// está roto y hay que empezar de cero.
   static Future<void> clearAll() async {
     await _storage.deleteAll();
   }

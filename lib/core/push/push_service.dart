@@ -7,9 +7,12 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../app/theme/monaco_colors.dart';
 import '../../firebase_options.dart';
 import '../api/mobile_api.dart';
 import '../auth/secure_storage.dart';
@@ -35,6 +38,49 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   }
 }
 
+/// Ícono chico de las notificaciones (barra de estado). Android lo dibuja como
+/// **máscara alfa**: un ícono a color se ve como un cuadrado blanco. Por eso NO
+/// va `@mipmap/ic_launcher` (adaptativo, con fondo opaco) sino la silueta
+/// blanca `res/drawable-*/ic_notification.png`, que es la misma que ya declara
+/// el manifest para los push que dibuja FCM con la app cerrada
+/// (`com.google.firebase.messaging.default_notification_icon`). Sin esto, el
+/// mismo push se veía distinto según la app estuviera abierta o no.
+///
+/// `res/raw/keep.xml` conserva el drawable ante `shrinkResources`.
+const String _iconoNotificacionAndroid = '@drawable/ic_notification';
+
+/// Estado del permiso de notificaciones tal como lo necesita la UI.
+///
+/// **No es lo mismo que [AuthorizationStatus]**, y esa confusión era un bug:
+/// en Android el plugin de FCM no tiene `notDetermined` — `getPermissions()`
+/// devuelve `areNotificationsEnabled ? 1 : 0` y el mapeo Dart convierte el 0
+/// en [AuthorizationStatus.denied]. O sea que **una instalación limpia de
+/// Android 13+ ya se lee `denied`**, y la app lo trataba como "bloqueado en el
+/// sistema": nunca llamaba a `requestPermission()`, el diálogo de
+/// POST_NOTIFICATIONS no aparecía jamás y no se registraba ningún token.
+///
+/// La única señal confiable de "bloqueado" en Android es haber pedido el
+/// permiso de verdad y seguir en `denied`; por eso el pedido deja una marca
+/// ([_PermisoPedido]).
+enum PushPermiso {
+  /// Firebase sin configurar (`firebase_options.dart` en placeholders): no hay
+  /// nada que mostrar. La UI **oculta** la sección entera.
+  noDisponible,
+
+  /// `authorized` o `provisional`.
+  concedido,
+
+  /// Todavía no se disparó el prompt del sistema: el botón dice "Activar".
+  sinPedir,
+
+  /// Se pidió y el sistema dijo que no (o el cliente lo apagó desde Ajustes):
+  /// el prompt nativo ya no vuelve a aparecer, hay que ir a Ajustes.
+  bloqueado,
+
+  /// El plugin no contestó (simulador de iOS sin APNs, Firebase a medias).
+  desconocido,
+}
+
 /// Registro del dispositivo para push (FCM) y notificaciones locales.
 ///
 /// Contrato (CONTRACTS.md §1.2 / §6.7):
@@ -53,6 +99,17 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 /// token en cada arranque/login si el permiso ya estaba concedido
 /// (higiene: reactiva tokens que el sender haya apagado por un error
 /// transitorio y actualiza `app_version`/`last_seen_at`).
+///
+/// **Pendiente conocido — badge de iOS.** `send-push` manda
+/// `apns.payload.aps.badge` con la cantidad de notificaciones sin leer, pero la
+/// app no puede ponerlo en 0 al abrir la bandeja: `firebase_messaging` no
+/// expone el badge y `flutter_local_notifications` tampoco lo hace en iOS
+/// (`DarwinNotificationDetails.badgeNumber` sólo sirve para una notificación
+/// que la app misma programe). Resolverlo pide un MethodChannel en
+/// `AppDelegate.swift` (`UNUserNotificationCenter.setBadgeCount` en iOS 16+,
+/// `applicationIconBadgeNumber` antes) o una dependencia nueva, las dos cosas
+/// fuera de Dart. Hasta entonces el número del ícono queda hasta el push
+/// siguiente. Anotado también en el README.
 class PushService {
   PushService._();
 
@@ -61,6 +118,11 @@ class PushService {
   /// Cada cuánto re-enviamos el mismo token aunque no haya cambiado
   /// (`last_seen_at` del lado del server).
   static const Duration _reRegisterEvery = Duration(hours: 12);
+
+  /// Intentos de `getToken()`. En iOS el primero suele fallar con
+  /// `apns-token-not-set` si APNs todavía no contestó (pasa justo cuando el
+  /// cliente acaba de aceptar el prompt, que es el peor momento para perderlo).
+  static const int _intentosDeToken = 3;
 
   static bool _bootstrapped = false;
   static bool _localReady = false;
@@ -111,12 +173,19 @@ class PushService {
 
     await _ensureLocalNotifications();
 
+    // El listener del token va ANTES de cualquier `getToken()`: en iOS el
+    // primer `getToken()` puede fallar con `apns-token-not-set` y el token
+    // real llega después por este stream. Enganchándolo recién después de un
+    // `getToken()` exitoso, ese token se perdía hasta el próximo arranque en
+    // frío — el cliente veía "Activadas" y no le llegaba ningún recordatorio.
+    _escucharTokenRefresh();
+
     // Registro automático cuando aparece una sesión (cold start con sesión
     // guardada, login). El `signedOut` sólo limpia memoria: la baja del token
     // la hace `unregister()` ANTES del signOut, porque necesita el JWT.
     try {
       final auth = Supabase.instance.client.auth;
-      _authSub?.cancel();
+      await _authSub?.cancel();
       _authSub = auth.onAuthStateChange.listen((data) {
         switch (data.event) {
           case AuthChangeEvent.initialSession:
@@ -143,7 +212,7 @@ class PushService {
   static Future<void> _ensureLocalNotifications() async {
     if (_localReady) return;
     try {
-      const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const android = AndroidInitializationSettings(_iconoNotificacionAndroid);
       // Los permisos de iOS los pide `FirebaseMessaging.requestPermission`
       // (con el pre-prompt); acá no hay que volver a pedirlos.
       const ios = DarwinInitializationSettings(
@@ -217,7 +286,10 @@ class PushService {
             channelDescription: 'Turnos, premios y novedades de Monaco',
             importance: Importance.high,
             priority: Priority.high,
-            icon: '@mipmap/ic_launcher',
+            icon: _iconoNotificacionAndroid,
+            // El `default_notification_color` del manifest sólo tiñe lo que
+            // dibuja FCM; la notificación local lleva el suyo.
+            color: MonacoColors.monacoGreen,
           ),
         ),
         payload: jsonEncode(message.data),
@@ -231,8 +303,9 @@ class PushService {
   // Permiso del sistema
   // ───────────────────────────────────────────────────────────────────────
 
-  /// Estado actual del permiso. `null` si Firebase no está configurado o el
-  /// plugin falló (simulador sin APNs, etc.).
+  /// Estado crudo del plugin. `null` si Firebase no está configurado o el
+  /// plugin falló (simulador sin APNs, etc.). Para la UI usar [currentPermiso]:
+  /// este valor NO alcanza para decidir si el permiso está bloqueado.
   static Future<AuthorizationStatus?> currentAuthorizationStatus() async {
     if (!isAvailable) return null;
     try {
@@ -248,36 +321,98 @@ class PushService {
       status == AuthorizationStatus.authorized ||
       status == AuthorizationStatus.provisional;
 
+  /// Traduce el estado crudo del plugin + la marca de "ya lo pedimos" al
+  /// estado que la UI sabe dibujar. Pura, para poder testearla sin plataforma.
+  ///
+  /// La regla que importa está en [PushPermiso]: en Android `denied` es el
+  /// estado de fábrica, así que **sólo es "bloqueado" si ya se pidió**. En iOS
+  /// el estado de fábrica es `notDetermined`, así que un `denied` siempre
+  /// implica un prompt ya contestado.
+  @visibleForTesting
+  static PushPermiso mapearPermiso({
+    required bool disponible,
+    required AuthorizationStatus? status,
+    required bool yaSePidio,
+    required bool esAndroid,
+  }) {
+    if (!disponible) return PushPermiso.noDisponible;
+    if (isGranted(status)) return PushPermiso.concedido;
+    if (status == null) return PushPermiso.desconocido;
+    if (status == AuthorizationStatus.notDetermined) return PushPermiso.sinPedir;
+    if (esAndroid && !yaSePidio) return PushPermiso.sinPedir;
+    return PushPermiso.bloqueado;
+  }
+
+  /// Estado del permiso para la UI.
+  static Future<PushPermiso> currentPermiso() async {
+    if (!isAvailable) return PushPermiso.noDisponible;
+    final status = await currentAuthorizationStatus();
+    return mapearPermiso(
+      disponible: true,
+      status: status,
+      yaSePidio: await _PermisoPedido.leer(),
+      esAndroid: Platform.isAndroid,
+    );
+  }
+
   /// Dispara el prompt nativo (iOS / Android 13+). Llamar SOLO después del
-  /// pre-prompt contextual de la UI (Apple 4.5.4). Si el usuario acepta,
-  /// registra el token en el acto. Devuelve el estado resultante (`null` si
-  /// Firebase no está configurado).
-  static Future<AuthorizationStatus?> requestPermission() async {
-    if (!isAvailable) return null;
+  /// pre-prompt contextual de la UI (Apple 4.5.4). Si el cliente acepta,
+  /// registra el token en el acto.
+  ///
+  /// En Android 13+ ésta es la ÚNICA forma de que aparezca el diálogo de
+  /// POST_NOTIFICATIONS: `getNotificationSettings()` nunca lo dispara. Si el
+  /// permiso ya está concedido es un no-op, y si está bloqueado contesta
+  /// `denied` al instante sin mostrar nada — por eso la marca se escribe
+  /// igual: es lo que después distingue "sin pedir" de "bloqueado".
+  static Future<PushPermiso> requestPermission() async {
+    if (!isAvailable) return PushPermiso.noDisponible;
+    AuthorizationStatus? status;
     try {
+      // Se marca ANTES de abrir el diálogo: si el proceso muere con el prompt
+      // en pantalla, es preferible ofrecer Ajustes de más que dejar un botón
+      // "Activar" que no vuelve a mostrar nada.
+      await _PermisoPedido.marcar();
       final settings = await _messaging.requestPermission(
         alert: true,
         badge: true,
         sound: true,
         provisional: false,
       );
-      if (isGranted(settings.authorizationStatus)) {
-        await ensureRegistered(force: true);
-      }
-      return settings.authorizationStatus;
+      status = settings.authorizationStatus;
     } catch (e) {
       debugPrint('[push] requestPermission: $e');
-      return null;
+      return PushPermiso.desconocido;
     }
+    if (isGranted(status)) {
+      await ensureRegistered(force: true);
+    }
+    return mapearPermiso(
+      disponible: true,
+      status: status,
+      yaSePidio: true,
+      esAndroid: Platform.isAndroid,
+    );
   }
 
-  /// Abre la pantalla de ajustes de la app (iOS). En Android no hay un
-  /// esquema de URL estándar: devuelve `false` y la UI explica el camino.
+  /// Abre los ajustes de la app. iOS: `app-settings:`. Android: la ficha de la
+  /// app (`ACTION_APPLICATION_DETAILS_SETTINGS`), desde donde se llega a
+  /// Notificaciones — antes devolvía `false` y la UI sólo podía dictar el
+  /// camino en un toast, que se lee como un botón roto.
+  ///
+  /// Se usa `Geolocator.openAppSettings()` porque es el único paquete YA
+  /// instalado que expone ese intent (es genérico: abre la ficha de la app, no
+  /// tiene nada de ubicación). Si algún día entra `permission_handler` o
+  /// `app_settings` al pubspec, se reemplaza por su `openAppSettings()`.
   static Future<bool> openSystemSettings() async {
-    try {
-      if (Platform.isIOS) {
-        return await launchUrl(Uri.parse('app-settings:'));
+    if (Platform.isIOS) {
+      try {
+        if (await launchUrl(Uri.parse('app-settings:'))) return true;
+      } catch (e) {
+        debugPrint('[push] openSystemSettings (iOS): $e');
       }
+    }
+    try {
+      return await Geolocator.openAppSettings();
     } catch (e) {
       debugPrint('[push] openSystemSettings: $e');
     }
@@ -308,22 +443,54 @@ class PushService {
     final status = await currentAuthorizationStatus();
     if (!isGranted(status)) return;
 
-    String? token;
-    try {
-      token = await _messaging.getToken();
-    } catch (e) {
-      // Simulador iOS sin APNs, o Firebase a medio configurar.
-      debugPrint('[push] getToken: $e');
-      return;
-    }
-    if (token == null || token.isEmpty) return;
+    // El listener ya quedó armado en `bootstrap()`; se re-asegura acá por si
+    // `requestPermission` corrió antes de que bootstrap terminara.
+    _escucharTokenRefresh();
 
-    _refreshSub ??= _messaging.onTokenRefresh.listen(
-      (t) => unawaited(_register(t, force: true)),
-      onError: (Object e) => debugPrint('[push] onTokenRefresh: $e'),
-    );
+    final token = await _obtenerToken();
+    if (token == null) return;
 
     await _register(token, force: force);
+  }
+
+  /// `getToken()` con reintentos cortos. En iOS falla con `apns-token-not-set`
+  /// mientras FCM no tenga el token de APNs, que es exactamente la carrera que
+  /// se abre cuando el cliente acaba de aceptar el prompt. Si igual no sale,
+  /// no se pierde: el token llega después por `onTokenRefresh`.
+  static Future<String?> _obtenerToken() async {
+    for (var intento = 1; intento <= _intentosDeToken; intento++) {
+      try {
+        final token = await _messaging.getToken();
+        if (token != null && token.isNotEmpty) return token;
+      } catch (e) {
+        debugPrint('[push] getToken ($intento/$_intentosDeToken): $e');
+      }
+      if (intento == _intentosDeToken) break;
+      await Future<void>.delayed(Duration(seconds: intento));
+    }
+    return null;
+  }
+
+  /// Escucha `onTokenRefresh` una sola vez por proceso. El callback vuelve a
+  /// chequear sesión y permiso: puede llegar en cualquier momento, incluso con
+  /// el cliente deslogueado.
+  static void _escucharTokenRefresh() {
+    if (_refreshSub != null) return;
+    try {
+      _refreshSub = _messaging.onTokenRefresh.listen(
+        (t) => unawaited(_registrarTokenRefrescado(t)),
+        onError: (Object e) => debugPrint('[push] onTokenRefresh: $e'),
+      );
+    } catch (e) {
+      debugPrint('[push] no se pudo escuchar onTokenRefresh: $e');
+    }
+  }
+
+  static Future<void> _registrarTokenRefrescado(String token) async {
+    if (token.isEmpty) return;
+    if (Supabase.instance.client.auth.currentSession == null) return;
+    if (!isGranted(await currentAuthorizationStatus())) return;
+    await _register(token, force: true);
   }
 
   static Future<void> _register(String token, {required bool force}) async {
@@ -356,9 +523,12 @@ class PushService {
   /// Da de baja el dispositivo (`is_active = false`). Llamar ANTES de
   /// `authNotifier.logout()`: el endpoint necesita el JWT del cliente.
   /// Best-effort: nunca tira.
+  ///
+  /// **No** cancela `onTokenRefresh`: la suscripción es de por vida del
+  /// proceso (se arma en `bootstrap()`) y su callback ya chequea sesión y
+  /// permiso. Cancelándola acá, un cliente que cerraba sesión y volvía a
+  /// entrar sin reiniciar la app se quedaba sin listener.
   static Future<void> unregister() async {
-    _refreshSub?.cancel();
-    _refreshSub = null;
     _lastRegisteredToken = null;
     _lastRegisteredAt = null;
     if (!isAvailable) return;
@@ -375,12 +545,52 @@ class PushService {
   }
 }
 
-/// Estado del permiso de notificaciones del sistema. `null` = Firebase no
-/// configurado (la UI lo muestra como "no disponible en esta versión").
-/// Invalidarlo después de [PushService.requestPermission] o al volver de
+/// Marca "ya disparamos el prompt del sistema alguna vez", que es lo único que
+/// distingue `sinPedir` de `bloqueado` en Android (ver [PushPermiso]).
+///
+/// Vive en la misma caja fuerte que el resto (`SecureStorageService` usa estas
+/// mismas opciones), así el `InstallGuard` la limpia junto con todo lo demás
+/// cuando detecta una reinstalación: cuenta nueva, prompt nuevo.
+class _PermisoPedido {
+  static const _key = 'push_permission_asked';
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device,
+    ),
+  );
+
+  static bool? _cache;
+
+  static Future<bool> leer() async {
+    final cached = _cache;
+    if (cached != null) return cached;
+    try {
+      final v = await _storage.read(key: _key);
+      return _cache = v == 'true';
+    } catch (e) {
+      debugPrint('[push] no se pudo leer $_key: $e');
+      return false;
+    }
+  }
+
+  static Future<void> marcar() async {
+    _cache = true;
+    try {
+      await _storage.write(key: _key, value: 'true');
+    } catch (e) {
+      debugPrint('[push] no se pudo guardar $_key: $e');
+    }
+  }
+}
+
+/// Estado del permiso de notificaciones del sistema.
+/// [PushPermiso.noDisponible] = Firebase sin configurar: la UI **oculta** la
+/// sección (no muestra una función "próximamente", que es rechazo de Apple
+/// 2.1). Invalidarlo después de [PushService.requestPermission] o al volver de
 /// Ajustes.
-final pushPermissionProvider = FutureProvider.autoDispose<AuthorizationStatus?>(
-  (ref) async {
-    return PushService.currentAuthorizationStatus();
-  },
-);
+final pushPermisoProvider = FutureProvider.autoDispose<PushPermiso>((
+  ref,
+) async {
+  return PushService.currentPermiso();
+});

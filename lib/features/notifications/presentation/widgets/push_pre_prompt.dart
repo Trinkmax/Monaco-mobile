@@ -1,4 +1,3 @@
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -59,48 +58,53 @@ Future<bool> showPushPrePrompt(BuildContext context) async {
   return ok == true;
 }
 
-/// Flujo completo "activar notificaciones": pre-prompt → prompt nativo →
-/// toast con el resultado. Devuelve el estado resultante (`null` = Firebase
-/// no configurado o cancelado por el usuario).
-Future<AuthorizationStatus?> requestPushWithPrePrompt(
+/// Flujo completo "activar notificaciones": pre-prompt → prompt nativo del
+/// sistema → toast con el resultado. Devuelve el estado resultante (`null` si
+/// el cliente canceló el pre-prompt o si Firebase no está configurado — en ese
+/// caso la sección ni siquiera se dibuja).
+///
+/// **Siempre pasa por [PushService.requestPermission]**, incluso si el estado
+/// leído decía `denied`: en Android ése es el estado de fábrica y es la única
+/// llamada que dispara el diálogo de POST_NOTIFICATIONS. Si de verdad está
+/// bloqueado, el sistema contesta al instante y el toast ofrece Ajustes.
+Future<PushPermiso?> requestPushWithPrePrompt(
   BuildContext context,
   WidgetRef ref,
 ) async {
-  if (!PushService.isAvailable) {
-    showLiquidToast(
-      context,
-      'Las notificaciones no están disponibles en esta versión de la app.',
-      tone: LiquidToastTone.info,
-    );
-    return null;
-  }
+  if (!PushService.isAvailable) return null;
   final accepted = await showPushPrePrompt(context);
   if (!accepted) return null;
 
-  final status = await PushService.requestPermission();
-  ref.invalidate(pushPermissionProvider);
-  if (!context.mounted) return status;
+  final permiso = await PushService.requestPermission();
+  ref.invalidate(pushPermisoProvider);
+  if (!context.mounted) return permiso;
 
-  if (PushService.isGranted(status)) {
-    showLiquidToast(
-      context,
-      'Notificaciones activadas.',
-      tone: LiquidToastTone.success,
-    );
-  } else if (status == AuthorizationStatus.denied) {
-    showLiquidToast(
-      context,
-      'El permiso está bloqueado. Activalo desde los ajustes del sistema.',
-      tone: LiquidToastTone.error,
-      actionLabel: 'Ajustes',
-      onAction: () => openPushSettingsOrExplain(context),
-    );
+  switch (permiso) {
+    case PushPermiso.concedido:
+      showLiquidToast(
+        context,
+        'Notificaciones activadas.',
+        tone: LiquidToastTone.success,
+      );
+    case PushPermiso.bloqueado:
+      showLiquidToast(
+        context,
+        'El permiso está bloqueado. Activalo desde los ajustes del sistema.',
+        tone: LiquidToastTone.error,
+        actionLabel: 'Ajustes',
+        onAction: () => abrirAjustesDePush(context),
+      );
+    case PushPermiso.sinPedir:
+    case PushPermiso.desconocido:
+    case PushPermiso.noDisponible:
+      break;
   }
-  return status;
+  return permiso;
 }
 
-/// Abre Ajustes (iOS) o explica el camino (Android, que no tiene URL).
-Future<void> openPushSettingsOrExplain(BuildContext context) async {
+/// Abre los ajustes de la app: `app-settings:` en iOS, la ficha de la app en
+/// Android. Si el sistema no lo permite, dicta el camino.
+Future<void> abrirAjustesDePush(BuildContext context) async {
   final opened = await PushService.openSystemSettings();
   if (opened || !context.mounted) return;
   showLiquidToast(

@@ -10,6 +10,20 @@ import 'package:monaco_mobile/features/rewards/providers/premios_provider.dart';
 
 import 'push_service.dart';
 
+/// Dónde está parado el router cuando llega un push, a los efectos de decidir
+/// si su ruta se navega, se guarda o se descarta.
+enum EsperaDePush {
+  /// El router está en una pantalla normal: se puede navegar ya.
+  navegar,
+
+  /// Candado local (splash / biometría / PIN): hay sesión o se está
+  /// resolviendo, así que la ruta pendiente se guarda hasta que salga.
+  gate,
+
+  /// Sin sesión (bienvenida / login): la ruta se descarta tras el tope corto.
+  sinSesion,
+}
+
 /// Resuelve qué hacer con un push: a dónde navegar y qué marcar como leído.
 ///
 /// Contrato del payload (CONTRACTS.md §6.7), todo string:
@@ -36,6 +50,7 @@ class PushHandler {
   static String? _pendingRoute;
   static Timer? _pendingTimer;
   static int _pendingTries = 0;
+  static EsperaDePush? _ultimaEspera;
 
   /// Rutas que viven en el shell con dock: se navegan con `go` (reemplazan la
   /// pestaña) y no con `push` (que las apilaría sin dock).
@@ -47,17 +62,45 @@ class PushHandler {
     '/profile',
   };
 
-  /// Mientras el router esté en alguna de estas rutas, no se puede navegar
-  /// todavía (la sesión se está resolviendo o no hay sesión).
-  static const Set<String> _notReadyPaths = {
-    '/splash',
-    '/welcome',
-    '/login',
-    '/login/codigo',
-    '/login/nombre',
-    '/biometric',
-    '/pin',
-  };
+  /// La usa también la bandeja (`notifications_screen`), que abre las filas con
+  /// el mismo criterio: una sola lista, no dos que se desincronizan.
+  static bool esRutaDeShell(String route) {
+    try {
+      return _shellPaths.contains(Uri.parse(route).path);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Gates: hay (o puede haber) sesión, pero el cliente todavía no pasó el
+  /// candado local. La ruta pendiente **no se descarta** acá: se navega en
+  /// cuanto el router sale del gate.
+  static const Set<String> _gatePaths = {'/splash', '/biometric', '/pin'};
+
+  /// Sin sesión: acá sí tiene sentido rendirse (nadie va a llegar a la
+  /// pantalla que promete el push).
+  static const Set<String> _loginPaths = {'/welcome', '/login'};
+
+  /// Tope de reintentos con el router afuera de un gate (sin sesión, o todavía
+  /// sin árbol montado): 40 × 500 ms = 20 s.
+  static const int _maxTriesSinSesion = 40;
+
+  /// Tope de reintentos mientras el cliente resuelve PIN/biometría: 10 min.
+  /// Antes eran los mismos 20 s, y un Face ID que falla o un PIN tipeado
+  /// despacio dejaban al cliente en Home después de tocar "Te faltan 20 pts
+  /// para tu premio" — justo a los que activaron seguridad.
+  static const int _maxTriesEnGate = 1200;
+
+  static const Duration _esperaEntreIntentos = Duration(milliseconds: 500);
+
+  /// Categoría de espera de la ruta donde está parado el router.
+  static EsperaDePush esperaPara(String path) {
+    if (_gatePaths.contains(path)) return EsperaDePush.gate;
+    if (_loginPaths.contains(path) || path.startsWith('/login/')) {
+      return EsperaDePush.sinSesion;
+    }
+    return EsperaDePush.navegar;
+  }
 
   /// Rutas cuyo contenido sale de los providers de fidelización (globales,
   /// cacheados de por vida): un push que aterriza ahí promete un dato nuevo
@@ -226,41 +269,77 @@ class PushHandler {
     navigateTo(routeForData(data));
   }
 
-  /// Navega con el navigator raíz. Si el árbol todavía no está listo (push
-  /// que abre la app), guarda la ruta y reintenta hasta ~20 s.
+  /// Navega con el navigator raíz. Si el árbol todavía no está listo (push que
+  /// abre la app), guarda la ruta y reintenta: hasta 20 s sin sesión, hasta 10
+  /// min mientras el cliente esté resolviendo su PIN o su biometría.
   static void navigateTo(String route) {
     _pendingRoute = route;
     _pendingTries = 0;
+    _ultimaEspera = null;
     _pendingTimer?.cancel();
     _tryNavigate();
+  }
+
+  /// Ruta que todavía espera para navegarse (`null` si no hay ninguna).
+  @visibleForTesting
+  static String? get rutaPendiente => _pendingRoute;
+
+  /// Suelta la ruta pendiente y su timer. Sólo para tests: un timer vivo al
+  /// final de un test de widgets lo hace fallar.
+  @visibleForTesting
+  static void debugReset() {
+    _pendingRoute = null;
+    _pendingTries = 0;
+    _ultimaEspera = null;
+    _pendingTimer?.cancel();
+    _pendingTimer = null;
   }
 
   static void _tryNavigate() {
     final route = _pendingRoute;
     if (route == null) return;
 
+    // Sin árbol montado todavía no sabemos dónde está el router: se trata como
+    // "sin sesión" (tope corto), que es el caso del arranque en frío.
+    var espera = EsperaDePush.sinSesion;
+    GoRouter? router;
+    BuildContext? ctx;
+
     final context = _navigatorKey?.currentContext;
     if (context != null && context.mounted) {
-      final router = GoRouter.maybeOf(context);
-      if (router != null) {
-        final current = router.routerDelegate.currentConfiguration.uri.path;
-        if (!_notReadyPaths.contains(current)) {
-          _pendingRoute = null;
-          _pendingTimer?.cancel();
-          _refrescarSiFidelizacion(context, route);
-          _go(router, route);
-          return;
-        }
+      final r = GoRouter.maybeOf(context);
+      if (r != null) {
+        router = r;
+        ctx = context;
+        espera = esperaPara(r.routerDelegate.currentConfiguration.uri.path);
       }
     }
 
-    // Todavía no: reintentar (40 × 500 ms = 20 s; después se descarta, que
-    // es lo que pasa si el cliente no tiene sesión y se queda en /welcome).
-    if (_pendingTries++ >= 40) {
+    if (espera == EsperaDePush.navegar && router != null && ctx != null) {
       _pendingRoute = null;
+      _pendingTimer?.cancel();
+      _refrescarSiFidelizacion(ctx, route);
+      _go(router, route);
       return;
     }
-    _pendingTimer = Timer(const Duration(milliseconds: 500), _tryNavigate);
+
+    // Cambiar de categoría (p. ej. /welcome → login → /pin) reinicia la
+    // cuenta: los intentos gastados esperando otra cosa no cuentan.
+    if (_ultimaEspera != espera) {
+      _ultimaEspera = espera;
+      _pendingTries = 0;
+    }
+
+    final tope = espera == EsperaDePush.gate
+        ? _maxTriesEnGate
+        : _maxTriesSinSesion;
+    if (_pendingTries++ >= tope) {
+      _pendingRoute = null;
+      _pendingTimer?.cancel();
+      _pendingTimer = null;
+      return;
+    }
+    _pendingTimer = Timer(_esperaEntreIntentos, _tryNavigate);
   }
 
   static void _go(GoRouter router, String route) {

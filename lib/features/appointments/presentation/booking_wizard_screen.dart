@@ -14,6 +14,7 @@ import 'package:monaco_mobile/features/senas/presentation/widgets/sena_confirm_s
 import 'package:monaco_mobile/features/senas/providers/sena_estado_provider.dart';
 
 import '../providers/booking_provider.dart';
+import 'widgets/aviso_turno_push.dart';
 import 'widgets/barber_sheet.dart';
 import 'widgets/branch_picker_step.dart';
 import 'widgets/confirmacion_verde.dart';
@@ -257,7 +258,15 @@ class _BookingWizardScreenState extends ConsumerState<BookingWizardScreen> {
               Positioned.fill(
                 child: ConfirmacionVerde(
                   origin: _greenOrigin,
-                  onDone: ctrl.greenDone,
+                  onDone: () {
+                    ctrl.greenDone();
+                    // Recién con el turno confirmado y el festejo terminado se
+                    // ofrece el permiso de notificaciones (una sola vez en la
+                    // vida del dispositivo). Antes competía con el verde; y
+                    // pedirlo sólo desde Perfil dejaba los recordatorios de
+                    // turno sin nadie a quien avisarle.
+                    unawaited(ofrecerAvisosDeTurno(context, ref));
+                  },
                 ),
               ),
           ],
@@ -285,10 +294,23 @@ class _BookingWizardScreenState extends ConsumerState<BookingWizardScreen> {
           ],
         );
       case WizardPhase.failed:
+        // `LiquidErrorState` mira el `error` y elige ícono, título y texto:
+        // wifi + "Sin conexión" cuando es de red, genérico si no. Fijarle un
+        // `title` le pisaba esa decisión —el cliente en modo avión leía
+        // "No pudimos cargar el turnero"— y `message` le pisaba el texto.
+        // Acá se le pasa el error y se lo deja elegir; `loadError` va como
+        // `message` sólo donde el widget no tiene nada mejor que decir.
+        //
+        // Se le pasa la EXCEPCIÓN (`loadErrorCausa`), no el mensaje: el widget
+        // reconoce la red por la forma cruda del error, y `loadError` ya es el
+        // texto traducido ("Sin conexión. Revisá tu internet…"), que no matchea
+        // `isNetworkError`. Por eso el estado guarda las dos cosas, y así el
+        // wizard le llega al widget igual que el resto de las pantallas, que se
+        // lo pasan tal cual desde `AsyncValue.error`.
+        final esDeRed = LiquidErrorState.isNetworkError(state.loadErrorCausa);
         return LiquidErrorState(
-          error: state.loadError,
-          title: 'No pudimos cargar el turnero',
-          message: state.loadError,
+          error: state.loadErrorCausa,
+          message: esDeRed ? null : state.loadError,
           onRetry: ctrl.retryLoad,
         );
       case WizardPhase.pickBranch:

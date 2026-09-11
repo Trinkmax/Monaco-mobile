@@ -8,11 +8,13 @@ import 'package:go_router/go_router.dart';
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 import 'package:monaco_mobile/features/appointments/data/fechas.dart';
+import 'package:monaco_mobile/features/appointments/presentation/widgets/aviso_turno_push.dart';
 import 'package:monaco_mobile/features/appointments/presentation/widgets/confirmacion_verde.dart';
 
 import '../../data/sena_models.dart';
 import '../../providers/sena_estado_provider.dart';
 import '../checkout_launcher.dart';
+import '../widgets/arrepentimiento_link.dart';
 
 /// **Confirmando tu pago.**
 ///
@@ -152,7 +154,13 @@ class _PagoSenaScreenState extends ConsumerState<PagoSenaScreen> {
               Positioned.fill(
                 child: ConfirmacionVerde(
                   onDone: () {
-                    if (mounted) setState(() => _mostrandoVerde = false);
+                    if (!mounted) return;
+                    setState(() => _mostrandoVerde = false);
+                    // Mismo momento que en el wizard: turno confirmado y
+                    // festejo terminado. Se ofrece una sola vez por dispositivo
+                    // y la función se encarga de todos los guards (Firebase
+                    // configurado, cuenta, permiso, marca local).
+                    unawaited(ofrecerAvisosDeTurno(context, ref));
                   },
                 ),
               ),
@@ -236,6 +244,9 @@ class _PagoSenaScreenState extends ConsumerState<PagoSenaScreen> {
           onPrincipal: aFavor ? _reservarDeNuevo : _misTurnos,
           accionSecundaria: aFavor ? 'Mis turnos' : 'Volver',
           onSecundaria: aFavor ? _misTurnos : _salir,
+          // Pagó y la plata sigue del lado del local (a favor o esperando que
+          // se arme el turno): el derecho de revocación está vivo.
+          arrepentimiento: true,
         );
 
       case EstadoSena.perdida:
@@ -250,6 +261,9 @@ class _PagoSenaScreenState extends ConsumerState<PagoSenaScreen> {
           onPrincipal: _reservarDeNuevo,
           accionSecundaria: 'Mis turnos',
           onSecundaria: _misTurnos,
+          // La seña quedó del lado del local: si el pago tiene menos de 10
+          // días, el art. 1110 CCyC sigue por encima de la política.
+          arrepentimiento: true,
         );
 
       case EstadoSena.sinCupo:
@@ -726,6 +740,11 @@ class _Confirmado extends StatelessWidget {
             ),
           ),
         ).liquidEnter(index: 5),
+        // Los 10 días del art. 1110 CCyC arrancan con el pago que se acaba de
+        // acreditar: es acá, y no en la hoja de antes de pagar, donde el
+        // derecho de arrepentimiento se puede ejercer.
+        const SizedBox(height: 8),
+        const ArrepentimientoLink(alineacion: Alignment.center),
       ],
     );
   }
@@ -744,6 +763,11 @@ class _Resultado extends StatelessWidget {
   final String accionSecundaria;
   final VoidCallback onSecundaria;
 
+  /// Sólo cuando la plata SALIÓ y todavía está del lado del local: ofrecer
+  /// "arrepentirse" de un pago rechazado, de un link vencido o de una seña que
+  /// ya devolvimos no es un derecho, es confusión.
+  final bool arrepentimiento;
+
   const _Resultado({
     required this.icono,
     required this.tono,
@@ -753,6 +777,7 @@ class _Resultado extends StatelessWidget {
     required this.onPrincipal,
     required this.accionSecundaria,
     required this.onSecundaria,
+    this.arrepentimiento = false,
   });
 
   @override
@@ -819,6 +844,10 @@ class _Resultado extends StatelessWidget {
             ),
           ),
         ),
+        if (arrepentimiento) ...[
+          const SizedBox(height: 8),
+          const ArrepentimientoLink(alineacion: Alignment.center),
+        ],
       ],
     );
   }

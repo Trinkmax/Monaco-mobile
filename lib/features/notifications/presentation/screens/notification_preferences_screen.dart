@@ -1,4 +1,5 @@
-import 'package:firebase_messaging/firebase_messaging.dart';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -40,14 +41,18 @@ class _NotificationPreferencesScreenState
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      ref.invalidate(pushPermissionProvider);
+      ref.invalidate(pushPermisoProvider);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final permission = ref.watch(pushPermissionProvider);
+    final permiso = ref.watch(pushPermisoProvider);
     final prefs = ref.watch(notificationPreferencesProvider);
+    // Sin Firebase configurado no hay permiso que mostrar: el bloque entero se
+    // oculta en vez de anunciar una función "de la próxima versión" (Apple
+    // 2.1). Las preferencias por tipo y la bandeja in-app funcionan igual.
+    final hayPush = PushService.isAvailable;
 
     return LiquidAppBarScaffold(
       title: 'Preferencias',
@@ -56,7 +61,7 @@ class _NotificationPreferencesScreenState
         color: Colors.white,
         backgroundColor: MonacoColors.surface,
         onRefresh: () async {
-          ref.invalidate(pushPermissionProvider);
+          ref.invalidate(pushPermisoProvider);
           ref.invalidate(notificationPreferencesProvider);
           await Future<void>.delayed(const Duration(milliseconds: 400));
         },
@@ -66,11 +71,13 @@ class _NotificationPreferencesScreenState
           ),
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
           children: [
-            _SectionLabel('Permiso del sistema').liquidEnter(index: 0),
-            const SizedBox(height: 10),
-            _PermissionCard(status: permission).liquidEnter(index: 1),
-            const SizedBox(height: 26),
-            _SectionLabel('Qué te avisamos').liquidEnter(index: 2),
+            if (hayPush) ...[
+              const _SectionLabel('Permiso del sistema').liquidEnter(index: 0),
+              const SizedBox(height: 10),
+              _PermissionCard(permiso: permiso).liquidEnter(index: 1),
+              const SizedBox(height: 26),
+            ],
+            const _SectionLabel('Qué te avisamos').liquidEnter(index: 2),
             const SizedBox(height: 10),
             prefs
                 .when(
@@ -107,7 +114,7 @@ class _NotificationPreferencesScreenState
   }
 
   Future<void> _toggle(NotificationPreferenceField field, bool value) async {
-    HapticFeedback.selectionClick();
+    unawaited(HapticFeedback.selectionClick());
     try {
       await ref
           .read(notificationPreferencesProvider.notifier)
@@ -126,25 +133,20 @@ class _NotificationPreferencesScreenState
 // ── Permiso del sistema ────────────────────────────────────────────────────
 
 class _PermissionCard extends ConsumerWidget {
-  final AsyncValue<AuthorizationStatus?> status;
-  const _PermissionCard({required this.status});
+  final AsyncValue<PushPermiso> permiso;
+  const _PermissionCard({required this.permiso});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final s = status.valueOrNull;
-    final loading = status.isLoading;
-    final available = PushService.isAvailable;
-    final granted = PushService.isGranted(s);
+    final loading = permiso.isLoading;
+    final p = permiso.valueOrNull ?? PushPermiso.desconocido;
+    final granted = p == PushPermiso.concedido;
+    // "Bloqueado" es lo único que manda a Ajustes. `sinPedir` (y en Android,
+    // el `denied` de fábrica que ahora se traduce a `sinPedir`) ofrece el
+    // botón que dispara el prompt del sistema.
+    final bloqueado = p == PushPermiso.bloqueado;
 
     final (String title, String subtitle, Color color, IconData icon) = () {
-      if (!available) {
-        return (
-          'No disponible en esta versión',
-          'Las notificaciones push se habilitan en una próxima actualización.',
-          Colors.white,
-          Icons.notifications_off_rounded,
-        );
-      }
       if (loading) {
         return (
           'Consultando…',
@@ -155,15 +157,13 @@ class _PermissionCard extends ConsumerWidget {
       }
       if (granted) {
         return (
-          s == AuthorizationStatus.provisional
-              ? 'Activadas (silenciosas)'
-              : 'Activadas',
+          'Activadas',
           'Te llegan al teléfono aunque la app esté cerrada.',
           MonacoColors.monacoGreen,
           Icons.notifications_active_rounded,
         );
       }
-      if (s == AuthorizationStatus.denied) {
+      if (bloqueado) {
         return (
           'Desactivadas',
           'El permiso está bloqueado en el sistema. Se activa desde Ajustes.',
@@ -248,11 +248,11 @@ class _PermissionCard extends ConsumerWidget {
               ],
             ],
           ),
-          if (available && !loading) ...[
+          if (!loading && !granted) ...[
             const SizedBox(height: 14),
             Row(
               children: [
-                if (!granted && s != AuthorizationStatus.denied)
+                if (!bloqueado)
                   Expanded(
                     child: LiquidButton(
                       onPressed: () => requestPushWithPrePrompt(context, ref),
@@ -270,7 +270,7 @@ class _PermissionCard extends ConsumerWidget {
                 else
                   Expanded(
                     child: LiquidPill(
-                      onTap: () => openPushSettingsOrExplain(context),
+                      onTap: () => abrirAjustesDePush(context),
                       borderRadius: 16,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       child: const Center(

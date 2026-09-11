@@ -9,6 +9,7 @@ import '../../features/onboarding/presentation/screens/splash_screen.dart';
 import '../../features/onboarding/presentation/screens/welcome_screen.dart';
 import '../../features/onboarding/presentation/screens/login_phone_screen.dart';
 import '../../features/onboarding/presentation/screens/login_code_screen.dart';
+import '../../features/onboarding/presentation/screens/ruta_no_encontrada_screen.dart';
 import '../../features/onboarding/presentation/screens/biometric_gate_screen.dart';
 import '../../features/home/presentation/screens/home_screen.dart';
 import '../../features/occupancy/presentation/screens/occupancy_screen.dart';
@@ -96,6 +97,14 @@ final routerProvider = Provider<GoRouter>((ref) {
     navigatorKey: rootNavigatorKey,
     initialLocation: '/splash',
     refreshListenable: refresh,
+    // Sin esto, una ubicación desconocida cae en el `MaterialErrorScreen` de
+    // go_router: AppBar "Page Not Found" en inglés y el texto de la excepción
+    // seleccionable, sobre fondo blanco, en una app oscura y en español. La
+    // excepción se loguea; al cliente se le muestra una salida.
+    errorBuilder: (context, state) {
+      debugPrint('[router] sin ruta para "${state.uri}": ${state.error}');
+      return RutaNoEncontradaScreen(ubicacion: state.uri.toString());
+    },
     redirect: (context, state) {
       final auth = ref.read(authProvider);
       final path = state.matchedLocation;
@@ -141,8 +150,9 @@ final routerProvider = Provider<GoRouter>((ref) {
           if (isGate) return null;
           return '/biometric';
         case AuthStatus.authenticated:
-          if (isWelcome || isLogin || isGate || path == '/splash')
+          if (isWelcome || isLogin || isGate || path == '/splash') {
             return '/home';
+          }
           return null;
         case AuthStatus.initial:
           return '/splash';

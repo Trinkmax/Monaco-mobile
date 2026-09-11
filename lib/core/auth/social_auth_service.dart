@@ -53,12 +53,22 @@ class SocialCredential {
 
   final String? email;
 
+  /// **Sólo Apple.** El `authorizationCode` de la hoja de Sign in with Apple:
+  /// vale 5 minutos y el server lo canjea en el acto por el `refresh_token`
+  /// con el que después puede **revocar** la autorización al borrar la cuenta
+  /// (`POST https://appleid.apple.com/auth/revoke`), que Apple exige desde
+  /// jun/2022 para la 5.1.1(v). Llega en CADA autorización —a diferencia del
+  /// nombre, que Apple da una sola vez—, así que no hay que "guardarlo por si
+  /// acaso": se manda y listo.
+  final String? authorizationCode;
+
   const SocialCredential({
     required this.provider,
     required this.idToken,
     this.nonce,
     this.name,
     this.email,
+    this.authorizationCode,
   });
 }
 
@@ -87,24 +97,41 @@ class SocialAuthService {
   /// `initialize()` de `google_sign_in` 7.x es **una sola vez por proceso**.
   static Future<void>? _googleInit;
 
+  /// Nonce crudo de Google. `google_sign_in` 7.x lo fija en `initialize()`, o
+  /// sea una vez por proceso: se genera acá y se reutiliza. A Google le llega
+  /// el sha256 en hex (que es lo que aparece en el claim `nonce` del token) y
+  /// a nuestro server el crudo, igual que con Apple. Sin esto, un `id_token`
+  /// de Google capturado en tránsito o en un log se podía reproducir contra
+  /// `client-auth` durante su hora de vida.
+  static final String _googleNonceCrudo = generateNonce();
+
   /// Google sólo se ofrece si los client IDs están cargados
-  /// (`--dart-define=GOOGLE_IOS_CLIENT_ID/GOOGLE_SERVER_CLIENT_ID`). Sin ellos
+  /// (`--dart-define=GOOGLE_IOS_CLIENT_ID/GOOGLE_SERVER_CLIENT_ID`) y el
+  /// interruptor `AppConstants.socialLoginEnabled` no lo apagó. Sin client IDs
   /// el SDK levanta un `clientConfigurationError` que el cliente no puede
   /// resolver: mejor no mostrar el botón que mostrar uno que siempre falla.
   static bool get googleConfigurado {
+    if (!AppConstants.socialLoginEnabled) return false;
     if (Platform.isIOS) return AppConstants.googleIosClientId.isNotEmpty;
     if (Platform.isAndroid) return AppConstants.googleServerClientId.isNotEmpty;
     return false;
   }
 
-  /// **Apple sólo en iOS.**
+  /// **Apple sólo en iOS**, y sólo con `AppConstants.socialLoginEnabled`.
   ///
   /// `SignInWithApple.isAvailable()` devuelve `true` en Android (el paquete
   /// soporta el flujo web ahí), así que NO sirve como gate: en Android abriría
   /// un Custom Tab contra un servidor propio que no tenemos, y deja de ser
   /// nativo. La guideline 4.8 —"si ofrecés login social de terceros, ofrecé
   /// también Sign in with Apple"— es de la App Store: en Play no aplica.
-  static bool get appleDisponible => Platform.isIOS;
+  ///
+  /// No hay un gate "¿el backend acepta Apple?" a propósito: la app no puede
+  /// saber si `client-auth` tiene `APPLE_BUNDLE_IDS` cargado, y probarlo en
+  /// cada arranque sería una llamada de red para dibujar un botón. Si el
+  /// backend no está listo, la build se saca con
+  /// `--dart-define=SOCIAL_LOGIN_ENABLED=false`.
+  static bool get appleDisponible =>
+      Platform.isIOS && AppConstants.socialLoginEnabled;
 
   // ── Google ───────────────────────────────────────────────────────────────
 
@@ -122,6 +149,7 @@ class SocialAuthService {
         serverClientId: AppConstants.googleServerClientId.isEmpty
             ? null
             : AppConstants.googleServerClientId,
+        nonce: sha256.convert(utf8.encode(_googleNonceCrudo)).toString(),
       ));
     } catch (e) {
       // Un `initialize` fallido no puede quedar memoizado: el próximo intento
@@ -181,6 +209,7 @@ class SocialAuthService {
     return SocialCredential(
       provider: SocialProvider.google,
       idToken: idToken,
+      nonce: _googleNonceCrudo,
       // Google manda el nombre DENTRO del token, así que `name` es redundante;
       // se manda igual porque si viene, el server lo prefiere, y así el alta no
       // depende de que el token traiga el claim.
@@ -201,12 +230,33 @@ class SocialAuthService {
           'El ingreso con Google no está bien configurado en esta versión de '
           'la app. Entrá con tu número mientras tanto.',
         );
+      case GoogleSignInExceptionCode.unknownError:
+        // Android sin ninguna cuenta de Google en el equipo (el emulador del
+        // reviewer de Play, un teléfono recién configurado): Credential
+        // Manager contesta `noCredential` y `google_sign_in_android` lo
+        // envuelve como `unknownError` con "No credential available: …".
+        // "Probá de nuevo" no arregla eso; hay que decirle qué le falta.
+        if (esSinCuentaDeGoogle(e.description)) {
+          return const SocialAuthUnavailable(
+            'Este teléfono no tiene ninguna cuenta de Google. Agregala en '
+            'Ajustes o entrá con tu número.',
+          );
+        }
+        return const SocialAuthUnavailable(
+          'No pudimos completar el ingreso con Google. Probá de nuevo.',
+        );
       default:
         return const SocialAuthUnavailable(
           'No pudimos completar el ingreso con Google. Probá de nuevo.',
         );
     }
   }
+
+  /// "No credential available" es la firma del equipo sin cuenta de Google
+  /// (`google_sign_in_android` 7.2, `GetCredentialFailureType.noCredential`).
+  @visibleForTesting
+  static bool esSinCuentaDeGoogle(String? descripcion) =>
+      (descripcion ?? '').toLowerCase().contains('no credential');
 
   /// Revoca la autorización local de Google. Se llama al **borrar la cuenta**:
   /// sin esto, el equipo sigue teniendo a Monaco entre las apps autorizadas de
@@ -260,12 +310,7 @@ class SocialAuthService {
       );
     } on SignInWithAppleAuthorizationException catch (e) {
       debugPrint('[social] Apple ${e.code}: ${e.message}');
-      if (e.code == AuthorizationErrorCode.canceled) {
-        throw const SocialAuthCancelled();
-      }
-      throw const SocialAuthUnavailable(
-        'No pudimos completar el ingreso con Apple. Probá de nuevo.',
-      );
+      throw traducirApple(e.code);
     } on SignInWithAppleNotSupportedException catch (e) {
       debugPrint('[social] Apple no soportado: ${e.message}');
       throw const SocialAuthUnavailable(
@@ -301,6 +346,38 @@ class SocialAuthService {
       nonce: nonceCrudo,
       name: nombre.isEmpty ? null : nombre,
       email: cred.email,
+      authorizationCode:
+          cred.authorizationCode.isEmpty ? null : cred.authorizationCode,
     );
+  }
+
+  /// Qué decirle al cliente según el código de la hoja de Apple.
+  ///
+  /// `unknown` (AuthorizationError 1000) es el iPhone **sin Apple ID activo**
+  /// (sin sesión de iCloud) —o una build firmada sin la capability, que no
+  /// tiene que llegar nunca a la tienda—. "Probá de nuevo" no resuelve ninguna
+  /// de las dos; lo que sí resuelve es entrar con el número.
+  @visibleForTesting
+  static Object traducirApple(AuthorizationErrorCode code) {
+    switch (code) {
+      case AuthorizationErrorCode.canceled:
+        return const SocialAuthCancelled();
+      case AuthorizationErrorCode.unknown:
+        return const SocialAuthUnavailable(
+          'Tu iPhone no tiene una cuenta de Apple activa. Entrá con tu '
+          'número de teléfono.',
+        );
+      case AuthorizationErrorCode.notInteractive:
+      case AuthorizationErrorCode.notHandled:
+      case AuthorizationErrorCode.failed:
+      case AuthorizationErrorCode.invalidResponse:
+      case AuthorizationErrorCode.credentialExport:
+      case AuthorizationErrorCode.credentialImport:
+      case AuthorizationErrorCode.matchedExcludedCredential:
+        return const SocialAuthUnavailable(
+          'No pudimos completar el ingreso con Apple. Probá de nuevo o '
+          'entrá con tu número.',
+        );
+    }
   }
 }

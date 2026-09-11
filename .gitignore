@@ -32,7 +32,9 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
-pubspec.lock
+# pubspec.lock SÍ se commitea: esto es una app publicada, no un paquete.
+# Sin el lock, dos máquinas resuelven versiones distintas y el binario que sale
+# de la Mac del dueño no es el mismo que se probó.
 
 # Symbolication related
 app.*.symbols
@@ -69,6 +71,9 @@ app.*.map.json
 # Environment variables
 .env
 .env.*
+# ...pero el ejemplo (sin valores) sí va al repo: es la lista de qué
+# --dart-define necesita `scripts/build-release.sh`.
+!.env.release.example
 
 # Generated files
 *.g.dart

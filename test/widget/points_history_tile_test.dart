@@ -1,9 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/features/points/presentation/widgets/points_history_tile.dart';
 
 void main() {
+  // `Formatters.relativeTime` cae en `DateFormat(..., 'es')` para cualquier
+  // movimiento de más de una semana, y ese constructor TIRA si el locale no
+  // está inicializado. Los tests con `created_at` viejo fallaban por eso, no
+  // por el widget.
+  setUpAll(() async {
+    await initializeDateFormatting('es');
+    await initializeDateFormatting('es_AR');
+  });
+
   Widget buildSubject(Map<String, dynamic> transaction) {
     return MaterialApp(
       home: Scaffold(

@@ -10,6 +10,15 @@ import 'package:monaco_mobile/features/loyalty/presentation/widgets/card_tilt.da
 
 final _pts = NumberFormat.decimalPattern('es_AR');
 
+/// Lo que se dibuja donde va el saldo cuando no se pudo leer. Es una raya de
+/// EM (—), no un guión de teclado: en el cuerpo de 44 pt de la tarjeta un `-`
+/// se lee como un signo menos.
+const String _sinSaldo = '—';
+
+/// El texto del contador para un saldo que puede no existir.
+String _textoSaldo(int? saldo, int animado) =>
+    saldo == null ? _sinSaldo : _pts.format(animado);
+
 /// **La tarjeta Monaco** — la tarjeta de crédito del cliente.
 ///
 /// Proporción 1.586:1 (tarjeta física), radio 22, ancho completo. Con
@@ -31,7 +40,14 @@ final _pts = NumberFormat.decimalPattern('es_AR');
 /// que dice la tarjeta viaja entero en el `Semantics`.
 class MonacoCard extends StatefulWidget {
   final LoyaltySummary summary;
-  final int saldo;
+
+  /// Saldo de puntos, o **`null` cuando no se pudo leer**.
+  ///
+  /// No es lo mismo que cero y la tarjeta no puede confundirlos: con la red
+  /// caída o la RPC en error, un `0` le dice al cliente que se quedó sin
+  /// puntos —que es exactamente la peor lectura posible de una billetera—.
+  /// Con `null` se dibuja un guión, que se lee como "todavía no sabemos".
+  final int? saldo;
   final VoidCallback? onTap;
 
   /// Versión chica para el carrusel de `/categoria`: sin pill de progreso,
@@ -70,7 +86,8 @@ class MonacoCard extends StatefulWidget {
   State<MonacoCard> createState() => _MonacoCardState();
 }
 
-class _MonacoCardState extends State<MonacoCard> with TickerProviderStateMixin {
+class _MonacoCardState extends State<MonacoCard>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _flip = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 620),
@@ -100,12 +117,16 @@ class _MonacoCardState extends State<MonacoCard> with TickerProviderStateMixin {
 
   bool get _esPlatinum => _tier?.code == 'platinum';
 
+  /// El contador anima enteros: sin saldo se lo deja en 0 y las caras dibujan
+  /// el guión (no leen `_numero`).
+  int get _saldoOCero => widget.saldo ?? 0;
+
   @override
   void initState() {
     super.initState();
     _numero = IntTween(
-      begin: widget.animarContador ? 0 : widget.saldo,
-      end: widget.saldo,
+      begin: widget.animarContador ? 0 : _saldoOCero,
+      end: _saldoOCero,
     ).animate(CurvedAnimation(parent: _contador, curve: Curves.easeOutCubic));
     if (widget.animarContador) {
       _contador.forward();
@@ -114,7 +135,33 @@ class _MonacoCardState extends State<MonacoCard> with TickerProviderStateMixin {
     }
     _sheen.repeat();
     if (_esPlatinum) _holo.repeat();
+    WidgetsBinding.instance.addObserver(this);
     _escucharSensor();
+  }
+
+  /// El acelerómetro se PAUSA con la app en segundo plano.
+  ///
+  /// `sensors_plus` no mira el ciclo de vida: la suscripción queda registrada
+  /// en el sensor nativo mientras el widget viva. En iOS el sistema suspende el
+  /// proceso a los pocos segundos y da igual, pero en Android el proceso queda
+  /// en cache y el sensor sigue muestreando a ~16 Hz hasta que el freezer lo
+  /// pare (Android 14+): en la franja 7–13, que es justo la gama baja del
+  /// público, eso se ve en las métricas de batería de Play Vitals. Bloquear el
+  /// teléfono con el Home abierto es el gesto más común que hay.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    final sub = _sensorSub;
+    if (sub == null) return;
+    switch (state) {
+      case AppLifecycleState.resumed:
+        if (sub.isPaused) sub.resume();
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        if (!sub.isPaused) sub.pause();
+    }
   }
 
   void _escucharSensor() {
@@ -140,8 +187,8 @@ class _MonacoCardState extends State<MonacoCard> with TickerProviderStateMixin {
     super.didUpdateWidget(old);
     if (old.saldo != widget.saldo) {
       _numero = IntTween(
-        begin: widget.animarContador ? old.saldo : widget.saldo,
-        end: widget.saldo,
+        begin: widget.animarContador ? (old.saldo ?? 0) : _saldoOCero,
+        end: _saldoOCero,
       ).animate(CurvedAnimation(parent: _contador, curve: Curves.easeOutCubic));
       _contador
         ..reset()
@@ -155,6 +202,7 @@ class _MonacoCardState extends State<MonacoCard> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _sensorSub?.cancel();
     _flip.dispose();
     _sheen.dispose();
@@ -182,7 +230,12 @@ class _MonacoCardState extends State<MonacoCard> with TickerProviderStateMixin {
     final s = widget.summary;
     final b = StringBuffer('Tarjeta Monaco. ');
     if (tier != null) b.write('Cliente ${tier.name}. ');
-    b.write('${_pts.format(widget.saldo)} puntos. ');
+    final saldo = widget.saldo;
+    b.write(
+      saldo == null
+          ? 'Puntos no disponibles por ahora. '
+          : '${_pts.format(saldo)} puntos. ',
+    );
     if (s.clientName.isNotEmpty) b.write('${s.clientName}. ');
     if (s.memberSinceYear != null) {
       b.write('Miembro desde ${s.memberSinceYear}. ');
@@ -218,6 +271,7 @@ class _MonacoCardState extends State<MonacoCard> with TickerProviderStateMixin {
           Widget cuerpo = tier == null
               ? _CaraApagada(
                   summary: widget.summary,
+                  saldo: widget.saldo,
                   numero: _numero,
                   k: k,
                   compact: widget.compact,
@@ -498,7 +552,7 @@ class _Lamina extends StatelessWidget {
 class _CaraFrente extends StatelessWidget {
   final LoyaltySummary summary;
   final LoyaltyTier tier;
-  final int saldo;
+  final int? saldo;
   final Animation<int> numero;
   final Offset tilt;
   final Animation<double> sheen;
@@ -574,7 +628,7 @@ class _CaraFrente extends StatelessWidget {
               child: AnimatedBuilder(
                 animation: numero,
                 builder: (context, _) => Text(
-                  _pts.format(numero.value),
+                  _textoSaldo(saldo, numero.value),
                   style: TextStyle(
                     color: color,
                     fontSize: (compact ? 36 : 44) * k,
@@ -1138,12 +1192,14 @@ class _AnilloPainter extends CustomPainter {
 
 class _CaraApagada extends StatelessWidget {
   final LoyaltySummary summary;
+  final int? saldo;
   final Animation<int> numero;
   final double k;
   final bool compact;
 
   const _CaraApagada({
     required this.summary,
+    required this.saldo,
     required this.numero,
     required this.k,
     required this.compact,
@@ -1187,7 +1243,7 @@ class _CaraApagada extends StatelessWidget {
             child: AnimatedBuilder(
               animation: numero,
               builder: (context, _) => Text(
-                _pts.format(numero.value),
+                _textoSaldo(saldo, numero.value),
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: (compact ? 36 : 44) * k,

@@ -46,13 +46,13 @@ class LiquidAvatar extends StatelessWidget {
         fit: BoxFit.cover,
         width: size,
         height: size,
-        placeholder: (_, __) => _Fallback(
+        placeholder: (_, _) => _Fallback(
           initials: initials,
           icon: fallbackIcon,
           size: size,
           accent: accent,
         ),
-        errorWidget: (_, __, ___) => _Fallback(
+        errorWidget: (_, _, _) => _Fallback(
           initials: initials,
           icon: fallbackIcon,
           size: size,

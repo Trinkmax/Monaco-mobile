@@ -25,6 +25,22 @@ class AppointmentsRepository {
   ///   que PostgREST rechace la query ENTERA con PGRST201 (Known Risk #17).
   /// - `service:service_id(...)` trae el servicio principal: para un turno de
   ///   un solo servicio `appointment_services` viene vacío.
+  /// - `deposit:booking_deposits!...` es la SEÑA del turno. Va con el nombre
+  ///   del constraint aunque hoy haya una sola FK entre las dos tablas: es la
+  ///   forma que no se rompe el día que alguien agregue la segunda (Known Risk
+  ///   #15 — una FK nueva convierte todo embed por tabla en `PGRST201` y tira
+  ///   la query ENTERA, no sólo ese campo). Verificado contra prod el
+  ///   10/sep/2026: `booking_deposits_appointment_id_fkey` existe y la policy
+  ///   `booking_deposits_select_own_client` deja al cliente leer las propias
+  ///   (si no la dejara, el embed vendría vacío, no daría error).
+  ///
+  /// **Estas lecturas exigen sesión.** `anon` tiene SELECT sobre `appointments`
+  /// pero NO sobre `booking_deposits`, así que con la anon key esta query
+  /// entera muere con `42501 permission denied for table booking_deposits`
+  /// (verificado contra prod). Hoy no pasa —un invitado no tiene `clientId` y
+  /// el router no lo deja entrar a `/turnos/:id`—, pero si alguna vez hace
+  /// falta leer un turno sin sesión, hay que armar OTRO select sin la seña, no
+  /// reusar éste.
   static const selectFields = '''
     id,
     organization_id,
@@ -51,6 +67,15 @@ class AppointmentsRepository {
       duration_snapshot,
       price_snapshot,
       services(id, name, price, duration_minutes)
+    ),
+    deposit:booking_deposits!booking_deposits_appointment_id_fkey(
+      id,
+      status,
+      amount,
+      refunded_amount,
+      paid_at,
+      refunded_at,
+      created_at
     )
   ''';
 

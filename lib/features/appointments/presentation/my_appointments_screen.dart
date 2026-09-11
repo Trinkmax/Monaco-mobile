@@ -45,6 +45,7 @@ class _MyAppointmentsScreenState extends ConsumerState<MyAppointmentsScreen> {
       summary:
           '${a.fechaLarga} · ${a.horaLabel}${a.branchName != null ? ' · ${a.branchName}' : ''}',
       cancellationMinHours: minHours,
+      sena: a.deposit,
     );
     if (!ok || !mounted) return;
     final err = await ref.read(appointmentActionsProvider).cancel(a.id);

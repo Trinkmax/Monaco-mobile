@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -15,15 +14,21 @@ import 'package:monaco_mobile/core/api/mobile_api.dart';
 import 'package:monaco_mobile/core/auth/auth_provider.dart';
 import 'package:monaco_mobile/core/auth/biometric_service.dart';
 import 'package:monaco_mobile/core/auth/secure_storage.dart';
+import 'package:monaco_mobile/core/branch/test_mode_provider.dart';
 import 'package:monaco_mobile/core/push/push_service.dart';
 import 'package:monaco_mobile/core/utils/constants.dart';
+import 'package:monaco_mobile/features/appointments/presentation/widgets/turno_links.dart';
+import 'package:monaco_mobile/features/appointments/providers/booking_provider.dart';
 import 'package:monaco_mobile/features/loyalty/data/loyalty_models.dart';
 import 'package:monaco_mobile/features/loyalty/providers/loyalty_provider.dart';
 import 'package:monaco_mobile/features/notifications/presentation/widgets/push_pre_prompt.dart';
+import 'package:monaco_mobile/features/occupancy/providers/occupancy_provider.dart';
 import 'package:monaco_mobile/features/notifications/providers/notifications_provider.dart';
+import 'package:monaco_mobile/features/onboarding/presentation/widgets/copy_sesion.dart';
 import 'package:monaco_mobile/features/onboarding/presentation/widgets/muro_login.dart';
 import 'package:monaco_mobile/features/onboarding/presentation/widgets/onboarding_scaffold.dart';
 import 'package:monaco_mobile/features/onboarding/utils/phone_format.dart';
+import 'package:monaco_mobile/features/senas/presentation/widgets/arrepentimiento_link.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Providers
@@ -83,11 +88,9 @@ class TestModeNotifier extends StateNotifier<bool> {
     state = await SecureStorageService.isTestModeEnabled();
   }
 
-  Future<bool> toggle() async {
-    final next = !state;
-    await SecureStorageService.setTestModeEnabled(next);
-    state = next;
-    return next;
+  Future<void> set(bool value) async {
+    await SecureStorageService.setTestModeEnabled(value);
+    state = value;
   }
 }
 
@@ -103,6 +106,23 @@ final meProvider = FutureProvider.autoDispose<Map<String, dynamic>>((
       ? Map<String, dynamic>.from(client)
       : <String, dynamic>{};
 });
+
+/// Código con el que la edge function `delete-client-account` rechaza la baja
+/// (HTTP 409) cuando el cliente tiene una **seña pagada sin resolver**
+/// (migración 215): hay plata suya en el sistema y borrar la ficha dejaría el
+/// pago sin dueño y sin forma de devolverlo.
+const String codigoSenaPendiente = 'DEPOSIT_PENDING';
+
+/// ¿El error de `deleteAccount()` es ese rechazo?
+///
+/// El borrado **no** pasa por `MobileApi`, así que acá no hay
+/// `MobileApiException` con su `code`: va por `functions.invoke` y
+/// `AuthService.deleteAccount()` colapsa la respuesta a un `String?`
+/// devolviendo el campo `error` del body — o sea el CÓDIGO, no el `message`.
+/// Por eso se reconoce el código (estable, parte del contrato con la edge
+/// function) y no el texto, que lo escribe el server y puede cambiar.
+bool esRechazoPorSenaPendiente(String? error) =>
+    error != null && error.toUpperCase().contains(codigoSenaPendiente);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Screen
@@ -138,7 +158,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      ref.invalidate(pushPermissionProvider);
+      ref.invalidate(pushPermisoProvider);
     }
   }
 
@@ -147,7 +167,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     final auth = ref.watch(authProvider);
     if (auth.isGuest) return _perfilInvitado();
 
-    final pushStatus = ref.watch(pushPermissionProvider);
+    final pushPermiso = ref.watch(pushPermisoProvider);
     final unread = ref.watch(unreadNotificationsCountProvider);
     final biometricEnabled = ref.watch(biometricEnabledProvider);
     final biometricKind = ref.watch(biometricKindProvider).valueOrNull;
@@ -166,8 +186,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       }
     });
 
+    // Sin Firebase configurado no se dibuja el interruptor: un switch que no
+    // se puede prender y dice "en una próxima versión" es contenido de
+    // relleno (Apple 2.1). La bandeja y las preferencias por tipo quedan.
     final pushAvailable = PushService.isAvailable;
-    final pushGranted = PushService.isGranted(pushStatus.valueOrNull);
+    final permiso = pushPermiso.valueOrNull ?? PushPermiso.desconocido;
+    final pushGranted = permiso == PushPermiso.concedido;
 
     return LiquidAppBarScaffold(
       title: 'Perfil',
@@ -185,7 +209,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         backgroundColor: MonacoColors.surface,
         onRefresh: () async {
           ref.invalidate(meProvider);
-          ref.invalidate(pushPermissionProvider);
+          ref.invalidate(pushPermisoProvider);
           ref.invalidate(pinConfiguredProvider);
           ref.invalidate(biometricKindProvider);
           invalidarLoyalty(ref);
@@ -226,22 +250,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   subtitle: 'Elegí qué querés recibir',
                   onTap: () => context.push('/notificaciones/preferencias'),
                 ),
-                LiquidSwitchTile(
-                  icon: pushGranted
-                      ? Icons.notifications_active_rounded
-                      : Icons.notifications_none_rounded,
-                  iconColor: pushGranted ? MonacoColors.monacoGreen : null,
-                  title: 'Notificaciones del sistema',
-                  subtitle: !pushAvailable
-                      ? 'No disponibles en esta versión de la app'
-                      : pushGranted
-                      ? 'Activadas. Se desactivan desde Ajustes.'
-                      : pushStatus.valueOrNull == AuthorizationStatus.denied
-                      ? 'Bloqueadas en el sistema. Se activan desde Ajustes.'
-                      : 'Te avisamos de turnos, premios y novedades',
-                  value: pushGranted,
-                  onChanged: (v) => _onPushToggle(v, pushStatus.valueOrNull),
-                ),
+                if (pushAvailable)
+                  LiquidSwitchTile(
+                    icon: pushGranted
+                        ? Icons.notifications_active_rounded
+                        : Icons.notifications_none_rounded,
+                    iconColor: pushGranted ? MonacoColors.monacoGreen : null,
+                    title: 'Notificaciones del sistema',
+                    subtitle: pushGranted
+                        ? 'Activadas. Se desactivan desde Ajustes.'
+                        : permiso == PushPermiso.bloqueado
+                        ? 'Bloqueadas en el sistema. Se activan desde Ajustes.'
+                        : 'Te avisamos de turnos, premios y novedades',
+                    value: pushGranted,
+                    onChanged: (v) => _onPushToggle(v, permiso),
+                  ),
               ],
             ).liquidEnter(index: 3),
 
@@ -358,6 +381,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   icon: Icons.description_outlined,
                   title: 'Términos y condiciones',
                   onTap: () => _openUrl(AppConstants.termsOfServiceUrl),
+                ),
+                LiquidListTile(
+                  icon: Icons.undo_rounded,
+                  title: 'Botón de arrepentimiento',
+                  subtitle: 'Arrepentite de una compra dentro de los 10 días',
+                  onTap: () => abrirArrepentimiento(context),
+                ),
+                LiquidListTile(
+                  icon: Icons.help_outline_rounded,
+                  title: 'Soporte',
+                  subtitle: 'Preguntas frecuentes y cómo escribirnos',
+                  onTap: () => _openUrl(AppConstants.supportUrl),
                 ),
                 LiquidListTile(
                   icon: Icons.chat_rounded,
@@ -509,22 +544,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     }
   }
 
-  Future<void> _onPushToggle(
-    bool wantEnabled,
-    AuthorizationStatus? status,
-  ) async {
-    if (!PushService.isAvailable) {
-      showLiquidToast(
-        context,
-        'Las notificaciones push llegan en una próxima versión de la app.',
-        tone: LiquidToastTone.info,
-      );
-      return;
-    }
+  Future<void> _onPushToggle(bool wantEnabled, PushPermiso permiso) async {
     if (wantEnabled) {
-      if (status == AuthorizationStatus.denied) {
-        // El prompt nativo no vuelve a aparecer: hay que ir a Ajustes.
-        await openPushSettingsOrExplain(context);
+      if (permiso == PushPermiso.bloqueado) {
+        // Ya se pidió y el sistema dijo que no: el prompt nativo no vuelve a
+        // aparecer, hay que ir a Ajustes. OJO: esto NO se deduce de un
+        // `denied` a secas — en Android ése es el estado de fábrica y por eso
+        // el prompt no se disparaba nunca (ver `PushPermiso`).
+        await abrirAjustesDePush(context);
         return;
       }
       await requestPushWithPrePrompt(context, ref);
@@ -536,7 +563,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       'Para desactivarlas, hacelo desde los ajustes del sistema.',
       tone: LiquidToastTone.info,
       actionLabel: 'Ajustes',
-      onAction: () => openPushSettingsOrExplain(context),
+      onAction: () => abrirAjustesDePush(context),
     );
   }
 
@@ -602,6 +629,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   /// Perfil de un **invitado**: sin datos personales (no hay ninguno), con lo
   /// legal y el soporte —que son públicos y App Store los quiere accesibles— y
   /// con la puerta para crear la cuenta.
+  ///
+  /// La sección legal es la MISMA que la del perfil con cuenta, soporte y
+  /// botón de arrepentimiento incluidos: el que todavía no tiene cuenta es
+  /// justamente el que más necesita encontrar cómo pedir ayuda, y la Disp.
+  /// 954/2025 pide el botón "desde el primer acceso", no detrás de un login.
   ///
   /// No dibuja el interruptor de notificaciones del sistema a propósito: pedir
   /// el permiso de push a alguien que todavía no tiene cuenta es pedirlo sin
@@ -696,6 +728,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                 onTap: () => _openUrl(AppConstants.termsOfServiceUrl),
               ),
               LiquidListTile(
+                icon: Icons.undo_rounded,
+                title: 'Botón de arrepentimiento',
+                subtitle: 'Arrepentite de una compra dentro de los 10 días',
+                onTap: () => abrirArrepentimiento(context),
+              ),
+              LiquidListTile(
+                icon: Icons.help_outline_rounded,
+                title: 'Soporte',
+                subtitle: 'Preguntas frecuentes y cómo escribirnos',
+                onTap: () => _openUrl(AppConstants.supportUrl),
+              ),
+              LiquidListTile(
                 icon: Icons.chat_rounded,
                 iconColor: MonacoColors.monacoGreen,
                 title: 'Soporte por WhatsApp',
@@ -766,8 +810,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     final ok = await showLiquidDialog<bool>(
       context,
       title: 'Cerrar sesión',
-      message:
-          'Vas a tener que volver a ingresar con tu número de teléfono la próxima vez.',
+      message: kCerrarSesionDetalle,
       icon: Icons.logout_rounded,
       actions: const [
         LiquidDialogAction(label: 'Cancelar', value: false),
@@ -835,8 +878,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     try {
       await PushService.unregister();
       error = await ref.read(authProvider.notifier).deleteAccount();
-    } catch (e) {
-      error = e.toString();
+    } catch (e, st) {
+      // `deleteAccount()` ya devuelve mensajes en español; lo que caiga acá es
+      // algo inesperado y su `toString()` es una excepción de Dart en inglés.
+      // El reviewer prueba este camino a propósito (5.1.1(v)): que el paso más
+      // sensible de la app termine en "ClientException with SocketException:
+      // Failed host lookup" es exactamente lo que no puede pasar.
+      debugPrint('[perfil] eliminar cuenta falló: $e\n$st');
+      error = 'No pudimos eliminar la cuenta. Probá de nuevo o escribinos.';
     }
 
     if (!mounted) return;
@@ -850,14 +899,32 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         tone: LiquidToastTone.success,
       );
       context.go('/welcome');
-    } else {
-      showLiquidToast(
-        context,
-        'No pudimos eliminar la cuenta: $error',
-        tone: LiquidToastTone.error,
-        duration: const Duration(seconds: 5),
-      );
+      return;
     }
+
+    // Seña pagada sin resolver: NO es "algo salió mal", es un paso que falta y
+    // que el cliente puede dar solo. Un toast de cinco segundos con el código
+    // crudo del server lo dejaría con la cuenta sin borrar, sin saber por qué
+    // y sin saber qué hacer — y con plata suya en el medio.
+    if (esRechazoPorSenaPendiente(error)) {
+      final irATurnos = await showDialog<bool>(
+        context: context,
+        useRootNavigator: true,
+        barrierColor: Colors.black.withValues(alpha: 0.72),
+        builder: (_) => const _SenaPendienteDialog(),
+      );
+      // La navegación la hace la pantalla y no el diálogo: el `context` del
+      // diálogo queda muerto apenas se cierra.
+      if (irATurnos == true && mounted) context.go('/turnos');
+      return;
+    }
+
+    showLiquidToast(
+      context,
+      error,
+      tone: LiquidToastTone.error,
+      duration: const Duration(seconds: 5),
+    );
   }
 
   void _onVersionTap() {
@@ -866,21 +933,137 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     if (_versionTaps >= 7) {
       _versionTaps = 0;
       HapticFeedback.heavyImpact();
-      ref.read(testModeEnabledProvider.notifier).toggle().then((enabled) {
-        if (!mounted) return;
-        showLiquidToast(
-          context,
-          enabled ? 'Modo prueba activado.' : 'Modo prueba desactivado.',
-          tone: enabled ? LiquidToastTone.success : LiquidToastTone.neutral,
-          icon: Icons.science_rounded,
-        );
-      });
+      unawaited(_alternarModoPrueba());
       return;
     }
     if (_versionTaps >= 4) HapticFeedback.selectionClick();
     _versionTapTimer = Timer(const Duration(seconds: 2), () {
       _versionTaps = 0;
     });
+  }
+
+  /// Modo prueba: **7 toques y además un código**.
+  ///
+  /// La sucursal `test` es una sucursal REAL de producción y toma turnos: con
+  /// sólo el gesto, cualquiera que lo descubriera —un reviewer de la tienda
+  /// probando la pantalla, un cliente curioso— podía destaparla y reservar
+  /// ahí. El código no es un secreto criptográfico, es el candado que
+  /// convierte "lo encontré sin querer" en "sabía lo que estaba haciendo".
+  ///
+  /// Tres reglas:
+  /// - **Apagarlo nunca pide nada.** Salir de un modo de prueba no puede
+  ///   quedar trabado por un código que el cliente no tiene.
+  /// - **En modo invitado no se puede prender.** Es el estado con el que un
+  ///   reviewer abre la app por primera vez y no hay ninguna razón para que
+  ///   una cuenta que no existe destape una sucursal interna.
+  /// - Con `TEST_MODE_CODE` vacío el gesto **no existe** (build de tienda).
+  Future<void> _alternarModoPrueba() async {
+    if (ref.read(testModeEnabledProvider)) {
+      await _aplicarModoPrueba(false);
+      return;
+    }
+    if (ref.read(authProvider).isGuest) return;
+    if (AppConstants.testModeCode.isEmpty) return;
+
+    final ok = await showLiquidSheet<bool>(
+      context,
+      title: 'Modo prueba',
+      subtitle:
+          'Muestra la sucursal de pruebas en la app. Es para el equipo de '
+          'Monaco: si llegaste acá sin querer, cerrá esta hoja.',
+      builder: (_) => const _CodigoPruebaSheet(),
+    );
+    if (ok != true || !mounted) return;
+    await _aplicarModoPrueba(true);
+  }
+
+  Future<void> _aplicarModoPrueba(bool activar) async {
+    await ref.read(testModeEnabledProvider.notifier).set(activar);
+    if (!mounted) return;
+    // Las listas leen OTRO provider (`testModeProvider`, cacheado sobre el
+    // storage): sin invalidarlo, el toast decía "modo prueba activado" y la
+    // sucursal Test recién aparecía al reiniciar la app.
+    ref.invalidate(testModeProvider);
+    ref.invalidate(mobileBranchesProvider);
+    ref.invalidate(branchSignalsProvider);
+    showLiquidToast(
+      context,
+      activar ? 'Modo prueba activado.' : 'Modo prueba desactivado.',
+      tone: activar ? LiquidToastTone.success : LiquidToastTone.neutral,
+      icon: Icons.science_rounded,
+    );
+  }
+}
+
+/// Pide el código del modo prueba. Devuelve `true` por `Navigator.pop` sólo si
+/// coincide con [AppConstants.testModeCode].
+class _CodigoPruebaSheet extends StatefulWidget {
+  const _CodigoPruebaSheet();
+
+  @override
+  State<_CodigoPruebaSheet> createState() => _CodigoPruebaSheetState();
+}
+
+class _CodigoPruebaSheetState extends State<_CodigoPruebaSheet> {
+  final _ctrl = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_ctrl.text.trim() != AppConstants.testModeCode) {
+      HapticFeedback.heavyImpact();
+      setState(() => _error = 'Código incorrecto.');
+      return;
+    }
+    Navigator.of(context).pop(true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 6),
+        LiquidTextField(
+          controller: _ctrl,
+          label: 'CÓDIGO',
+          hint: '••••••',
+          autofocus: true,
+          errorText: _error,
+          obscureText: true,
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.done,
+          prefix: Icon(
+            Icons.science_rounded,
+            size: 18,
+            color: Colors.white.withValues(alpha: 0.5),
+          ),
+          onChanged: (_) {
+            if (_error != null) setState(() => _error = null);
+          },
+          onSubmitted: (_) => _submit(),
+        ),
+        const SizedBox(height: 18),
+        LiquidButton(
+          onPressed: _submit,
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: const Text(
+            'Activar',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -1290,6 +1473,168 @@ class _EditNameSheetState extends State<_EditNameSheet> {
   }
 }
 
+// ── Diálogo: la baja se frena por una seña sin resolver ────────────────────
+
+/// Lo que ve el cliente cuando la edge function contesta 409
+/// [codigoSenaPendiente]: no un error, sino **el paso que falta**.
+///
+/// Se cierra con `true` si el cliente eligió ir a "Mis turnos" (navega la
+/// pantalla, no el diálogo) y con `false` si no.
+///
+/// Tiene una seña pagada por un turno que todavía no se cerró. Borrar la ficha
+/// ahí dejaría el pago sin dueño: nadie a quien devolverle y nadie a quien
+/// atender. Lo que destraba la baja es cancelar ese turno —el camino de
+/// cancelación ya decide si la seña se devuelve o se pierde— o, si la fecha ya
+/// pasó y el turno quedó a medias, hablar con el local.
+class _SenaPendienteDialog extends StatelessWidget {
+  const _SenaPendienteDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+      child: LiquidGlass(
+        padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+        borderRadius: LiquidTokens.radiusGroup,
+        pressable: false,
+        tintOpacity: 0.10,
+        blur: LiquidTokens.blurHeavy,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [
+                        MonacoColors.warning.withValues(alpha: 0.26),
+                        MonacoColors.warning.withValues(alpha: 0.08),
+                      ],
+                    ),
+                    border: Border.all(
+                      color: MonacoColors.warning.withValues(alpha: 0.36),
+                      width: 0.8,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.account_balance_wallet_outlined,
+                    color: MonacoColors.warning,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Tenés una seña sin resolver',
+                    style: TextStyle(
+                      color: MonacoColors.textPrimary,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Pagaste la seña de un turno que todavía está en pie. Si '
+              'borramos tu cuenta ahora, esa plata queda sin dueño y no te la '
+              'podemos devolver.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.78),
+                fontSize: 13.5,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Cancelá el turno desde "Mis turnos" y volvé a intentarlo. Si la '
+              'fecha ya pasó o no lo encontrás, escribinos por WhatsApp y lo '
+              'resolvemos con vos.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.6),
+                fontSize: 12.5,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: LiquidPill(
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                borderRadius: 16,
+                tint: Colors.white,
+                tintOpacity: 0.16,
+                onTap: () => Navigator.of(context).pop(true),
+                child: const Center(
+                  child: Text(
+                    'Ir a Mis turnos',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: LiquidPill(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    borderRadius: 16,
+                    onTap: () => abrirUrlExterna(
+                      context,
+                      AppConstants.supportWhatsappUrl,
+                    ),
+                    child: const Center(
+                      child: Text(
+                        'Escribirnos',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: LiquidPill(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    borderRadius: 16,
+                    onTap: () => Navigator.of(context).pop(false),
+                    child: Center(
+                      child: Text(
+                        'Cerrar',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.75),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ).animate().fadeIn(duration: 200.ms).scaleXY(begin: 0.96, end: 1);
+  }
+}
+
 // ── Diálogo: eliminar cuenta (dos pasos) ───────────────────────────────────
 
 class _DeleteAccountDialog extends StatefulWidget {
@@ -1366,18 +1711,54 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
             ),
             const SizedBox(height: 6),
             ..._items(const [
-              'Tus datos personales (nombre, teléfono)',
+              // El email sólo existe si el alta fue con Google o Apple, y en
+              // ese caso también se borra: la lista tiene que nombrarlo o el
+              // cliente no sabe qué está aceptando.
+              'Tus datos personales (nombre, teléfono y el email si entraste '
+                  'con Google o Apple)',
+              // Si el cliente se dio de alta en la tablet del local, ahí le
+              // registraron la cara para reconocerlo al llegar. Es el dato más
+              // sensible que tenemos de él y la lista no lo nombraba: nadie
+              // acepta borrar algo que no sabe que existe.
+              'La foto de tu cara, si te registraste en la tablet del local',
               'Tus puntos y premios acumulados',
               'Tus turnos, reseñas y canjes',
               'El acceso a tu cuenta en todos los dispositivos',
             ]),
             const SizedBox(height: 12),
             Text(
-              'Los registros de visitas se anonimizan para mantener las estadísticas del negocio, pero no quedan asociados a tu identidad.',
+              'Por obligación fiscal quedan tus visitas y sus comprobantes, '
+              'pero disociados: sin tu nombre ni tu teléfono, así que no se '
+              'pueden volver a asociar con vos.',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.55),
                 fontSize: 12,
                 height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: () =>
+                    abrirUrlExterna(context, AppConstants.deleteAccountUrl),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white.withValues(alpha: 0.75),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 4,
+                  ),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text(
+                  'Leer el detalle de qué se borra',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: 16),

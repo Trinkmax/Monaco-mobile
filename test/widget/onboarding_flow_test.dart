@@ -97,6 +97,33 @@ void main() {
     expect(find.text('Ingresá tu número'), findsOneWidget);
   });
 
+  testWidgets('welcome: sin sociales, el teléfono es el botón PRIMARIO', (
+    t,
+  ) async {
+    // En el host no hay Google ni Apple (se gatean por `Platform`), que es
+    // exactamente la configuración con la que se manda a revisión si los
+    // client IDs no están cargados. Antes la lámina sólida era sólo la de
+    // Google: sin él, la bienvenida quedaba con pastillas translúcidas y
+    // ningún botón principal.
+    await t.pumpWidget(harness(initial: '/welcome'));
+    await settle(t);
+
+    final laminaBlanca = find.byWidgetPredicate(
+      (w) =>
+          w is DecoratedBox &&
+          w.decoration is BoxDecoration &&
+          (w.decoration as BoxDecoration).color == Colors.white,
+    );
+    expect(laminaBlanca, findsOneWidget);
+    expect(
+      find.descendant(
+        of: laminaBlanca,
+        matching: find.text('Usar mi número de teléfono'),
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('welcome: entra en una pantalla chica sin desbordar', (t) async {
     // El pie pasó de un CTA a tres botones de 56 + link + legales, sobre un
     // carrusel. En un iPhone SE (320×568 lógicos) es donde revienta si el

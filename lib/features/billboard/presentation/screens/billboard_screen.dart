@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
+import 'package:monaco_mobile/core/deeplink/deep_link_handler.dart';
 import 'package:monaco_mobile/core/supabase/supabase_provider.dart';
 
 // ---------------------------------------------------------------------------
@@ -77,6 +78,11 @@ class _BillboardScreenState extends ConsumerState<BillboardScreen> {
     await ref.read(billboardItemsProvider.future).then((_) {}, onError: (_) {});
   }
 
+  /// El destino de cada tarjeta **lo tipea el dueño** en
+  /// `/dashboard/app-movil`, así que se valida antes de navegar: desde que el
+  /// router tiene `errorBuilder`, un `link_value` con un typo le pinta al
+  /// cliente la pantalla de "no encontramos esa página". La regla de qué ruta
+  /// es legítima está en `esRutaInternaDeContenido`, compartida con el Home.
   Future<void> _openLink(Map<String, dynamic> item) async {
     final linkType = item['link_type'] as String?;
     final linkValue = (item['link_value'] as String?)?.trim();
@@ -84,26 +90,55 @@ class _BillboardScreenState extends ConsumerState<BillboardScreen> {
 
     switch (linkType) {
       case 'route':
-        if (linkValue.startsWith('/')) context.push(linkValue);
+        // Una URL cargada como "ruta" es el typo más probable de los dos
+        // campos: se abre en el navegador en vez de tirarla.
+        if (esUrlExterna(linkValue)) {
+          await _abrirEnNavegador(linkValue);
+        } else if (esRutaInternaDeContenido(linkValue)) {
+          context.push(linkValue);
+        } else {
+          _avisarLinkInvalido(linkValue);
+        }
         return;
       case 'branch':
         context.push('/branch/$linkValue');
         return;
       case 'url':
-        final uri = Uri.tryParse(linkValue);
-        if (uri == null) return;
-        try {
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
-        } catch (_) {
-          if (!mounted) return;
-          showLiquidToast(
-            context,
-            'No pudimos abrir el enlace.',
-            tone: LiquidToastTone.error,
-          );
+        if (esUrlExterna(linkValue)) {
+          await _abrirEnNavegador(linkValue);
+        } else {
+          _avisarLinkInvalido(linkValue);
         }
         return;
     }
+  }
+
+  Future<void> _abrirEnNavegador(String url) async {
+    final uri = Uri.tryParse(url);
+    var ok = false;
+    if (uri != null) {
+      try {
+        ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } catch (_) {
+        ok = false;
+      }
+    }
+    if (!ok && mounted) {
+      showLiquidToast(
+        context,
+        'No pudimos abrir el enlace.',
+        tone: LiquidToastTone.error,
+      );
+    }
+  }
+
+  void _avisarLinkInvalido(String valor) {
+    debugPrint('[cartelera] destino desconocido: "$valor"');
+    showLiquidToast(
+      context,
+      'Este enlace no está disponible.',
+      tone: LiquidToastTone.error,
+    );
   }
 
   static bool _hasLink(Map<String, dynamic> item) {

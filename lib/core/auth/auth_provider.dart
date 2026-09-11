@@ -149,6 +149,14 @@ final authServiceProvider = Provider<AuthService>((ref) {
   return AuthService(ref.watch(supabaseClientProvider));
 });
 
+/// Aviso pendiente para la pantalla de bienvenida: por qué se cerró la sesión.
+///
+/// Lo escribe [AuthNotifier.sesionInvalidada] y lo consume `WelcomeScreen` una
+/// sola vez (lo lee, muestra el toast y lo apaga). Existe porque el cierre
+/// pasa lejos de cualquier pantalla —lo dispara una respuesta de la API— y sin
+/// una palabra el cliente ve la app "volver sola al principio" sin motivo.
+final mensajeDeSesionProvider = StateProvider<String?>((ref) => null);
+
 /// Main auth state provider
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
   return AuthNotifier(ref);
@@ -161,6 +169,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   final Ref _ref;
   StreamSubscription? _authSub;
   bool _initialized = false;
+  bool _cerrandoSesionInvalida = false;
 
   AuthNotifier(this._ref) : super(const AuthState()) {
     _init();
@@ -353,6 +362,31 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<void> logout() async {
     await _authService.signOut();
     state = const AuthState(status: AuthStatus.unauthenticated);
+  }
+
+  /// La API contestó que este JWT ya no representa a ningún cliente
+  /// (`UNAUTHENTICATED` / 401 con la sesión ya refrescada, o `NO_CLIENT`
+  /// porque la ficha se borró o se fusionó desde el dashboard). Cierra la
+  /// sesión local y deja un aviso para la bienvenida.
+  ///
+  /// **No entra en loop**: sólo actúa si hay una sesión abierta, y el estado
+  /// pasa a `unauthenticated` antes de que ninguna otra request pueda volver a
+  /// llamarla; las que ya estaban en vuelo encuentran el guard cerrado.
+  Future<void> sesionInvalidada() async {
+    if (_cerrandoSesionInvalida) return;
+    final s = state.status;
+    if (s != AuthStatus.authenticated && s != AuthStatus.needsBiometric) return;
+    _cerrandoSesionInvalida = true;
+    try {
+      _ref.read(mensajeDeSesionProvider.notifier).state =
+          'Tu sesión ya no es válida. Volvé a entrar.';
+      await logout();
+    } catch (e) {
+      debugPrint('[auth] cierre por sesión inválida falló: $e');
+      state = const AuthState(status: AuthStatus.unauthenticated);
+    } finally {
+      _cerrandoSesionInvalida = false;
+    }
   }
 
   /// Apple 5.1.1(v): borrar la cuenta desde la app. `null` = OK.

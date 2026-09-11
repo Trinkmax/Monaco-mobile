@@ -1,12 +1,18 @@
 # Firma de release para Play Store.
 # Copiar a android/key.properties (está en .gitignore: NUNCA commitear el real).
 #
-# Generar el keystore UNA sola vez y guardarlo fuera del repo (y un backup):
-#   keytool -genkey -v -keystore ~/monaco-release.jks -keyalg RSA -keysize 2048 \
-#     -validity 10000 -alias monaco
+# La forma fácil: ./scripts/crear-keystore.sh genera el keystore UNA sola vez en
+# ~/.monaco-keys/monaco-release.jks, escribe este archivo con la ruta absoluta
+# y las contraseñas, e imprime el SHA-1/SHA-256 que pide Google Cloud para el
+# client OAuth de Android. Después: hacer BACKUP del .jks fuera de la máquina
+# (sin él no se puede actualizar la app; con Play App Signing se puede
+# reemplazar, pero es un trámite con soporte de Play).
 #
-# storeFile es relativo a android/ (o absoluto).
-storeFile=../../monaco-release.jks
+# storeFile: ruta ABSOLUTA, fuera de cualquier repo. Una ruta relativa se
+# resuelve contra android/ (rootProject.file), y "../../monaco-release.jks"
+# caía en MSB_FULL/, el wrapper sin .gitignore: un `git add -A` ahí subía el
+# keystore. `~` NO se expande acá (Gradle lee el archivo como Properties).
+storeFile=/Users/<usuario>/.monaco-keys/monaco-release.jks
 storePassword=CAMBIAR
 keyAlias=monaco
 keyPassword=CAMBIAR

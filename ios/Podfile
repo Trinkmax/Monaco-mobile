@@ -1,4 +1,9 @@
-platform :ios, '14.0'
+# iOS 15.0 (10/sep/2026). Xcode 26 lista "iOS 15 or later" como los deployment
+# targets soportados y Flutter está subiendo su mínimo a 15 (flutter/flutter#187741);
+# todos los equipos que corren iOS 14 corren iOS 15, así que no se pierde nadie.
+# Tiene que coincidir con IPHONEOS_DEPLOYMENT_TARGET en las tres configuraciones
+# del project.pbxproj (Runner). `scripts/preflight-tiendas.sh` lo chequea.
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -38,5 +43,16 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+    # Muchos podspecs declaran mínimos viejísimos (9.0, 10.0, 11.0: PromisesObjC,
+    # GTMSessionFetcher, flutter_secure_storage, los bundles *_privacy...) y
+    # Xcode 26 tira un warning de Target Integrity por cada uno ("the range of
+    # supported deployment target versions is 12.0 to 26.x"). Un pod compilado
+    # para 15.0 dentro de una app que exige 15.0 no cambia nada en runtime; sólo
+    # deja de ensuciar el build con 12 warnings que tapan los reales.
+    target.build_configurations.each do |config|
+      if config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_f < 15.0
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+      end
+    end
   end
 end

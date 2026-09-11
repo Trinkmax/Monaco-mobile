@@ -50,17 +50,17 @@ class LiquidSegmentedTabs extends StatelessWidget {
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                         colors: [
-                          Colors.white.withOpacity(0.24),
-                          Colors.white.withOpacity(0.09),
+                          Colors.white.withValues(alpha: 0.24),
+                          Colors.white.withValues(alpha: 0.09),
                         ],
                       ),
                       border: Border.all(
-                        color: Colors.white.withOpacity(0.32),
+                        color: Colors.white.withValues(alpha: 0.32),
                         width: 0.8,
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.white.withOpacity(0.10),
+                          color: Colors.white.withValues(alpha: 0.10),
                           blurRadius: 14,
                           spreadRadius: -3,
                         ),
@@ -84,7 +84,7 @@ class LiquidSegmentedTabs extends StatelessWidget {
                                   active ? FontWeight.w700 : FontWeight.w500,
                               color: active
                                   ? Colors.white
-                                  : Colors.white.withOpacity(0.5),
+                                  : Colors.white.withValues(alpha: 0.5),
                               letterSpacing: -0.1,
                             ),
                             child: Text(labels[i]),

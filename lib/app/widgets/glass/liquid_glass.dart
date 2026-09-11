@@ -67,8 +67,8 @@ class LiquidGlass extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                baseTint.withOpacity((tintOpacity * 2.4).clamp(0, 1)),
-                baseTint.withOpacity((tintOpacity * 0.55).clamp(0, 1)),
+                baseTint.withValues(alpha: (tintOpacity * 2.4).clamp(0, 1)),
+                baseTint.withValues(alpha: (tintOpacity * 0.55).clamp(0, 1)),
               ],
             ),
             border: Border.all(
@@ -143,8 +143,8 @@ class _TopSheen extends StatelessWidget {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Colors.white.withOpacity(0.14),
-                Colors.white.withOpacity(0.0),
+                Colors.white.withValues(alpha: 0.14),
+                Colors.white.withValues(alpha: 0.0),
               ],
             ),
           ),
@@ -175,7 +175,7 @@ class _BottomVignette extends StatelessWidget {
               center: Alignment.bottomRight,
               radius: 1,
               colors: [
-                Colors.black.withOpacity(0.14),
+                Colors.black.withValues(alpha: 0.14),
                 Colors.transparent,
               ],
             ),

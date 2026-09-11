@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show HandshakeException, SocketException;
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' show ClientException;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../utils/constants.dart';
@@ -61,8 +64,19 @@ class SocialResult {
   });
 }
 
+/// Mensajes de red en español. Los usan las dos llamadas a edge functions de
+/// acá: ningún `SocketException` en inglés tiene que llegar a un banner.
+const kMensajeTimeout = 'Se agotó el tiempo de espera. Revisá tu conexión.';
+const kMensajeSinConexion =
+    'No pudimos conectarnos. Revisá tu conexión e intentá de nuevo.';
+
 /// Habla con la Edge Function `client-auth` (acciones `social` / `start` /
 /// `verify`).
+///
+/// **Toda llamada de red tiene timeout** (`AppConstants.apiTimeout`). Sin él,
+/// en un 4G que se cuelga el socket del sistema puede tardar más de un minuto
+/// en cortar y el CTA queda girando sin mensaje ni forma de reintentar; para
+/// un reviewer con red inestable eso es una app colgada.
 class AuthService {
   final SupabaseClient _client;
 
@@ -71,7 +85,11 @@ class AuthService {
   Future<Map<String, dynamic>> _invoke(Map<String, dynamic> body) async {
     FunctionResponse response;
     try {
-      response = await _client.functions.invoke('client-auth', body: body);
+      response = await _client.functions
+          .invoke('client-auth', body: body)
+          .timeout(AppConstants.apiTimeout);
+    } on TimeoutException {
+      throw const AuthException('NETWORK', kMensajeTimeout);
     } on FunctionException catch (e) {
       final details = e.details;
       final map = details is Map<String, dynamic>
@@ -87,10 +105,7 @@ class AuthService {
       );
     } catch (e) {
       debugPrint('[auth] invoke error: $e');
-      throw const AuthException(
-        'NETWORK',
-        'No pudimos conectarnos. Revisá tu conexión e intentá de nuevo.',
-      );
+      throw const AuthException('NETWORK', kMensajeSinConexion);
     }
 
     final data = response.data is String
@@ -135,6 +150,14 @@ class AuthService {
       'id_token': cred.idToken,
       if (cred.nonce != null) 'nonce': cred.nonce,
       if ((cred.name ?? '').trim().isNotEmpty) 'name': cred.name!.trim(),
+      // Sólo Apple. El server lo canjea YA (vence a los 5 minutos) por el
+      // `refresh_token` que hace falta para revocar la autorización al borrar
+      // la cuenta (`POST https://appleid.apple.com/auth/revoke`, exigencia de
+      // Apple desde jun/2022 para la 5.1.1(v)). Viene en CADA autorización,
+      // no sólo en la primera: lo que Apple da una sola vez es el nombre.
+      if (cred.provider == SocialProvider.apple &&
+          (cred.authorizationCode ?? '').isNotEmpty)
+        'authorization_code': cred.authorizationCode,
       ...await _deviceFields(),
     });
 
@@ -227,7 +250,21 @@ class AuthService {
           'Respuesta incompleta del servidor.',
         );
       }
-      await _client.auth.setSession(refresh);
+      // `setSession` va a GoTrue a canjear el refresh token: es red, y sin
+      // timeout se cuelga igual que `invoke`. Un fallo acá no es del código
+      // que tipeó el cliente (ya se validó), así que se traduce a algo que las
+      // pantallas saben mostrar con "Reintentar".
+      try {
+        await _client.auth.setSession(refresh).timeout(AppConstants.apiTimeout);
+      } on TimeoutException {
+        throw const AuthException('NETWORK', kMensajeTimeout);
+      } catch (e) {
+        debugPrint('[auth] setSession falló: $e');
+        throw const AuthException(
+          'AUTH_FAILED',
+          'No pudimos abrir tu sesión. Probá de nuevo.',
+        );
+      }
       final clientId = data['client_id'] as String;
       final name = (data['name'] as String?) ?? '';
       final phone = (data['phone'] as String?) ?? fallbackPhone;
@@ -252,10 +289,18 @@ class AuthService {
   bool get isAuthenticated => _client.auth.currentSession != null;
   Session? get currentSession => _client.auth.currentSession;
 
+  /// Cierra la sesión. El corte de red **no puede** trabar esto: lo que le
+  /// importa al cliente (y al equipo que se presta el teléfono) es lo local, y
+  /// eso pasa igual. Por eso el `signOut` remoto va con un timeout corto —el
+  /// mismo criterio que `PushService.unregister`— y su fallo se ignora: sin
+  /// él, "Cerrar sesión" se quedaba girando hasta que el socket del sistema se
+  /// diera por vencido, que puede ser más de un minuto.
   Future<void> signOut() async {
     try {
-      await _client.auth.signOut();
-    } catch (_) {}
+      await _client.auth.signOut().timeout(const Duration(seconds: 6));
+    } catch (e) {
+      debugPrint('[auth] signOut remoto falló (se sigue igual): $e');
+    }
     // Sesión local del SDK de Google, no la autorización: el cliente quiere
     // salir, no romper el vínculo. La revocación (`disconnect`) es cosa del
     // borrado de cuenta.
@@ -264,39 +309,82 @@ class AuthService {
   }
 
   /// Apple 5.1.1(v): borra la cuenta vía Edge Function `delete-client-account`.
-  /// Devuelve `null` si salió bien o un mensaje de error.
+  /// Devuelve `null` si salió bien o un mensaje de error **en español y listo
+  /// para mostrar**: nunca el `toString()` de una excepción.
   Future<String?> deleteAccount() async {
     try {
       final session = _client.auth.currentSession;
-      if (session == null) return 'No hay sesión activa';
-      final res = await _client.functions.invoke(
-        'delete-client-account',
-        headers: {'Authorization': 'Bearer ${session.accessToken}'},
-      );
+      if (session == null) return 'No hay una sesión abierta.';
+      // Después de un rato en segundo plano el access token puede haber
+      // vencido sin que el refresh automático llegara; la función contesta
+      // 401 y el primer toque en "Eliminar" fallaría sin explicación.
+      final token = await _accessTokenFresco(session);
+      final res = await _client.functions
+          .invoke(
+            'delete-client-account',
+            headers: {'Authorization': 'Bearer $token'},
+          )
+          .timeout(AppConstants.apiTimeout);
       if (res.status >= 400) {
         final data = res.data;
         final msg = data is Map<String, dynamic>
             ? data['error'] as String?
             : null;
-        return msg ?? 'No se pudo eliminar la cuenta (HTTP ${res.status})';
+        return msg ?? 'No pudimos eliminar la cuenta (HTTP ${res.status}).';
       }
       // Revocar la autorización de Google es parte del borrado: si no, el
       // equipo sigue teniendo a Monaco entre las apps autorizadas de esa cuenta
       // y el próximo "Continuar con Google" entra sin hoja a una cuenta que ya
-      // no existe.
+      // no existe. (La de Apple la revoca el server con el refresh token que
+      // guardó en el alta.)
       await SocialAuthService.desvincularGoogle();
       await SecureStorageService.clearAll();
       try {
-        await _client.auth.signOut();
-      } catch (_) {}
+        await _client.auth.signOut().timeout(const Duration(seconds: 6));
+      } catch (e) {
+        debugPrint('[auth] signOut tras borrar la cuenta falló: $e');
+      }
       return null;
     } on FunctionException catch (e) {
       final d = e.details;
       final msg = d is Map<String, dynamic> ? d['error'] as String? : null;
-      return msg ?? 'No se pudo eliminar la cuenta (HTTP ${e.status})';
+      return msg ?? 'No pudimos eliminar la cuenta (HTTP ${e.status}).';
+    } on TimeoutException {
+      return kMensajeTimeout;
+    } on SocketException catch (e) {
+      debugPrint('[auth] deleteAccount sin red: $e');
+      return 'Sin conexión. Revisá tu internet y volvé a intentar.';
+    } on HandshakeException catch (e) {
+      debugPrint('[auth] deleteAccount handshake: $e');
+      return 'Sin conexión. Revisá tu internet y volvé a intentar.';
+    } on ClientException catch (e) {
+      debugPrint('[auth] deleteAccount ClientException: $e');
+      return 'Sin conexión. Revisá tu internet y volvé a intentar.';
     } catch (e) {
       debugPrint('[auth] deleteAccount error: $e');
-      return 'Error inesperado: $e';
+      return 'No pudimos eliminar la cuenta. Probá de nuevo o escribinos.';
     }
+  }
+
+  /// Access token con al menos 90 s de vida por delante. Misma regla que
+  /// `MobileApi._accessToken`. Best-effort: si el refresh falla, se sigue con
+  /// el token que hay (el server dirá 401 y el mensaje será claro).
+  Future<String> _accessTokenFresco(Session session) async {
+    final expiresAt = session.expiresAt;
+    if (expiresAt != null) {
+      final expiry = DateTime.fromMillisecondsSinceEpoch(expiresAt * 1000);
+      if (expiry.isBefore(DateTime.now().add(const Duration(seconds: 90)))) {
+        try {
+          final res = await _client.auth
+              .refreshSession()
+              .timeout(AppConstants.apiTimeout);
+          final fresca = res.session;
+          if (fresca != null) return fresca.accessToken;
+        } catch (e) {
+          debugPrint('[auth] refresh antes de borrar la cuenta falló: $e');
+        }
+      }
+    }
+    return session.accessToken;
   }
 }

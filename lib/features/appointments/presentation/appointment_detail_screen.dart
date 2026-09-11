@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
+import 'package:monaco_mobile/features/senas/presentation/widgets/arrepentimiento_link.dart';
 
 import '../data/appointment_model.dart';
 import '../data/fechas.dart';
@@ -34,6 +35,7 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
       context,
       summary: '${a.fechaLarga} · ${a.horaLabel}${a.branchName != null ? ' · ${a.branchName}' : ''}',
       cancellationMinHours: minHours,
+      sena: a.deposit,
     );
     if (!ok || !mounted) return;
     setState(() => _cancelando = true);
@@ -360,6 +362,12 @@ class _Detalle extends ConsumerWidget {
             ),
           ).liquidEnter(index: 2),
 
+          // ── Seña ──
+          if (a.deposit != null && a.deposit!.plataDelLocal) ...[
+            const SizedBox(height: 12),
+            _SenaPagada(sena: a.deposit!, total: price).liquidEnter(index: 3),
+          ],
+
           if (activo && !a.status.isAtShop) ...[
             const SizedBox(height: 12),
             const ComoRegistrarLlegada(tieneCara: null).liquidEnter(index: 3),
@@ -528,6 +536,83 @@ class _Detalle extends ConsumerWidget {
               ),
             ).liquidEnter(index: 7),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// La seña de este turno: cuánto se pagó, cuánto queda para el local y el
+/// **Botón de arrepentimiento**.
+///
+/// El link va acá y no sólo en la hoja de antes de pagar porque los 10 días
+/// del art. 1110 CCyC empiezan a correr con el pago: el detalle del turno es
+/// la única pantalla a la que el cliente vuelve durante esos 10 días.
+class _SenaPagada extends StatelessWidget {
+  final AppointmentDeposit sena;
+  final num? total;
+
+  const _SenaPagada({required this.sena, required this.total});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = total;
+    final resto = (t != null && t > sena.amount) ? t - sena.amount : null;
+
+    return LiquidGlass(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+      borderRadius: 22,
+      tintOpacity: 0.07,
+      pressable: false,
+      showVignette: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const _IconBox(icon: Icons.verified_rounded),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'SEÑA PAGADA',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.5),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.9,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      Fechas.moneda(sena.amount),
+                      style: const TextStyle(
+                        color: MonacoColors.textPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.4,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                    if (resto != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'En el local pagás los ${Fechas.moneda(resto)} que faltan.',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.6),
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const ArrepentimientoLink(),
         ],
       ),
     );

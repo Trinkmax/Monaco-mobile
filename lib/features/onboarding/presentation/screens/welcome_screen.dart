@@ -92,6 +92,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
       if (!mounted) return;
       ref.read(loginFlowProvider.notifier).state = null;
       ref.read(signupPendienteProvider.notifier).state = null;
+      _avisoDeSesion();
     });
   }
 
@@ -99,6 +100,23 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   void dispose() {
     _pageCtrl.dispose();
     super.dispose();
+  }
+
+  /// Si la sesión se cerró sola (la API dijo que el JWT ya no representa a
+  /// ningún cliente), acá es donde el cliente se entera: si no, la app
+  /// "vuelve al principio" sin decir nada y parece que se rompió. El aviso se
+  /// consume una vez.
+  void _avisoDeSesion() {
+    final aviso = ref.read(mensajeDeSesionProvider);
+    if (aviso == null || aviso.isEmpty) return;
+    ref.read(mensajeDeSesionProvider.notifier).state = null;
+    showLiquidToast(
+      context,
+      aviso,
+      tone: LiquidToastTone.error,
+      icon: Icons.lock_reset_rounded,
+      duration: const Duration(seconds: 5),
+    );
   }
 
   @override
