@@ -15,15 +15,11 @@ class _Slide {
   final String title;
   final String subtitle;
   final String imagePath;
-  final IconData icon;
-  final String badge;
 
   const _Slide({
     required this.title,
     required this.subtitle,
     required this.imagePath,
-    required this.icon,
-    required this.badge,
   });
 }
 
@@ -31,35 +27,35 @@ class _Slide {
 /// de Monaco. Ojo que los nombres de archivo no coinciden con lo que dibujan:
 /// `onboarding_reviews.png` muestra la moneda de puntos + ticket, y
 /// `onboarding_gifts.png` las cinco estrellas de la reseña.
+///
+/// **Sin pastilla de categoría** (decisión del dueño, 12/sep/2026). Cada slide
+/// llevaba un badge verde ("Fila en vivo", "Puntos y premios", "Turnos online")
+/// que repetía lo que ya dicen el título y el subtítulo, y le comía ~45 px de
+/// alto a la ilustración — que es lo que el dueño mira mientras pasan las
+/// láminas. La lámina manda; el texto explica.
 const _slides = [
   _Slide(
     title: 'Tu barbería,\nen tu bolsillo',
     subtitle:
         'Mirá la fila en vivo de cada sucursal y llegá justo cuando te toca.',
     imagePath: 'assets/images/onboarding_barber.png',
-    icon: Icons.storefront_rounded,
-    badge: 'Fila en vivo',
   ),
   _Slide(
     title: 'Sumá puntos,\nllevate premios',
     subtitle:
         'Cada corte suma. Canjeá tus puntos por servicios, productos y beneficios.',
     imagePath: 'assets/images/onboarding_reviews.png',
-    icon: Icons.stars_rounded,
-    badge: 'Puntos y premios',
   ),
   _Slide(
     title: 'Turnos en\ntres toques',
     subtitle:
         'Elegí barbero y horario, te confirmamos por WhatsApp y después nos contás cómo te fue.',
     imagePath: 'assets/images/onboarding_gifts.png',
-    icon: Icons.event_available_rounded,
-    badge: 'Turnos online',
   ),
 ];
 
-/// **Puerta de entrada.** Tres láminas de contexto arriba y, abajo, las tres
-/// formas de entrar + "Seguir mirando".
+/// **Puerta de entrada.** Tres láminas de contexto arriba y, abajo, las formas
+/// de entrar.
 ///
 /// Las opciones están en la PRIMERA pantalla, no escondidas detrás de un
 /// carrusel que hay que terminar: el dueño va a hacer publicidad y el que baja
@@ -68,8 +64,13 @@ const _slides = [
 /// que la app rechazaba a todo el que llegara desde afuera—; eso murió junto
 /// con `no_cliente_sheet.dart`.
 ///
-/// **"Seguir mirando" no es una cortesía, es requisito de App Store** (5.1.1:
-/// si la app no es toda "account-based", tiene que dejar usarla sin login).
+/// **El link "Seguir mirando" (modo invitado) se sacó de acá el 12/sep/2026**
+/// por pedido del dueño: no entraba. Lo que NO se tocó es la maquinaria —
+/// `AuthNotifier.continuarComoInvitado()`, `AuthStatus.guest`, el muro de
+/// login y la marca persistida— porque la guideline 5.1.1 de App Store exige
+/// poder navegar sin cuenta cuando la app no es toda "account-based", y si App
+/// Review lo reclama hay que reponer un botón, no un flujo. Antes de reponerlo,
+/// arreglar por qué no entraba.
 class WelcomeScreen extends ConsumerStatefulWidget {
   const WelcomeScreen({super.key});
 
@@ -137,10 +138,8 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
           _Dots(count: _slides.length, index: _page).liquidEnter(index: 3),
           const SizedBox(height: 16),
           const AuthOpciones().liquidEnter(index: 4),
-          const SizedBox(height: 2),
-          const _SeguirMirando().liquidEnter(index: 5),
-          const SizedBox(height: 2),
-          const LegalFooter().liquidEnter(index: 6),
+          const SizedBox(height: 10),
+          const LegalFooter().liquidEnter(index: 5),
         ],
       ),
       child: PageView.builder(
@@ -155,36 +154,6 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   }
 }
 
-/// Modo invitado. Va como link y no como botón a propósito: es la salida, no
-/// la acción que queremos. Pero tiene que estar **visible sin scrollear** —un
-/// "sin cuenta" escondido es lo mismo que no tenerlo.
-class _SeguirMirando extends ConsumerStatefulWidget {
-  const _SeguirMirando();
-
-  @override
-  ConsumerState<_SeguirMirando> createState() => _SeguirMirandoState();
-}
-
-class _SeguirMirandoState extends ConsumerState<_SeguirMirando> {
-  bool _busy = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return OnboardingLink(
-      label: _busy ? 'Entrando…' : 'Seguir mirando',
-      icon: Icons.visibility_outlined,
-      onTap: _busy
-          ? null
-          : () async {
-              setState(() => _busy = true);
-              // El router redirige solo al cambiar el AuthStatus a `guest`.
-              await ref.read(authProvider.notifier).continuarComoInvitado();
-              if (mounted) setState(() => _busy = false);
-            },
-    );
-  }
-}
-
 class _SlideView extends StatelessWidget {
   final _Slide slide;
   final bool compact;
@@ -192,14 +161,14 @@ class _SlideView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // La ilustración se adapta al alto que queda. El pie de esta pantalla ahora
-    // lleva tres botones de 56 + el link + los legales, así que la lámina es
-    // bastante más chica que antes; si aun así no entra, el slide scrollea en
-    // vez de desbordar.
+    // La ilustración se adapta al alto que queda. Sacar la pastilla verde y el
+    // link de invitado devolvió ~90 px, que van acá: la lámina es lo que el
+    // cliente mira mientras pasa los slides. Si aun así no entra (pantalla
+    // chica), el slide scrollea en vez de desbordar.
     return LayoutBuilder(
       builder: (context, constraints) {
         final h = constraints.maxHeight;
-        final imageSize = (h * 0.42).clamp(96.0, compact ? 150.0 : 190.0);
+        final imageSize = (h * 0.58).clamp(120.0, compact ? 215.0 : 280.0);
         return SingleChildScrollView(
           physics: const ClampingScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: 28),
@@ -258,7 +227,7 @@ class _SlideView extends StatelessWidget {
   }
 }
 
-/// Badge + título + subtítulo de un slide, con entrada escalonada.
+/// Título + subtítulo de un slide, con entrada escalonada.
 class _SlideCopy extends StatelessWidget {
   final _Slide slide;
   final bool compact;
@@ -269,39 +238,6 @@ class _SlideCopy extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // ── Badge ──
-        LiquidPill(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              tint: MonacoColors.monacoGreen,
-              tintOpacity: 0.14,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(slide.icon, size: 14, color: MonacoColors.monacoGreen),
-                  const SizedBox(width: 7),
-                  Text(
-                    slide.badge.toUpperCase(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.9,
-                    ),
-                  ),
-                ],
-              ),
-            )
-            .animate()
-            .fadeIn(delay: 120.ms, duration: 420.ms)
-            .slideY(
-              begin: 0.2,
-              end: 0,
-              delay: 120.ms,
-              duration: 420.ms,
-              curve: Curves.easeOutCubic,
-            ),
-        const SizedBox(height: 12),
-
         // ── Título ──
         Text(
               slide.title,
@@ -314,11 +250,11 @@ class _SlideCopy extends StatelessWidget {
               ),
             )
             .animate()
-            .fadeIn(delay: 200.ms, duration: 460.ms)
+            .fadeIn(delay: 140.ms, duration: 460.ms)
             .slideY(
               begin: 0.18,
               end: 0,
-              delay: 200.ms,
+              delay: 140.ms,
               duration: 460.ms,
               curve: Curves.easeOutCubic,
             ),
@@ -335,11 +271,11 @@ class _SlideCopy extends StatelessWidget {
               ),
             )
             .animate()
-            .fadeIn(delay: 300.ms, duration: 460.ms)
+            .fadeIn(delay: 240.ms, duration: 460.ms)
             .slideY(
               begin: 0.18,
               end: 0,
-              delay: 300.ms,
+              delay: 240.ms,
               duration: 460.ms,
               curve: Curves.easeOutCubic,
             ),

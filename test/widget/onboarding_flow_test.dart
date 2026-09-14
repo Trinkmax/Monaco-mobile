@@ -86,9 +86,13 @@ void main() {
     await settle(t);
 
     expect(find.textContaining('Tu barbería'), findsOneWidget);
-    // El teléfono y el modo invitado, sí o sí visibles sin deslizar los slides.
+    // El teléfono, sí o sí visible sin deslizar los slides.
     expect(find.text('Usar mi número de teléfono'), findsOneWidget);
-    expect(find.text('Seguir mirando'), findsOneWidget);
+    // "Seguir mirando" (modo invitado) se sacó el 12/sep/2026 porque no
+    // entraba. Se afirma que NO está para que nadie lo reponga sin arreglar
+    // primero el flujo — y para que quede escrito que la app hoy exige cuenta,
+    // que es lo que App Review mira bajo la 5.1.1.
+    expect(find.text('Seguir mirando'), findsNothing);
     // Lo que murió con el alta propia: la app ya no manda a nadie al local.
     expect(find.text('¿Aún no sos cliente?'), findsNothing);
 
@@ -125,9 +129,10 @@ void main() {
   });
 
   testWidgets('welcome: entra en una pantalla chica sin desbordar', (t) async {
-    // El pie pasó de un CTA a tres botones de 56 + link + legales, sobre un
-    // carrusel. En un iPhone SE (320×568 lógicos) es donde revienta si el
-    // carrusel no cede alto. Un overflow de RenderFlex hace fallar el test.
+    // El pie pasó de un CTA a tres botones de 56 + legales, sobre un carrusel
+    // cuya lámina ahora ocupa el 58% del alto disponible. En un iPhone SE
+    // (320×568 lógicos) es donde revienta si el carrusel no cede alto. Un
+    // overflow de RenderFlex hace fallar el test.
     t.view.physicalSize = const Size(640, 1136);
     t.view.devicePixelRatio = 2.0;
     addTearDown(t.view.reset);
@@ -136,7 +141,6 @@ void main() {
     await settle(t);
 
     expect(find.text('Usar mi número de teléfono'), findsOneWidget);
-    expect(find.text('Seguir mirando'), findsOneWidget);
     expect(t.takeException(), isNull);
   });
 

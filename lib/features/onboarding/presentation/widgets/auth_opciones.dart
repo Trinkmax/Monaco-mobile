@@ -176,8 +176,15 @@ class _AuthOpcionesState extends ConsumerState<AuthOpciones> {
         if (apple) ...[
           _BotonSocial(
             label: 'Continuar con Apple',
-            glyph: const SizedBox.square(
-              dimension: 20,
+            // **La caja NO es cuadrada, y no se puede volver cuadrada.**
+            // `AppleLogoPainter` normaliza el path de la manzana a 0..1 en los
+            // DOS ejes, así que pinta lo que le den: en un cuadrado de 20×20 la
+            // manzana sale ensanchada. El glifo real mide 0,83 de ancho por
+            // cada 1 de alto (es el ratio del logo de Apple, hoja incluida), y
+            // eso es 17 × 20,5.
+            glyph: const SizedBox(
+              width: 17,
+              height: 20.5,
               child: CustomPaint(
                 painter: AppleLogoPainter(color: Colors.black),
               ),
@@ -193,11 +200,15 @@ class _AuthOpcionesState extends ConsumerState<AuthOpciones> {
           glyph: Icon(
             Icons.chat_rounded,
             size: 20,
-            // Sobre la lámina blanca el verde de marca pierde contraste: se
-            // usa el profundo, que es el mismo verde con el valor bajado.
+            // **Gris, no verde** (decisión del dueño, 12/sep/2026). El verde es
+            // el color del NEGOCIO ("sin espera", turno confirmado, éxito), no
+            // el de un ícono decorativo al lado de un botón: pintado acá
+            // competía con los dos botones sociales y con la pastilla del
+            // carrusel. Sobre la lámina blanca (cuando el teléfono es el
+            // primario) el gris tiene que ser más oscuro para leerse.
             color: telefonoEsPrimario
-                ? MonacoColors.monacoGreenDeep
-                : MonacoColors.monacoGreen,
+                ? MonacoColors.foregroundSubtle
+                : MonacoColors.foregroundMuted,
           ),
           solido: telefonoEsPrimario,
           cargando: false,

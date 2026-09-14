@@ -149,9 +149,7 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({});
   });
 
-  testWidgets('Bienvenida — las tres puertas + "Seguir mirando"', (
-    tester,
-  ) async {
+  testWidgets('Bienvenida — las puertas de entrada', (tester) async {
     await tester.pumpWidget(
       ProviderScope(overrides: _invitado(), child: _app(const WelcomeScreen())),
     );
