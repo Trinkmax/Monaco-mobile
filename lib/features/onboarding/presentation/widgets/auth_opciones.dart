@@ -5,12 +5,12 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart'
     show AppleLogoPainter;
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
-import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
 import 'package:monaco_mobile/core/auth/auth_provider.dart';
 import 'package:monaco_mobile/core/auth/auth_service.dart';
 import 'package:monaco_mobile/core/auth/social_auth_service.dart';
 
 import '../../providers/login_flow_provider.dart';
+import 'boton_lamina.dart';
 import 'google_g.dart';
 import 'onboarding_scaffold.dart';
 
@@ -155,7 +155,7 @@ class _AuthOpcionesState extends ConsumerState<AuthOpciones> {
           const SizedBox(height: 12),
         ],
         if (google) ...[
-          _BotonSocial(
+          BotonLamina(
             label: 'Continuar con Google',
             glyph: const GoogleG(size: 20),
             solido: true,
@@ -174,7 +174,7 @@ class _AuthOpcionesState extends ConsumerState<AuthOpciones> {
         // 4.8. El borde blanco sobre negro que tenía antes es una forma válida
         // del botón, pero al lado de una lámina opaca se leía como secundario.
         if (apple) ...[
-          _BotonSocial(
+          BotonLamina(
             label: 'Continuar con Apple',
             // **La caja NO es cuadrada, y no se puede volver cuadrada.**
             // `AppleLogoPainter` normaliza el path de la manzana a 0..1 en los
@@ -195,7 +195,7 @@ class _AuthOpcionesState extends ConsumerState<AuthOpciones> {
           ),
           const SizedBox(height: 10),
         ],
-        _BotonSocial(
+        BotonLamina(
           label: 'Usar mi número de teléfono',
           glyph: Icon(
             Icons.chat_rounded,
@@ -215,112 +215,6 @@ class _AuthOpcionesState extends ConsumerState<AuthOpciones> {
           onPressed: ocupado ? null : _telefono,
         ),
       ],
-    );
-  }
-}
-
-/// Botón de 56 de alto con el glifo del proveedor a la izquierda y el texto
-/// centrado ópticamente.
-///
-/// [solido] = lámina blanca opaca. Sobre vidrio oscuro es lo que el ojo lee
-/// como "esto se toca", así que se reserva para los botones que la pantalla
-/// quiere que se usen: **los sociales** (Google y Apple con el mismo peso, que
-/// es lo que exige la HIG de Sign in with Apple) o, cuando no hay ninguno, el
-/// del teléfono. Nunca dos láminas blancas compitiendo con una tercera.
-class _BotonSocial extends StatelessWidget {
-  final String label;
-  final Widget glyph;
-  final bool solido;
-  final bool cargando;
-  final VoidCallback? onPressed;
-
-  const _BotonSocial({
-    required this.label,
-    required this.glyph,
-    required this.solido,
-    required this.cargando,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final habilitado = onPressed != null && !cargando;
-    final colorTexto = solido ? MonacoColors.background : Colors.white;
-
-    final contenido = cargando
-        ? SizedBox(
-            width: 22,
-            height: 22,
-            child: CircularProgressIndicator(
-              strokeWidth: 2.4,
-              color: colorTexto,
-            ),
-          )
-        : Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              glyph,
-              const SizedBox(width: 12),
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: colorTexto,
-                    fontSize: 15.5,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-              ),
-            ],
-          );
-
-    return Semantics(
-      button: true,
-      enabled: habilitado,
-      label: label,
-      child: AnimatedOpacity(
-        duration: LiquidTokens.swap,
-        opacity: habilitado ? 1 : 0.55,
-        child: SizedBox(
-          height: 56,
-          width: double.infinity,
-          child: solido
-              // `LiquidTapEffect.onTap` no es opcional: el gate del estado
-              // deshabilitado lo pone el AbsorbPointer.
-              ? AbsorbPointer(
-                  absorbing: !habilitado,
-                  child: LiquidTapEffect(
-                    onTap: onPressed ?? () {},
-                    borderRadius: BorderRadius.circular(18),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(18),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.34),
-                            blurRadius: 16,
-                            spreadRadius: -4,
-                            offset: const Offset(0, 6),
-                          ),
-                        ],
-                      ),
-                      child: Center(child: contenido),
-                    ),
-                  ),
-                )
-              : LiquidPill(
-                  onTap: habilitado ? onPressed : null,
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  borderRadius: 18,
-                  tintOpacity: 0.08,
-                  child: Center(child: contenido),
-                ),
-        ),
-      ),
     );
   }
 }

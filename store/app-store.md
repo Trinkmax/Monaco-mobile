@@ -152,13 +152,13 @@ Primera versión de la app de Monaco Barber Studio: turnos online, fila en vivo,
 La app es de una barbería de Córdoba, Argentina. Todo el contenido está en español.
 
 CÓMO ENTRAR (cuenta de demostración; no hace falta WhatsApp)
-1. En la pantalla de bienvenida, tocar "Usar mi número de teléfono".
-2. Ingresar el número 1100000000 y tocar Continuar.
+1. La bienvenida son tres pantallas de presentación: tocar "Continuar" dos veces. En la tercera aparecen las opciones de ingreso.
+2. Tocar "Usar mi número de teléfono", ingresar el número 1100000000 y tocar Continuar.
 3. El código de verificación es 123456. Es un número de prueba: el servidor NO envía ningún mensaje de WhatsApp y el código es fijo.
 4. Si en cambio se usa "Continuar con Apple", después de autorizar la app se pide un teléfono: ingresar el mismo 1100000000 y el mismo código 123456.
 
 SIN CUENTA (guideline 5.1.1)
-"Seguir mirando" entra como invitado. Sin cuenta se pueden ver el inicio, las sucursales con la fila en vivo, la cartelera y la vidriera de premios. El pedido de cuenta aparece recién al tocar una acción personal (reservar, canjear, ver mis turnos), y siempre con la opción "Ahora no".
+En la tercera pantalla de bienvenida, "Seguir mirando" entra como invitado. Sin cuenta se pueden ver el inicio, las sucursales con la fila en vivo, la cartelera y la vidriera de premios. El pedido de cuenta aparece recién al tocar una acción personal (reservar, canjear, ver mis turnos), y siempre con la opción "Ahora no".
 
 PARA PROBAR UNA RESERVA
 Elegir la sucursal Caseros o Rondeau: ahí el turno se confirma sin ningún pago. La sucursal Paraná pide una seña por Mercado Pago y abre el navegador; conviene evitarla. El turno se puede cancelar desde Turnos > el turno > Cancelar.

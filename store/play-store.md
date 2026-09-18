@@ -109,12 +109,12 @@ Usuario: 1100000000
 Contraseña: 123456
 
 Pasos:
-1. En la pantalla de bienvenida, tocar "Usar mi número de teléfono".
-2. Ingresar el número 1100000000 y tocar Continuar.
+1. La bienvenida son tres pantallas de presentación: tocar "Continuar" dos veces. En la tercera aparecen las opciones de ingreso.
+2. Tocar "Usar mi número de teléfono", ingresar el número 1100000000 y tocar Continuar.
 3. El código de verificación es 123456. Es un número de prueba: el servidor no envía ningún mensaje de WhatsApp y el código es fijo.
 4. Si se usa "Continuar con Google", después se pide un teléfono: ingresar el mismo 1100000000 y el mismo código 123456.
 
-Sin cuenta: "Seguir mirando" entra como invitado y deja ver el inicio, las sucursales con la fila en vivo y la vidriera de premios.
+Sin cuenta: en la tercera pantalla de bienvenida, "Seguir mirando" entra como invitado y deja ver el inicio, las sucursales con la fila en vivo y la vidriera de premios.
 
 Para probar una reserva conviene elegir la sucursal Caseros o Rondeau: ahí el turno se confirma sin ningún pago. La sucursal Paraná pide una seña por Mercado Pago y abre el navegador.
 

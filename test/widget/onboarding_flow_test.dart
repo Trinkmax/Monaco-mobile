@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_theme.dart';
+import 'package:monaco_mobile/core/auth/auth_provider.dart';
 import 'package:monaco_mobile/core/auth/pin_service.dart';
 import 'package:monaco_mobile/core/auth/secure_storage.dart';
 import 'package:monaco_mobile/core/auth/social_auth_service.dart';
@@ -18,12 +19,31 @@ import 'package:monaco_mobile/features/profile/presentation/screens/pin_verify_s
 /// Smoke de las pantallas de onboarding que no necesitan Supabase para
 /// dibujarse (welcome, teléfono, código, alta de PIN). El `submit` real contra
 /// `client-auth` no se ejercita acá: eso toca `authProvider`, que exige
-/// `Supabase.initialize`.
+/// `Supabase.initialize`. Donde hace falta el notifier (el "Seguir mirando")
+/// se reemplaza por [_AuthFalso].
 ///
 /// **Los botones de Google y Apple no aparecen en este harness**: se gatean con
 /// `Platform.isIOS` / `Platform.isAndroid` y `flutter test` corre en el host
 /// (macOS), donde los dos son `false`. Para verlos hay que correr la preview de
 /// `integration_test/alta_preview_test.dart` en el simulador.
+/// Auth de mentira: sólo sabe pasar a invitado. Con `implements`, cualquier
+/// otro método que la pantalla llame revienta en el test, que es lo que se
+/// quiere (que la bienvenida no dependa de más que esto).
+class _AuthFalso extends StateNotifier<AuthState> implements AuthNotifier {
+  _AuthFalso() : super(const AuthState(status: AuthStatus.unauthenticated));
+
+  int invitadoLlamadas = 0;
+
+  @override
+  Future<void> continuarComoInvitado() async {
+    invitadoLlamadas++;
+    state = const AuthState(status: AuthStatus.guest);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -41,6 +61,12 @@ void main() {
       initialLocation: initial,
       routes: [
         GoRoute(path: '/welcome', builder: (_, _) => const WelcomeScreen()),
+        // A dónde tiene que llegar "Seguir mirando". Sin redirect: acá se
+        // prueba que el link NAVEGA solo, no que el router lo empuje.
+        GoRoute(
+          path: '/home',
+          builder: (_, _) => const Scaffold(body: Text('HOME DE INVITADO')),
+        ),
         GoRoute(path: '/login', builder: (_, _) => const LoginPhoneScreen()),
         GoRoute(
           path: '/login/codigo',
@@ -57,10 +83,16 @@ void main() {
   }
 
   // Las pantallas tienen animaciones infinitas (orbes, LEDs): no se puede
-  // usar pumpAndSettle. Avanzamos el reloj a mano.
+  // usar pumpAndSettle. Avanzamos el reloj a mano — y en VARIOS frames, no en
+  // uno solo largo: un `AnimatedSwitcher` saca al hijo saliente recién en el
+  // frame siguiente al que termina su animación, y el carrusel de bienvenida
+  // encadena PageView → setState → switcher, que son tres frames como mínimo.
   Future<void> settle(WidgetTester t, [int ms = 900]) async {
     await t.pump();
-    await t.pump(Duration(milliseconds: ms));
+    for (var i = 0; i < (ms / 150).ceil(); i++) {
+      await t.pump(const Duration(milliseconds: 150));
+    }
+    await t.pump();
   }
 
   LoginFlow flujo({
@@ -79,26 +111,76 @@ void main() {
     sentAt: DateTime.now(),
   );
 
-  testWidgets('welcome: las opciones de entrada están en la primera pantalla', (
+  /// El carrusel: "Continuar" dos veces deja la tercera lámina en pantalla,
+  /// que es la única con las puertas de entrada.
+  Future<void> irALaUltimaLamina(WidgetTester t) async {
+    for (var i = 0; i < 2; i++) {
+      await t.tap(find.text('Continuar'));
+      await settle(t);
+    }
+  }
+
+  testWidgets('welcome: "Continuar" avanza y las puertas están en la última', (
     t,
   ) async {
     await t.pumpWidget(harness(initial: '/welcome'));
     await settle(t);
 
+    // Primera lámina: ilustración + copy + UN solo botón. Las formas de entrar
+    // no compiten con el carrusel (rediseño del 18/sep/2026).
     expect(find.textContaining('Tu barbería'), findsOneWidget);
-    // El teléfono, sí o sí visible sin deslizar los slides.
-    expect(find.text('Usar mi número de teléfono'), findsOneWidget);
-    // "Seguir mirando" (modo invitado) se sacó el 12/sep/2026 porque no
-    // entraba. Se afirma que NO está para que nadie lo reponga sin arreglar
-    // primero el flujo — y para que quede escrito que la app hoy exige cuenta,
-    // que es lo que App Review mira bajo la 5.1.1.
+    expect(find.text('Continuar'), findsOneWidget);
+    expect(find.text('Usar mi número de teléfono'), findsNothing);
     expect(find.text('Seguir mirando'), findsNothing);
+    expect(find.textContaining('Al continuar aceptás'), findsNothing);
+
+    await t.tap(find.text('Continuar'));
+    await settle(t);
+    expect(find.textContaining('Sumá puntos'), findsOneWidget);
+    expect(find.text('Continuar'), findsOneWidget);
+
+    await t.tap(find.text('Continuar'));
+    await settle(t);
+    expect(find.textContaining('Turnos en'), findsOneWidget);
+    // Recién acá: el "Continuar" se fue y en su lugar están las puertas +
+    // los legales.
+    expect(find.text('Continuar'), findsNothing);
+    expect(find.text('Usar mi número de teléfono'), findsOneWidget);
+    // "Seguir mirando" (modo invitado) es requisito de la 5.1.1 y va acá,
+    // visible sin scrollear, junto a las otras puertas.
+    expect(find.text('Seguir mirando'), findsOneWidget);
+    expect(find.textContaining('Al continuar aceptás'), findsOneWidget);
     // Lo que murió con el alta propia: la app ya no manda a nadie al local.
     expect(find.text('¿Aún no sos cliente?'), findsNothing);
 
     await t.tap(find.text('Usar mi número de teléfono'));
     await settle(t);
     expect(find.text('Ingresá tu número'), findsOneWidget);
+  });
+
+  testWidgets('welcome: "Seguir mirando" ENTRA al Home de invitado', (t) async {
+    // El bug por el que el link se sacó el 12/sep/2026: cambiaba el estado a
+    // `guest` y esperaba que el router lo moviera, pero `/welcome` está en la
+    // lista blanca del invitado y el redirect contestaba "quedate". El link
+    // tiene que navegar él mismo — y este harness no tiene redirect, así que
+    // si llega al Home es porque navegó.
+    final auth = _AuthFalso();
+    await t.pumpWidget(
+      harness(
+        initial: '/welcome',
+        overrides: [authProvider.overrideWith((ref) => auth)],
+      ),
+    );
+    await settle(t);
+    await irALaUltimaLamina(t);
+
+    await t.tap(find.text('Seguir mirando'));
+    await settle(t);
+
+    expect(auth.invitadoLlamadas, 1);
+    expect(auth.state.status, AuthStatus.guest);
+    expect(find.text('HOME DE INVITADO'), findsOneWidget);
+    expect(find.text('Seguir mirando'), findsNothing);
   });
 
   testWidgets('welcome: sin sociales, el teléfono es el botón PRIMARIO', (
@@ -111,13 +193,18 @@ void main() {
     // ningún botón principal.
     await t.pumpWidget(harness(initial: '/welcome'));
     await settle(t);
+    await irALaUltimaLamina(t);
 
+    // La pastilla activa del carrusel también es blanca (`seleccion`): lo que
+    // distingue a la lámina de un botón es la sombra.
     final laminaBlanca = find.byWidgetPredicate(
       (w) =>
           w is DecoratedBox &&
           w.decoration is BoxDecoration &&
-          (w.decoration as BoxDecoration).color == Colors.white,
+          (w.decoration as BoxDecoration).color == Colors.white &&
+          (w.decoration as BoxDecoration).boxShadow != null,
     );
+    // Una sola: el "Continuar" (también lámina blanca) ya no está.
     expect(laminaBlanca, findsOneWidget);
     expect(
       find.descendant(
@@ -129,17 +216,20 @@ void main() {
   });
 
   testWidgets('welcome: entra en una pantalla chica sin desbordar', (t) async {
-    // El pie pasó de un CTA a tres botones de 56 + legales, sobre un carrusel
-    // cuya lámina ahora ocupa el 58% del alto disponible. En un iPhone SE
-    // (320×568 lógicos) es donde revienta si el carrusel no cede alto. Un
-    // overflow de RenderFlex hace fallar el test.
+    // En un iPhone SE (320×568 lógicos) es donde revienta si el carrusel no
+    // cede alto: la lámina ocupa todo lo que el texto le deja, y en la última
+    // el pie pasa de un botón a las puertas de entrada + legales. Un overflow
+    // de RenderFlex hace fallar el test.
     t.view.physicalSize = const Size(640, 1136);
     t.view.devicePixelRatio = 2.0;
     addTearDown(t.view.reset);
 
     await t.pumpWidget(harness(initial: '/welcome'));
     await settle(t);
+    expect(find.text('Continuar'), findsOneWidget);
+    expect(t.takeException(), isNull);
 
+    await irALaUltimaLamina(t);
     expect(find.text('Usar mi número de teléfono'), findsOneWidget);
     expect(t.takeException(), isNull);
   });

@@ -314,10 +314,25 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   // ── Modo invitado ────────────────────────────────────────────────────────
 
-  /// "Seguir mirando": entra al Home sin cuenta. La marca se persiste para que
-  /// la próxima apertura no vuelva a plantarle la bienvenida.
+  /// "Seguir mirando": pasa a invitado. La marca se persiste para que la
+  /// próxima apertura no vuelva a plantarle la bienvenida.
+  ///
+  /// **No navega: el que llama tiene que hacer `context.go('/home')`.** Cambiar
+  /// el estado NO alcanza para salir de la bienvenida: `/welcome` está en la
+  /// lista blanca del invitado (un invitado que entró a `/login` desde el muro
+  /// y toca "volver" cae ahí), así que el redirect del router ve `guest` +
+  /// `/welcome` y contesta "quedate". Y si ya era invitado, el estado ni
+  /// cambia y el router ni se entera. Fue el bug por el que el link "no
+  /// entraba" (12–18/sep/2026).
+  ///
+  /// Si el Keychain falla, igual se entra: lo único que se pierde es que la
+  /// próxima apertura vuelva a mostrar la bienvenida.
   Future<void> continuarComoInvitado() async {
-    await SecureStorageService.setGuestMode(true);
+    try {
+      await SecureStorageService.setGuestMode(true);
+    } catch (e) {
+      debugPrint('[auth] no se pudo persistir el modo invitado: $e');
+    }
     state = const AuthState(status: AuthStatus.guest);
   }
 

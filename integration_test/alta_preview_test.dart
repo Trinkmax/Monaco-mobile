@@ -16,9 +16,10 @@
 // va a estar, y eso es correcto.
 //
 // Por qué existe: los overflows de esta pantalla no salen de `flutter test`.
-// La bienvenida pasó de un CTA a tres botones de 56 + link + legales sobre un
-// carrusel, y el muro de login es una hoja con copy variable — una columna sin
-// constraint de alto crece lo que necesita y nunca desborda en un widget test.
+// La bienvenida es un carrusel cuya lámina toma todo el alto que el texto le
+// deja, y en la última el pie pasa de un botón a tres de 56 + legales; el muro
+// de login es una hoja con copy variable — una columna sin constraint de alto
+// crece lo que necesita y nunca desborda en un widget test.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -79,6 +80,12 @@ const _sucursales = <Map<String, dynamic>>[
 /// "sin cuenta" del Home, Turnos, Premios y Perfil.
 class _AuthInvitado extends StateNotifier<AuthState> implements AuthNotifier {
   _AuthInvitado() : super(const AuthState(status: AuthStatus.guest));
+
+  /// Lo único que la bienvenida le pide al notifier: "Seguir mirando".
+  @override
+  Future<void> continuarComoInvitado() async {
+    state = const AuthState(status: AuthStatus.guest);
+  }
 
   @override
   dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
@@ -151,16 +158,31 @@ void main() {
 
   testWidgets('Bienvenida — las puertas de entrada', (tester) async {
     await tester.pumpWidget(
-      ProviderScope(overrides: _invitado(), child: _app(const WelcomeScreen())),
+      ProviderScope(
+        overrides: _invitado(),
+        child: _app(
+          const WelcomeScreen(),
+          extra: [
+            GoRoute(path: '/home', builder: (_, _) => const HomeScreen()),
+          ],
+        ),
+      ),
     );
     await shot(binding, tester, 'alta_01_bienvenida');
 
-    // Las tres láminas: el pie no cambia, pero el contenido sí, y es donde el
-    // carrusel comprimido puede desbordar.
-    for (var i = 1; i < 3; i++) {
-      await tester.drag(find.byType(PageView), const Offset(-400, 0));
-      await shot(binding, tester, 'alta_0${i + 1}_bienvenida_slide${i + 1}');
-    }
+    // Las tres láminas. La primera avanza con el botón (es lo que va a tocar
+    // el cliente), la segunda con el gesto. La tercera es la que hay que
+    // mirar: el pie pasa de "Continuar" a las tres puertas + legales y el
+    // carrusel cede alto — es donde puede desbordar.
+    await tester.tap(find.text('Continuar'));
+    await shot(binding, tester, 'alta_02_bienvenida_slide2');
+    await tester.drag(find.byType(PageView), const Offset(-400, 0));
+    await shot(binding, tester, 'alta_03_bienvenida_slide3');
+
+    // "Seguir mirando" tiene que ENTRAR (era el bug): la captura siguiente es
+    // el Home de invitado, no la bienvenida otra vez.
+    await tester.tap(find.text('Seguir mirando'));
+    await shot(binding, tester, 'alta_03b_seguir_mirando_entra');
   });
 
   testWidgets('Teléfono — alta social pendiente (Google)', (tester) async {

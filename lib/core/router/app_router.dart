@@ -145,6 +145,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         case AuthStatus.guest:
           // El gate de PIN/biometría no aplica sin sesión.
           if (isGate) return '/home';
+          // `/welcome` está permitida A PROPÓSITO (el "volver" de `/login`
+          // cae ahí). Consecuencia: pasar a `guest` estando en la bienvenida
+          // NO mueve a nadie — por eso "Seguir mirando" navega explícitamente
+          // a `/home` en vez de esperar a este redirect.
           return _permitidaParaInvitado(path) ? null : '/home';
         case AuthStatus.needsBiometric:
           if (isGate) return null;

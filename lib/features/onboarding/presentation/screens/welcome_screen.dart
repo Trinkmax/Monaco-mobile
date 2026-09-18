@@ -1,6 +1,9 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
@@ -8,6 +11,7 @@ import 'package:monaco_mobile/core/auth/auth_provider.dart';
 
 import '../../providers/login_flow_provider.dart';
 import '../widgets/auth_opciones.dart';
+import '../widgets/boton_lamina.dart';
 import '../widgets/legal_footer.dart';
 import '../widgets/onboarding_scaffold.dart';
 
@@ -30,9 +34,8 @@ class _Slide {
 ///
 /// **Sin pastilla de categoría** (decisión del dueño, 12/sep/2026). Cada slide
 /// llevaba un badge verde ("Fila en vivo", "Puntos y premios", "Turnos online")
-/// que repetía lo que ya dicen el título y el subtítulo, y le comía ~45 px de
-/// alto a la ilustración — que es lo que el dueño mira mientras pasan las
-/// láminas. La lámina manda; el texto explica.
+/// que repetía lo que ya dicen el título y el subtítulo, y le comía alto a la
+/// ilustración — que es lo que el dueño mira mientras pasan las láminas.
 const _slides = [
   _Slide(
     title: 'Tu barbería,\nen tu bolsillo',
@@ -54,23 +57,30 @@ const _slides = [
   ),
 ];
 
-/// **Puerta de entrada.** Tres láminas de contexto arriba y, abajo, las formas
-/// de entrar.
+/// **Puerta de entrada: un carrusel de tres láminas y, recién en la última,
+/// las formas de entrar** (rediseño del 18/sep/2026, pedido del dueño).
 ///
-/// Las opciones están en la PRIMERA pantalla, no escondidas detrás de un
-/// carrusel que hay que terminar: el dueño va a hacer publicidad y el que baja
-/// la app por un anuncio no es cliente todavía. Antes acá había un "¿Aún no sos
-/// cliente?" que explicaba que la cuenta nacía en la tablet del local —o sea,
-/// que la app rechazaba a todo el que llegara desde afuera—; eso murió junto
-/// con `no_cliente_sheet.dart`.
+/// Cada lámina es la ilustración GRANDE arriba, el texto centrado abajo y un
+/// solo botón "Continuar" que pasa a la siguiente. En la tercera, el pie se
+/// convierte —en el mismo lugar y con la misma lámina blanca— en las puertas
+/// de entrada (Google · Apple · teléfono), el link "Seguir mirando" y los
+/// legales. Antes las tres opciones estaban en la primera pantalla compitiendo
+/// con el carrusel: la ilustración quedaba chica, el texto apretado y abajo
+/// tres botones + un link + los legales, todo a la vez.
 ///
-/// **El link "Seguir mirando" (modo invitado) se sacó de acá el 12/sep/2026**
-/// por pedido del dueño: no entraba. Lo que NO se tocó es la maquinaria —
-/// `AuthNotifier.continuarComoInvitado()`, `AuthStatus.guest`, el muro de
-/// login y la marca persistida— porque la guideline 5.1.1 de App Store exige
-/// poder navegar sin cuenta cuando la app no es toda "account-based", y si App
-/// Review lo reclama hay que reponer un botón, no un flujo. Antes de reponerlo,
-/// arreglar por qué no entraba.
+/// **"Seguir mirando" no es una cortesía, es requisito de App Store** (5.1.1:
+/// si la app no es toda "account-based", tiene que dejar usarla sin login).
+/// Se sacó el 12/sep/2026 porque "no entraba" y volvió el 18/sep con el bug
+/// arreglado: el link cambiaba el estado a `guest` y esperaba que el router
+/// lo moviera, pero `/welcome` está en la lista blanca del invitado y el
+/// redirect contestaba "quedate". Ahora navega él mismo (`_SeguirMirando`).
+///
+/// Sin pastilla verde por lámina ("Fila en vivo", …): repetía el título y le
+/// comía alto a la ilustración (12/sep/2026).
+///
+/// Tampoco hay verde en la interfaz de esta pantalla (ni en los puntos del
+/// carrusel ni en el halo de la ilustración): el verde es del NEGOCIO, no de
+/// un estado de UI. "Seleccionado" acá se lee en blanco, como en el resto.
 class WelcomeScreen extends ConsumerStatefulWidget {
   const WelcomeScreen({super.key});
 
@@ -79,8 +89,12 @@ class WelcomeScreen extends ConsumerStatefulWidget {
 }
 
 class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
+  static const _pasoDeLamina = Duration(milliseconds: 380);
+
   final _pageCtrl = PageController();
   int _page = 0;
+
+  bool get _ultima => _page == _slides.length - 1;
 
   @override
   void initState() {
@@ -120,6 +134,20 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
     );
   }
 
+  void _siguiente() {
+    if (_ultima) return;
+    _pageCtrl.nextPage(duration: _pasoDeLamina, curve: Curves.easeOutCubic);
+  }
+
+  void _irA(int i) {
+    if (i == _page) return;
+    _pageCtrl.animateToPage(
+      i,
+      duration: _pasoDeLamina,
+      curve: Curves.easeOutCubic,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
@@ -134,12 +162,40 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
       ),
       footer: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _Dots(count: _slides.length, index: _page).liquidEnter(index: 3),
-          const SizedBox(height: 16),
-          const AuthOpciones().liquidEnter(index: 4),
-          const SizedBox(height: 10),
-          const LegalFooter().liquidEnter(index: 5),
+          _Dots(
+            count: _slides.length,
+            index: _page,
+            onTap: _irA,
+          ).liquidEnter(index: 3),
+          const SizedBox(height: 14),
+          // El pie cambia de forma con la lámina: un "Continuar" en las dos
+          // primeras, las puertas de entrada en la última. `AnimatedSize`
+          // acompaña el cambio de alto —y el carrusel de arriba, que es un
+          // `Expanded`, cede o recupera ese alto en el mismo movimiento—;
+          // `AnimatedSwitcher` cruza el contenido.
+          AnimatedSize(
+            duration: const Duration(milliseconds: 340),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: AnimatedSwitcher(
+              duration: LiquidTokens.swap,
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: _transicionDelPie,
+              layoutBuilder: _elPieMideSoloAlQueEntra,
+              child: _ultima
+                  ? const _PuertasDeEntrada(key: ValueKey('entrar'))
+                  : BotonLamina(
+                      key: const ValueKey('continuar'),
+                      label: 'Continuar',
+                      trailing: Icons.arrow_forward_rounded,
+                      solido: true,
+                      onPressed: _siguiente,
+                    ),
+            ),
+          ).liquidEnter(index: 4),
         ],
       ),
       child: PageView.builder(
@@ -152,6 +208,104 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
       ),
     );
   }
+
+  static Widget _transicionDelPie(Widget child, Animation<double> anim) {
+    return FadeTransition(
+      opacity: anim,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.05),
+          end: Offset.zero,
+        ).animate(anim),
+        child: child,
+      ),
+    );
+  }
+
+  /// El `Stack` mide SÓLO al hijo que entra: los que salen quedan pegados
+  /// arriba, fuera del flujo, desvaneciéndose encima. Con el layout por
+  /// default (todos en flujo) la caja saltaba en el acto al tamaño del más
+  /// alto y el `AnimatedSize` de afuera no tenía nada que animar a la ida; a la
+  /// vuelta se quedaba grande hasta que el saliente terminaba de irse.
+  static Widget _elPieMideSoloAlQueEntra(
+    Widget? actual,
+    List<Widget> anteriores,
+  ) {
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.topCenter,
+      children: [
+        for (final w in anteriores)
+          Positioned(top: 0, left: 0, right: 0, child: w),
+        ?actual,
+      ],
+    );
+  }
+}
+
+/// Google · Apple · teléfono, "Seguir mirando" y los legales. Sólo en la
+/// última lámina.
+class _PuertasDeEntrada extends StatelessWidget {
+  const _PuertasDeEntrada({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AuthOpciones(),
+        SizedBox(height: 2),
+        _SeguirMirando(),
+        SizedBox(height: 2),
+        LegalFooter(),
+      ],
+    );
+  }
+}
+
+/// Modo invitado. Va como link y no como botón a propósito: es la salida, no
+/// la acción que queremos. Pero tiene que estar **visible sin scrollear** —un
+/// "sin cuenta" escondido es lo mismo que no tenerlo.
+///
+/// **Navega él mismo a `/home`.** No alcanza con cambiar el estado: `/welcome`
+/// está permitida para el invitado (el "volver" de `/login` cae ahí), así que
+/// el redirect del router ve `guest` + `/welcome` y no mueve a nadie; y si ya
+/// era invitado, el estado ni cambia. Es exactamente por lo que el link "no
+/// entraba" antes.
+class _SeguirMirando extends ConsumerStatefulWidget {
+  const _SeguirMirando();
+
+  @override
+  ConsumerState<_SeguirMirando> createState() => _SeguirMirandoState();
+}
+
+class _SeguirMirandoState extends ConsumerState<_SeguirMirando> {
+  bool _busy = false;
+
+  Future<void> _entrar() async {
+    setState(() => _busy = true);
+    // El router se toma ANTES del await: si algo desmonta la pantalla en el
+    // medio, `context` ya no lo encuentra.
+    final router = GoRouter.of(context);
+    try {
+      await ref.read(authProvider.notifier).continuarComoInvitado();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    router.go('/home');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: OnboardingLink(
+        label: _busy ? 'Entrando…' : 'Seguir mirando',
+        icon: Icons.visibility_outlined,
+        onTap: _busy ? null : _entrar,
+      ),
+    );
+  }
 }
 
 class _SlideView extends StatelessWidget {
@@ -159,16 +313,26 @@ class _SlideView extends StatelessWidget {
   final bool compact;
   const _SlideView({super.key, required this.slide, required this.compact});
 
+  /// Alto que se le reserva al texto (título de dos líneas + subtítulo de
+  /// hasta tres + el aire entre ambos y con la lámina), medido en Poppins. La
+  /// ilustración se queda con TODO lo demás: es lo que el cliente mira.
+  double get _altoTexto => compact ? 150 : 195;
+
   @override
   Widget build(BuildContext context) {
-    // La ilustración se adapta al alto que queda. Sacar la pastilla verde y el
-    // link de invitado devolvió ~90 px, que van acá: la lámina es lo que el
-    // cliente mira mientras pasa los slides. Si aun así no entra (pantalla
-    // chica), el slide scrollea en vez de desbordar.
     return LayoutBuilder(
       builder: (context, constraints) {
         final h = constraints.maxHeight;
-        final imageSize = (h * 0.58).clamp(120.0, compact ? 215.0 : 280.0);
+        final w = constraints.maxWidth;
+        // Cuadrada, tan grande como deje el texto y el ancho, con un tope para
+        // que en una pantalla alta no se vuelva un póster. Cuando el pie crece
+        // (última lámina) el alto disponible baja y la lámina se achica con él,
+        // animada por el `AnimatedSize` del pie. Si aun así no entra (pantalla
+        // chica con tres botones), el slide scrollea en vez de desbordar.
+        final tope = compact ? 260.0 : 380.0;
+        final imageSize = math
+            .min(math.min(h - _altoTexto, w - 48), tope)
+            .clamp(140.0, tope);
         return SingleChildScrollView(
           physics: const ClampingScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: 28),
@@ -176,47 +340,10 @@ class _SlideView extends StatelessWidget {
             constraints: BoxConstraints(minHeight: h),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // ── Ilustración sobre un halo verde ──
-                Center(
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          Container(
-                            width: imageSize * 0.9,
-                            height: imageSize * 0.9,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: RadialGradient(
-                                colors: [
-                                  MonacoColors.monacoGreen.withValues(
-                                    alpha: 0.16,
-                                  ),
-                                  Colors.transparent,
-                                ],
-                              ),
-                            ),
-                          ),
-                          Image.asset(
-                            slide.imagePath,
-                            width: imageSize,
-                            height: imageSize,
-                            fit: BoxFit.contain,
-                            filterQuality: FilterQuality.medium,
-                          ),
-                        ],
-                      ),
-                    )
-                    .animate()
-                    .fadeIn(duration: 480.ms)
-                    .scale(
-                      begin: const Offset(0.86, 0.86),
-                      end: const Offset(1, 1),
-                      duration: 560.ms,
-                      curve: Curves.easeOutCubic,
-                    ),
-                SizedBox(height: compact ? 14 : 22),
+                _Ilustracion(path: slide.imagePath, size: imageSize),
+                SizedBox(height: compact ? 18 : 26),
                 _SlideCopy(slide: slide, compact: compact),
               ],
             ),
@@ -227,7 +354,73 @@ class _SlideView extends StatelessWidget {
   }
 }
 
-/// Título + subtítulo de un slide, con entrada escalonada.
+/// La ilustración sobre un halo neutro, con el borde inferior fundido al
+/// fondo: las tres láminas vienen recortadas abajo (los pies del barbero, el
+/// torso del cliente) y sin el fundido ese corte se lee como un error de
+/// recorte, no como una viñeta.
+class _Ilustracion extends StatelessWidget {
+  final String path;
+  final double size;
+  const _Ilustracion({required this.path, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+          width: size,
+          height: size,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: size * 0.94,
+                height: size * 0.94,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      Colors.white.withValues(alpha: 0.11),
+                      Colors.white.withValues(alpha: 0.035),
+                      Colors.transparent,
+                    ],
+                    stops: const [0, 0.55, 1],
+                  ),
+                ),
+              ),
+              ShaderMask(
+                shaderCallback: (rect) => LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.white,
+                    Colors.white,
+                    Colors.white.withValues(alpha: 0),
+                  ],
+                  stops: const [0, 0.8, 1],
+                ).createShader(rect),
+                blendMode: BlendMode.dstIn,
+                child: Image.asset(
+                  path,
+                  width: size,
+                  height: size,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.medium,
+                ),
+              ),
+            ],
+          ),
+        )
+        .animate()
+        .fadeIn(duration: 480.ms)
+        .scale(
+          begin: const Offset(0.9, 0.9),
+          end: const Offset(1, 1),
+          duration: 560.ms,
+          curve: Curves.easeOutCubic,
+        );
+  }
+}
+
+/// Título + subtítulo de un slide, centrados, con entrada escalonada.
 class _SlideCopy extends StatelessWidget {
   final _Slide slide;
   final bool compact;
@@ -236,17 +429,17 @@ class _SlideCopy extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // ── Título ──
         Text(
               slide.title,
+              textAlign: TextAlign.center,
               style: TextStyle(
                 color: MonacoColors.textPrimary,
-                fontSize: compact ? 26 : 30,
+                fontSize: compact ? 27 : 31,
                 fontWeight: FontWeight.w900,
-                letterSpacing: -1.2,
-                height: 1.05,
+                letterSpacing: -1.1,
+                height: 1.06,
               ),
             )
             .animate()
@@ -259,15 +452,19 @@ class _SlideCopy extends StatelessWidget {
               curve: Curves.easeOutCubic,
             ),
         const SizedBox(height: 10),
-
-        // ── Subtítulo ──
-        Text(
-              slide.subtitle,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.6),
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                height: 1.4,
+        ConstrainedBox(
+              // Un párrafo centrado de más de ~40 caracteres por línea se lee
+              // peor que el mismo texto en dos o tres líneas cortas.
+              constraints: const BoxConstraints(maxWidth: 320),
+              child: Text(
+                slide.subtitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.62),
+                  fontSize: compact ? 14 : 15,
+                  fontWeight: FontWeight.w500,
+                  height: 1.45,
+                ),
               ),
             )
             .animate()
@@ -284,11 +481,13 @@ class _SlideCopy extends StatelessWidget {
   }
 }
 
-/// Indicador de páginas: pastilla activa verde que se estira.
+/// Indicador de páginas: pastilla activa blanca que se estira. Cada punto se
+/// toca (área de 44 de alto aunque el punto mida 8).
 class _Dots extends StatelessWidget {
   final int count;
   final int index;
-  const _Dots({required this.count, required this.index});
+  final ValueChanged<int> onTap;
+  const _Dots({required this.count, required this.index, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -296,26 +495,28 @@ class _Dots extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: List.generate(count, (i) {
         final on = i == index;
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 320),
-          curve: Curves.easeOutCubic,
-          width: on ? 26 : 8,
-          height: 8,
-          margin: const EdgeInsets.symmetric(horizontal: 3.5),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(999),
-            color: on
-                ? MonacoColors.monacoGreen
-                : Colors.white.withValues(alpha: 0.22),
-            boxShadow: on
-                ? [
-                    BoxShadow(
-                      color: MonacoColors.monacoGreen.withValues(alpha: 0.45),
-                      blurRadius: 10,
-                      spreadRadius: -2,
-                    ),
-                  ]
-                : null,
+        return Semantics(
+          button: true,
+          selected: on,
+          label: 'Lámina ${i + 1} de $count',
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => onTap(i),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 320),
+                curve: Curves.easeOutCubic,
+                width: on ? 28 : 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(999),
+                  color: on
+                      ? MonacoColors.seleccion
+                      : Colors.white.withValues(alpha: 0.24),
+                ),
+              ),
+            ),
           ),
         );
       }),
