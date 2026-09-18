@@ -52,11 +52,11 @@ secundaria más cercana para cuidado personal. Se puede dejar vacía sin costo.
 
 | Campo | Valor | Estado |
 |---|---|---|
-| **Support URL** (obligatoria) | `https://monacobarber.vercel.app/soporte` | **404 al 10/9/2026 — hay que deployar** |
+| **Support URL** (obligatoria) | `https://monacobarber.vercel.app/soporte` | 200 (deployada el 18/9/2026) |
 | **Marketing URL** (opcional) | `https://monacobarberstudio.com` | 200, sitio real del negocio |
-| **Privacy Policy URL** (obligatoria) | `https://monacobarber.vercel.app/privacidad` | 200 |
+| **Privacy Policy URL** (obligatoria) | `https://monacobarber.vercel.app/privacidad` | 200 — con el responsable real (Antonio Nicolás Ramírez) desde el 18/9/2026 |
 | Términos (en la ficha, opcional; en la app ya está enlazado) | `https://monacobarber.vercel.app/terminos` | 200 |
-| Borrado de cuenta (Play lo pide como campo; Apple lo revisa dentro de la app) | `https://monacobarber.vercel.app/eliminar-cuenta` | **404 al 10/9/2026 — hay que deployar** |
+| Borrado de cuenta (Play lo pide como campo; Apple lo revisa dentro de la app) | `https://monacobarber.vercel.app/eliminar-cuenta` | 200 (deployada el 18/9/2026) |
 
 Si el dueño conecta un dominio propio (p. ej. `app.monacobarberstudio.com`), hay que
 cambiar las cuatro URLs acá **y** las que la app abre desde Perfil
