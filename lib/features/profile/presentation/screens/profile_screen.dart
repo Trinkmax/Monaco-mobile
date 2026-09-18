@@ -851,16 +851,35 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     HapticFeedback.mediumImpact();
     setState(() => _busy = true);
 
-    // Overlay bloqueante mientras borra.
-    unawaited(
-      showDialog<void>(
-        context: context,
-        useRootNavigator: true,
-        barrierDismissible: false,
-        barrierColor: Colors.black.withValues(alpha: 0.72),
-        builder: (_) => const PopScope(
-          canPop: false,
-          child: Center(
+    // Velo bloqueante mientras borra. Es un `OverlayEntry` y NO un diálogo
+    // (`showDialog` sobre el navigator raíz), y se quita en el `finally` por
+    // referencia. La versión anterior era un diálogo que se cerraba con
+    // `Navigator.of(context, rootNavigator: true).pop()` al volver del await,
+    // y eso le dejaba al revisor una PANTALLA NEGRA (18/9/2026, iPhone real):
+    //
+    //   1. `AuthService.deleteAccount()` hace `signOut()` local después del
+    //      200 del server; el evento `signedOut` llegaba a `AuthNotifier` a
+    //      mitad del flujo, ponía `unauthenticated` y el router se iba a
+    //      `/welcome` ANTES de que este método volviera del await.
+    //   2. El navigator raíz reemplazaba la página del shell por la bienvenida
+    //      y, como documenta `Navigator.pages`, se llevaba consigo el diálogo
+    //      (ruta sin página) que estaba encima.
+    //   3. Pero la página saliente sigue MONTADA mientras dura su animación de
+    //      salida (~300 ms): `mounted` seguía en true y el `pop()` "para
+    //      cerrar el overlay" ya no encontraba diálogo — le sacaba la ÚNICA
+    //      página al navigator raíz, la bienvenida, y el navigator quedaba
+    //      vacío. Negro, con la barra de estado visible.
+    //
+    // Con un OverlayEntry no hay ninguna ruta que popear y `remove()` es
+    // seguro aunque la pantalla ya no exista. La otra mitad del arreglo está en
+    // `AuthNotifier` (`_borrandoCuenta`): el `signedOut` de ese signOut se
+    // ignora y el estado lo fija `deleteAccount()` UNA vez, al final, así el
+    // router no se mueve mientras este método está a medias.
+    final velo = OverlayEntry(
+      builder: (_) => AbsorbPointer(
+        child: ColoredBox(
+          color: Colors.black.withValues(alpha: 0.72),
+          child: const Center(
             child: SizedBox(
               width: 44,
               height: 44,
@@ -873,6 +892,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         ),
       ),
     );
+    Overlay.of(context, rootOverlay: true).insert(velo);
+    // El router se toma ANTES de los await: si la pantalla se desmonta en el
+    // medio, `context` ya no lo encuentra.
+    final router = GoRouter.of(context);
 
     String? error;
     try {
@@ -886,21 +909,28 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       // Failed host lookup" es exactamente lo que no puede pasar.
       debugPrint('[perfil] eliminar cuenta falló: $e\n$st');
       error = 'No pudimos eliminar la cuenta. Probá de nuevo o escribinos.';
+    } finally {
+      velo.remove();
+      velo.dispose();
+    }
+
+    if (error == null) {
+      // El toast vive en el overlay RAÍZ (`showLiquidToast`), así que
+      // sobrevive al cambio de página; sólo necesita un context vivo para
+      // encontrarlo.
+      if (mounted) {
+        showLiquidToast(
+          context,
+          'Tu cuenta fue eliminada.',
+          tone: LiquidToastTone.success,
+        );
+      }
+      router.go('/welcome');
+      return;
     }
 
     if (!mounted) return;
-    Navigator.of(context, rootNavigator: true).pop(); // cierra el overlay
     setState(() => _busy = false);
-
-    if (error == null) {
-      showLiquidToast(
-        context,
-        'Tu cuenta fue eliminada.',
-        tone: LiquidToastTone.success,
-      );
-      context.go('/welcome');
-      return;
-    }
 
     // Seña pagada sin resolver: NO es "algo salió mal", es un paso que falta y
     // que el cliente puede dar solo. Un toast de cinco segundos con el código

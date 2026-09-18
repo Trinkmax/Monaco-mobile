@@ -171,6 +171,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
   bool _initialized = false;
   bool _cerrandoSesionInvalida = false;
 
+  /// `true` mientras corre [deleteAccount]. `AuthService.deleteAccount()`
+  /// hace un `signOut()` local después de que el server borró la cuenta, y el
+  /// evento `signedOut` de ese signOut llegaría a [_onAuthEvent] a MITAD del
+  /// flujo: pondría `unauthenticated` y el router redirigiría a `/welcome`
+  /// mientras la pantalla de Perfil todavía espera la respuesta — que es como
+  /// terminó en pantalla negra el 18/9/2026 (ver `_executeDeleteAccount`).
+  /// Con la marca puesta el evento se ignora y el estado lo fija
+  /// [deleteAccount] una sola vez, al final.
+  bool _borrandoCuenta = false;
+
   AuthNotifier(this._ref) : super(const AuthState()) {
     _init();
   }
@@ -233,6 +243,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   void _onAuthEvent(sb.AuthState data) {
     if (!_initialized) return;
+    if (_borrandoCuenta) return;
     if (data.event == sb.AuthChangeEvent.signedOut) {
       unawaited(SecureStorageService.clearSession());
       state = const AuthState(status: AuthStatus.unauthenticated);
@@ -405,12 +416,22 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   /// Apple 5.1.1(v): borrar la cuenta desde la app. `null` = OK.
+  ///
+  /// El estado se fija acá y sólo acá, al final: el `signedOut` que dispara el
+  /// signOut local de `AuthService.deleteAccount()` se ignora mientras
+  /// [_borrandoCuenta] está puesta (ver el campo). Si el borrado falla, el
+  /// estado no se toca: el cliente sigue adentro y ve el motivo.
   Future<String?> deleteAccount() async {
-    final err = await _authService.deleteAccount();
-    if (err == null) {
-      state = const AuthState(status: AuthStatus.unauthenticated);
+    _borrandoCuenta = true;
+    try {
+      final err = await _authService.deleteAccount();
+      if (err == null) {
+        state = const AuthState(status: AuthStatus.unauthenticated);
+      }
+      return err;
+    } finally {
+      _borrandoCuenta = false;
     }
-    return err;
   }
 
   /// Actualiza el nombre en el estado + storage local (la persistencia remota
