@@ -25,9 +25,10 @@
 # pbxproj que quede apuntando a Debug sube a App Store Connect con el entorno de
 # APNs equivocado y el push no llega a nadie en producción.
 #
-# Entonces el script firma sin push, y para no romper el camino de App Store
-# (donde el push SÍ hay que declararlo) el cambio es TEMPORAL: se toca el
-# project.pbxproj, se compila, y el `trap` lo restaura pase lo que pase.
+# Entonces el script firma con APNs en `development`, y para no romper el
+# camino de App Store (donde tiene que ir `production`) el cambio es TEMPORAL:
+# se toca el project.pbxproj, se compila, y el `trap` lo restaura pase lo que
+# pase.
 #
 # CADUCIDAD: con el Apple ID gratuito la app instalada así moría a los 7 días.
 # Desde el programa pago (14/9/2026) el perfil dura un año. Igual, para repartir
