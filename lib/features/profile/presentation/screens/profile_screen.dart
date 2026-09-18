@@ -6,7 +6,6 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'package:monaco_mobile/app/theme/monaco_colors.dart';
 import 'package:monaco_mobile/app/widgets/glass/liquid.dart';
@@ -28,7 +27,7 @@ import 'package:monaco_mobile/features/onboarding/presentation/widgets/copy_sesi
 import 'package:monaco_mobile/features/onboarding/presentation/widgets/muro_login.dart';
 import 'package:monaco_mobile/features/onboarding/presentation/widgets/onboarding_scaffold.dart';
 import 'package:monaco_mobile/features/onboarding/utils/phone_format.dart';
-import 'package:monaco_mobile/features/senas/presentation/widgets/arrepentimiento_link.dart';
+import 'package:monaco_mobile/features/profile/presentation/widgets/legal_y_soporte.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Providers
@@ -367,51 +366,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
             const SizedBox(height: 26),
 
-            // ── Legal y soporte ────────────────────────────────────────
-            const _SectionLabel('Legal y soporte').liquidEnter(index: 10),
-            const SizedBox(height: 10),
-            LiquidSectionCard(
-              children: [
-                LiquidListTile(
-                  icon: Icons.shield_outlined,
-                  title: 'Política de privacidad',
-                  onTap: () => _openUrl(AppConstants.privacyPolicyUrl),
-                ),
-                LiquidListTile(
-                  icon: Icons.description_outlined,
-                  title: 'Términos y condiciones',
-                  onTap: () => _openUrl(AppConstants.termsOfServiceUrl),
-                ),
-                LiquidListTile(
-                  icon: Icons.undo_rounded,
-                  title: 'Botón de arrepentimiento',
-                  subtitle: 'Arrepentite de una compra dentro de los 10 días',
-                  onTap: () => abrirArrepentimiento(context),
-                ),
-                LiquidListTile(
-                  icon: Icons.help_outline_rounded,
-                  title: 'Soporte',
-                  subtitle: 'Preguntas frecuentes y cómo escribirnos',
-                  onTap: () => _openUrl(AppConstants.supportUrl),
-                ),
-                LiquidListTile(
-                  icon: Icons.chat_rounded,
-                  iconColor: MonacoColors.monacoGreen,
-                  title: 'Soporte por WhatsApp',
-                  subtitle:
-                      '${AppConstants.supportPhoneDisplay} · en horario de atención',
-                  onTap: () => _openUrl(AppConstants.supportWhatsappUrl),
-                ),
-                LiquidListTile(
-                  icon: Icons.alternate_email_rounded,
-                  title: 'Soporte por email',
-                  subtitle: AppConstants.supportEmail,
-                  onTap: () => _openUrl(
-                    'mailto:${AppConstants.supportEmail}?subject=${Uri.encodeComponent('Soporte app Monaco')}',
-                  ),
-                ),
-              ],
-            ).liquidEnter(index: 11),
+            // ── Legal y soporte: una fila; la hoja tiene las seis opciones ──
+            const LegalYSoporteFila().liquidEnter(index: 10),
 
             const SizedBox(height: 32),
 
@@ -603,28 +559,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     );
   }
 
-  Future<void> _openUrl(String url) async {
-    final uri = Uri.tryParse(url);
-    if (uri == null) return;
-    try {
-      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!ok && mounted) {
-        showLiquidToast(
-          context,
-          'No pudimos abrir el enlace.',
-          tone: LiquidToastTone.error,
-        );
-      }
-    } catch (_) {
-      if (mounted) {
-        showLiquidToast(
-          context,
-          'No pudimos abrir el enlace.',
-          tone: LiquidToastTone.error,
-        );
-      }
-    }
-  }
 
   /// Perfil de un **invitado**: sin datos personales (no hay ninguno), con lo
   /// legal y el soporte —que son públicos y App Store los quiere accesibles— y
@@ -713,50 +647,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
           const SizedBox(height: 26),
 
-          const _SectionLabel('Legal y soporte').liquidEnter(index: 1),
-          const SizedBox(height: 10),
-          LiquidSectionCard(
-            children: [
-              LiquidListTile(
-                icon: Icons.shield_outlined,
-                title: 'Política de privacidad',
-                onTap: () => _openUrl(AppConstants.privacyPolicyUrl),
-              ),
-              LiquidListTile(
-                icon: Icons.description_outlined,
-                title: 'Términos y condiciones',
-                onTap: () => _openUrl(AppConstants.termsOfServiceUrl),
-              ),
-              LiquidListTile(
-                icon: Icons.undo_rounded,
-                title: 'Botón de arrepentimiento',
-                subtitle: 'Arrepentite de una compra dentro de los 10 días',
-                onTap: () => abrirArrepentimiento(context),
-              ),
-              LiquidListTile(
-                icon: Icons.help_outline_rounded,
-                title: 'Soporte',
-                subtitle: 'Preguntas frecuentes y cómo escribirnos',
-                onTap: () => _openUrl(AppConstants.supportUrl),
-              ),
-              LiquidListTile(
-                icon: Icons.chat_rounded,
-                iconColor: MonacoColors.monacoGreen,
-                title: 'Soporte por WhatsApp',
-                subtitle:
-                    '${AppConstants.supportPhoneDisplay} · en horario de atención',
-                onTap: () => _openUrl(AppConstants.supportWhatsappUrl),
-              ),
-              LiquidListTile(
-                icon: Icons.alternate_email_rounded,
-                title: 'Soporte por email',
-                subtitle: AppConstants.supportEmail,
-                onTap: () => _openUrl(
-                  'mailto:${AppConstants.supportEmail}?subject=${Uri.encodeComponent('Soporte app Monaco')}',
-                ),
-              ),
-            ],
-          ).liquidEnter(index: 2),
+          // La misma fila que en el perfil con cuenta: la hoja tiene las seis
+          // opciones (soporte, legales y el botón de arrepentimiento).
+          const LegalYSoporteFila().liquidEnter(index: 2),
 
           const SizedBox(height: 26),
 

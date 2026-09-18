@@ -46,33 +46,39 @@ Future<void> abrirArrepentimiento(BuildContext context) async {
   }
 }
 
-/// El link, con la misma forma en las tres pantallas donde aparece (hoja de
-/// seña, resultado del pago y detalle del turno señado): discreto, pero con el
-/// nombre EXACTO que exige la norma —"Botón de arrepentimiento"—, que es lo que
-/// el cliente va a buscar.
+/// El link, con la misma forma en las cuatro pantallas donde aparece (hoja de
+/// seña, resultado del pago, detalle del turno señado y la hoja "Legal y
+/// soporte" del Perfil): **discreto** —texto chico, apagado, subrayado, sin
+/// ícono (pedido del dueño, 18/sep/2026)— pero con el nombre EXACTO que exige
+/// la norma, "Botón de arrepentimiento", que es lo que el cliente va a buscar.
+/// Discreto no es escondido: sigue teniendo 34 px de alto tocable.
 class ArrepentimientoLink extends StatelessWidget {
-  /// Alineación dentro del ancho disponible. Izquierda en la hoja (va pegado
-  /// al párrafo que anuncia el derecho), centrada en las pantallas de estado.
+  /// Alineación dentro del ancho disponible.
   final Alignment alineacion;
 
   const ArrepentimientoLink({super.key, this.alineacion = Alignment.centerLeft});
 
   @override
   Widget build(BuildContext context) {
+    final color = Colors.white.withValues(alpha: 0.5);
     return Align(
       alignment: alineacion,
-      child: TextButton.icon(
+      child: TextButton(
         onPressed: () => abrirArrepentimiento(context),
-        icon: const Icon(Icons.undo_rounded, size: 15),
-        label: const Text(
-          'Botón de arrepentimiento',
-          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
-        ),
         style: TextButton.styleFrom(
-          foregroundColor: Colors.white.withValues(alpha: 0.75),
+          foregroundColor: color,
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           minimumSize: const Size(0, 34),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: Text(
+          'Botón de arrepentimiento',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            decoration: TextDecoration.underline,
+            decorationColor: color.withValues(alpha: 0.35),
+          ),
         ),
       ),
     );

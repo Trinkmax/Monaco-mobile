@@ -122,20 +122,6 @@ class _CuerpoHojaState extends State<_CuerpoHoja> {
           _Politica(parrafos: parrafos),
           const SizedBox(height: 10),
         ],
-        // El botón de arrepentimiento va donde está el derecho: al lado del
-        // párrafo que lo anuncia. En la web el mismo párrafo lleva el link a
-        // /arrepentimiento; sin él, la app anunciaba un derecho y no decía
-        // dónde ejercerlo (la Disp. 954/2025 —que derogó la Res. 424/2020—
-        // exige que esté visible y de fácil acceso).
-        //
-        // El MISMO link aparece después de pagar (pantalla de estado del pago y
-        // detalle del turno señado): los 10 días del art. 1110 CCyC empiezan a
-        // correr con el pago, así que ofrecerlo sólo acá es ofrecerlo antes de
-        // que sirva para algo.
-        if (intencion.politica.arrepentimiento != null) ...[
-          const ArrepentimientoLink(),
-          const SizedBox(height: 6),
-        ],
         // La aceptación, pegada al botón que cobra y con el monto adentro.
         // El turnero web exige lo mismo; sin este acto, "lo leyó" es una
         // suposición nuestra. El art. 1111 CCyC pide la información sobre
@@ -209,6 +195,18 @@ class _CuerpoHojaState extends State<_CuerpoHoja> {
             ),
           ),
         ),
+        // El botón de arrepentimiento, al final y discreto (pedido del dueño,
+        // 18/sep/2026; antes iba entre la política y la aceptación, con ícono).
+        // Lo que informa el derecho es el párrafo de la política de arriba,
+        // que el art. 1111 CCyC exige "inmediatamente antes de la aceptación"
+        // y que sigue ahí; esto es sólo el acceso, con el nombre exacto que
+        // pide la Disp. 954/2025. El MISMO link aparece después de pagar
+        // (estado del pago y detalle del turno señado), que es cuando el
+        // derecho de verdad se puede ejercer.
+        if (intencion.politica.arrepentimiento != null) ...[
+          const SizedBox(height: 2),
+          const ArrepentimientoLink(alineacion: Alignment.center),
+        ],
       ],
     );
   }
