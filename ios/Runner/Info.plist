@@ -47,6 +47,13 @@
 	<!-- Permisos. La cámara y la galería NO se usan: no declarar sus usage strings. -->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Usamos tu ubicación aproximada para ordenar las sucursales por cercanía. Es opcional: si no la compartís, la app funciona igual.</string>
+	<!-- La app NUNCA pide ubicación "siempre", pero el binario de `geolocator`
+	     referencia la API que la pide, y App Store Connect exige el texto de
+	     propósito de toda API referenciada, se use o no (ITMS-90683, build 20
+	     del 18/9/2026). Mismo texto que la de "mientras se usa": si algún día
+	     esta variante se pidiera de verdad, el cliente leería lo mismo. -->
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Usamos tu ubicación aproximada para ordenar las sucursales por cercanía. Es opcional: si no la compartís, la app funciona igual.</string>
 	<key>NSLocationDefaultAccuracyReduced</key>
 	<true/>
 	<key>NSFaceIDUsageDescription</key>
