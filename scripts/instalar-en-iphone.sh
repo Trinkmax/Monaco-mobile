@@ -6,24 +6,33 @@
 # --------------------------
 # La configuración Release del proyecto usa `Runner/RunnerRelease.entitlements`,
 # que declara `aps-environment` (Push Notifications). Esa capability SÓLO la puede
-# firmar una cuenta del Apple Developer Program pago. Con el Apple ID gratuito
-# (Personal Team A3WAXVR55Z) el build muere con:
+# firmar una cuenta del Apple Developer Program pago. Mientras el equipo
+# A3WAXVR55Z fue un Apple ID gratuito (hasta el 14/9/2026, cuando la inscripción
+# Individual lo convirtió en equipo pago con el MISMO Team ID) el build moría con:
 #
 #   "Personal development teams ... do not support the Push Notifications capability"
 #
-# Para una instalación local eso no cuesta nada: mientras `lib/firebase_options.dart`
-# tenga PLACEHOLDER (todavía no se corrió `flutterfire configure`), `main.dart`
-# SALTEA la init de Firebase y el push no funciona en ningún caso. Cuando Firebase
-# esté configurado y haya Developer Program pago, este script deja de hacer falta:
-# `flutter run --release` firma con push directamente.
+# EL SWAP SIGUE HACIENDO FALTA, POR OTRO MOTIVO (15/9/2026). Ya no es que el
+# equipo no pueda firmar push: ahora puede. Lo que no coincide es el ENTORNO de
+# APNs. `RunnerRelease.entitlements` declara `aps-environment = production`,
+# porque es lo que exige un perfil de DISTRIBUCIÓN (App Store / TestFlight);
+# una instalación por cable se firma con un perfil de DESARROLLO, que es sandbox
+# de APNs. Con `production` en los entitlements y un perfil de desarrollo, la
+# firma falla con "Provisioning profile doesn't match the entitlements".
+# Por eso el script apunta Release a `Runner.entitlements`, que declara lo mismo
+# pero con `aps-environment = development`. Es el mismo swap de siempre; cambió
+# el porqué, y por eso el `trap` que lo restaura sigue siendo obligatorio: un
+# pbxproj que quede apuntando a Debug sube a App Store Connect con el entorno de
+# APNs equivocado y el push no llega a nadie en producción.
 #
 # Entonces el script firma sin push, y para no romper el camino de App Store
 # (donde el push SÍ hay que declararlo) el cambio es TEMPORAL: se toca el
 # project.pbxproj, se compila, y el `trap` lo restaura pase lo que pase.
 #
-# LÍMITE DEL APPLE ID GRATUITO: la app CADUCA A LOS 7 DÍAS. Cuando deje de abrir,
-# volvé a correr este script. Con el programa pago ($99/año) dura un año, anda el
-# push y se puede repartir por TestFlight sin cable.
+# CADUCIDAD: con el Apple ID gratuito la app instalada así moría a los 7 días.
+# Desde el programa pago (14/9/2026) el perfil dura un año. Igual, para repartir
+# la app sin cable —a los barberos, o a vos en otro teléfono— el camino es
+# TestFlight, no este script.
 #
 # Uso:  ./scripts/instalar-en-iphone.sh              # release (rápida, standalone)
 #       ./scripts/instalar-en-iphone.sh --debug      # debug (hot reload, más lenta)
@@ -81,11 +90,11 @@ instalar_con_espera() {
   return 1
 }
 
-# ── 3. Swap temporal de entitlements (sin push) ───────────────────────────────
+# ── 3. Swap temporal de entitlements (APNs en development) ────────────────────
 restaurar() {
   if [[ -f "$RAIZ/$PBXPROJ.bak-instalador" ]]; then
     mv "$RAIZ/$PBXPROJ.bak-instalador" "$RAIZ/$PBXPROJ"
-    echo "→ project.pbxproj restaurado (push vuelve a estar declarado para App Store)."
+    echo "→ project.pbxproj restaurado (Release vuelve a aps-environment=production, que es lo que pide App Store)."
   fi
 }
 trap restaurar EXIT INT TERM
@@ -115,14 +124,14 @@ fi
 # configuraciones sin `aps-environment` y nadie se hubiera enterado hasta que
 # App Store Connect rechazara el build por entitlements faltantes.
 if ! grep -q "CODE_SIGN_ENTITLEMENTS = Runner/RunnerRelease.entitlements;" "$PBXPROJ"; then
-  echo "✗ El project.pbxproj ya está swapeado (sin Push) de una corrida anterior que no restauró." >&2
+  echo "✗ El project.pbxproj ya está swapeado (Release apuntando a los entitlements de Debug) de una corrida anterior que no restauró." >&2
   echo "  Restauralo antes de seguir:  git checkout -- $PBXPROJ" >&2
   exit 1
 fi
 
 cp "$PBXPROJ" "$PBXPROJ.bak-instalador"
 sed -i '' 's|CODE_SIGN_ENTITLEMENTS = Runner/RunnerRelease.entitlements;|CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;|g' "$PBXPROJ"
-echo "→ Firmando sin Push Notifications (limitación del Apple ID gratuito)."
+echo "→ Firmando con APNs en 'development' (una instalación por cable usa un perfil de desarrollo)."
 
 # ── 4. Compilar e instalar ────────────────────────────────────────────────────
 if [[ "$MODO" == "debug" ]]; then

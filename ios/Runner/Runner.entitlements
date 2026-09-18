@@ -4,54 +4,52 @@
   Runner.entitlements — configuración DEBUG (pbxproj: CODE_SIGN_ENTITLEMENTS de
   Debug). Release y Profile usan RunnerRelease.entitlements.
 
-  Intencionalmente vacío: el Personal Team (Apple ID gratuito, A3WAXVR55Z) NO
+  HISTORIA, PORQUE EXPLICA LA FORMA DEL ARCHIVO
+  ---------------------------------------------
+  Este archivo estuvo **intencionalmente vacío** hasta el 14/9/2026: el equipo
+  A3WAXVR55Z era un Personal Team (Apple ID gratuito) y un Personal Team no
   puede firmar "Push Notifications" ni "Sign in with Apple". Con cualquiera de
-  las dos acá, `flutter run` muere con:
+  las dos declaradas acá, `flutter run` moría con:
     "Personal development teams ... do not support the Push Notifications
      capability" (o el equivalente para Sign in with Apple).
+  El costo de tenerlo vacío era que "Continuar con Apple" fallaba en desarrollo
+  con el error 1000 (AuthorizationError.unknown), porque el entitlement
+  `applesignin` no estaba en la firma: el flujo sólo se podía probar en una
+  build de Release.
 
-  CONSECUENCIA MIENTRAS ESTÉ VACÍO: en un `flutter run` de desarrollo,
-  "Continuar con Apple" abre la hoja del sistema y falla con el error 1000
-  (AuthorizationError.unknown): el entitlement `applesignin` no está en la
-  firma. El flujo de Apple sólo se puede probar en una build firmada con el
-  Team pago (TestFlight o Release por cable). Google y teléfono sí andan.
+  El 14/9/2026 se pagó el Apple Developer Program. El MISMO equipo A3WAXVR55Z
+  quedó convertido en el del programa (una inscripción *Individual* conserva el
+  Team ID: ver el riesgo conocido 6 de CLAUDE.md), se prendieron las dos
+  capabilities en el App ID `com.monacobarber.monacoMobile` y se crearon las dos
+  keys — APNs `62X53C5773` (Team Scoped, Sandbox & Production) y Sign in with
+  Apple `W3926M6G2P`. Por eso ahora Debug declara lo mismo que Release.
 
-  ═══════════════════════════════════════════════════════════════════════════
-  CUANDO EXISTA EL APPLE DEVELOPER PROGRAM PAGO ($99/año), reemplazar el
-  <dict/> vacío de abajo por ESTE bloque, tal cual:
+  DOS COSAS QUE NO HAY QUE "CORREGIR"
+  -----------------------------------
+  1. `aps-environment` vale `development` acá y `production` en
+     RunnerRelease.entitlements, y está bien: el valor tiene que coincidir con
+     el TIPO de perfil con el que se firma (los perfiles de desarrollo son
+     sandbox de APNs; los de distribución, producción). Unificar los dos en
+     `production` rompe el push de las builds por cable.
+  2. Debug y Release declaran las MISMAS capabilities a propósito. Si difieren,
+     el flujo más frágil de la revisión —Sign in with Apple— se prueba en un
+     binario distinto del que se sube, que es exactamente donde aparecen las
+     sorpresas.
 
-    <dict>
-      <key>aps-environment</key>
-      <string>development</string>
-      <key>com.apple.developer.applesignin</key>
-      <array>
-        <string>Default</string>
-      </array>
-    </dict>
-
-  Notas:
-  - `aps-environment = development` acá es correcto aunque en Release diga
-    `production`: Xcode reescribe ese valor según el perfil de aprovisionamiento
-    al firmar (development para builds por cable, production para App Store /
-    TestFlight). Unificar Debug y Release NO rompe la distribución.
-  - Antes de que compile: en developer.apple.com → Certificates, Identifiers &
-    Profiles → Identifiers → `com.monacobarber.monacoMobile` → prender las
-    capabilities "Push Notifications" y "Sign in with Apple", y en Xcode
-    (Runner → Signing & Capabilities) cambiar el Team al pago para que
-    regenere el perfil. Con el entitlement acá pero la capability apagada en
-    el App ID, la firma falla.
-  - Después de pegar el bloque, retirar de `scripts/instalar-en-iphone.sh` el
-    swap temporal de CODE_SIGN_ENTITLEMENTS (RunnerRelease → Runner): existe
-    sólo porque este archivo está vacío y el Personal Team no firma push. Con
-    el Team pago, `flutter run --release` firma con push directo.
-  - Alternativa equivalente: apuntar también Debug a RunnerRelease.entitlements
-    en el pbxproj (CODE_SIGN_ENTITLEMENTS = Runner/RunnerRelease.entitlements)
-    y borrar este archivo. Da lo mismo; lo que importa es que Debug y Release
-    tengan los MISMOS entitlements para que el flujo más frágil de la revisión
-    (Sign in with Apple) se pruebe antes del build que se sube.
-  ═══════════════════════════════════════════════════════════════════════════
+  Si la firma falla con "Provisioning profile doesn't include the
+  com.apple.developer.applesignin / aps-environment entitlement", la capability
+  está apagada en el App ID o el perfil quedó viejo: developer.apple.com →
+  Identifiers → com.monacobarber.monacoMobile, y en Xcode → Runner → Signing &
+  Capabilities destildar/volver a tildar "Automatically manage signing" para que
+  regenere el perfil.
 -->
 <plist version="1.0">
 <dict>
+	<key>aps-environment</key>
+	<string>development</string>
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
 </dict>
 </plist>

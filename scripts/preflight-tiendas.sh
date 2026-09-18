@@ -63,9 +63,16 @@ cd "$(dirname "$0")/.."
 RAIZ="$(pwd)"
 
 SIN_RED=0
+# Plataforma que se va a compilar. `build-release.sh ios` pasa `--ios`, y ahí
+# los chequeos exclusivos de Android (keystore) no aplican — y al revés con
+# `--android` (Sign in with Apple). Sin flag se exige todo, que es lo correcto
+# para un build de las dos tiendas.
+OBJETIVO="todo"
 for arg in "$@"; do
   case "$arg" in
     --sin-red) SIN_RED=1 ;;
+    --ios) OBJETIVO="ios" ;;
+    --android) OBJETIVO="android" ;;
     -h|--help) sed -n '2,60p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Argumento desconocido: $arg (probá --help)" >&2; exit 2 ;;
   esac
@@ -84,43 +91,67 @@ echo "Preflight de tiendas — Monaco (app de clientes)"
 echo "Repo: $RAIZ"
 echo
 
-# ── 1. Info.plist sin placeholders ────────────────────────────────────────────
-# El REVERSED_CLIENT_ID de Google vive en CFBundleURLTypes; con el placeholder la
-# hoja de Google abre y nunca vuelve a la app.
+# ── 1. Info.plist: URL scheme de Google ───────────────────────────────────────
+# El REVERSED_CLIENT_ID de Google vive en CFBundleURLTypes. Si Google está
+# PRENDIDO y quedó el placeholder, la hoja de Google abre y nunca vuelve a la
+# app. Si Google está APAGADO (sin client IDs) el placeholder es lo esperado: el
+# botón no se dibuja y ese scheme no lo invoca nadie. La decisión se toma en el
+# bloque 5, junto con los client IDs, porque es UNA sola pregunta.
 PLIST="ios/Runner/Info.plist"
-if grep -q "PLACEHOLDER-REEMPLAZAR" "$PLIST"; then
-  fallo "ios/Runner/Info.plist todavía tiene 'PLACEHOLDER-REEMPLAZAR' (URL scheme com.googleusercontent.apps.<REVERSED_CLIENT_ID> del client OAuth de tipo iOS)"
-else
-  ok "Info.plist sin placeholders"
-fi
+PLIST_CON_PLACEHOLDER=0
+grep -q "PLACEHOLDER-REEMPLAZAR" "$PLIST" && PLIST_CON_PLACEHOLDER=1
 
-# ── 2. firebase_options.dart real ─────────────────────────────────────────────
-# Con placeholders, main.dart saltea Firebase y el push no existe: la app se sube
-# "sin push" y nadie se entera hasta que la primera campaña marca failed.
+# ── 2. firebase_options.dart ──────────────────────────────────────────────────
+# Con placeholders, main.dart saltea Firebase: la app se publica SIN push (no
+# llegan recordatorios de turno ni campañas; la sección de notificaciones no se
+# dibuja) y SIN Crashlytics (ningún error en el teléfono de un cliente llega a
+# ningún lado). Las tiendas no lo exigen, así que es un AVISO y no un bloqueo —
+# hasta el 18/9/2026 era ✗ y contradecía a PUBLICAR.md, que lo declara opcional—,
+# pero publicar así es publicar a ciegas. Parte 4 de PUBLICAR.md: 20 minutos.
 FB="lib/firebase_options.dart"
 if grep -q "PLACEHOLDER" "$FB"; then
-  fallo "lib/firebase_options.dart tiene PLACEHOLDER: falta correr 'flutterfire configure' (proyecto Firebase + APNs key)"
+  aviso "lib/firebase_options.dart tiene PLACEHOLDER: el build sale SIN push ni Crashlytics (falta 'flutterfire configure', PUBLICAR.md Parte 4). Publicable, pero a ciegas"
 else
   ok "firebase_options.dart configurado"
 fi
 
 # ── 3. Firma de Android ───────────────────────────────────────────────────────
 # Sin key.properties, build.gradle.kts cae a la firma de debug y Play rechaza el
-# bundle (o peor: lo acepta como app nueva con otra firma).
-if [[ -f "android/key.properties" ]]; then
+# bundle (o peor: lo acepta como app nueva con otra firma). Un build sólo iOS no
+# lo necesita.
+if [[ "$OBJETIVO" == "ios" ]]; then
+  ok "android/key.properties no aplica (--ios)"
+elif [[ -f "android/key.properties" ]]; then
   ok "android/key.properties existe (firma de release)"
 else
   fallo "no existe android/key.properties: sin keystore de release, el appbundle sale firmado con debug (generarlo UNA vez con ./scripts/crear-keystore.sh; ver ENTREGA.md, sección Android)"
 fi
 
 # ── 4. Team de Apple ──────────────────────────────────────────────────────────
-# A3WAXVR55Z es el Personal Team (Apple ID gratuito): no archiva para App Store
-# ni firma push / Sign in with Apple.
+# LA TRAMPA (corregido el 14/9/2026): este chequeo fallaba si el team era
+# `A3WAXVR55Z`, dando por sentado que ese ID era para siempre el Personal Team
+# del Apple ID gratuito. **No lo es.** Al inscribirse en el Developer Program
+# como *Individual* con el MISMO Apple ID, Apple convierte ese equipo en el del
+# programa pago y le **conserva el Team ID**: no aparece un equipo nuevo ni un
+# ID nuevo (el selector de developer.apple.com sigue mostrando uno solo). O sea
+# que el Team ID NO dice nada sobre si la membresía está paga, y el chequeo
+# viejo iba a fallar para siempre mandando a "arreglar" algo que ya estaba bien.
+#
+# Lo único verificable desde la Mac es que haya un team fijado y que sea el
+# mismo en las tres configuraciones (Debug/Release/Profile): con configuraciones
+# firmando con teams distintos, el archive sale con entitlements de otro equipo.
+# Si la membresía NO está activa, el síntoma aparece al archivar —"Personal
+# development teams do not support the Push Notifications capability"— y se
+# confirma en developer.apple.com → Account → Membership details.
 PBXPROJ="ios/Runner.xcodeproj/project.pbxproj"
-if grep -q "DEVELOPMENT_TEAM = A3WAXVR55Z;" "$PBXPROJ"; then
-  fallo "DEVELOPMENT_TEAM sigue siendo A3WAXVR55Z (Personal Team) en $PBXPROJ: hace falta el Team del Apple Developer Program pago (Xcode → Runner → Signing & Capabilities)"
+TEAMS="$(grep -o 'DEVELOPMENT_TEAM = [A-Z0-9]*;' "$PBXPROJ" | sed 's/.*= //; s/;//' | sort -u)"
+CANT_TEAMS="$(printf '%s' "$TEAMS" | grep -c . || true)"
+if [[ "$CANT_TEAMS" == "1" ]]; then
+  ok "DEVELOPMENT_TEAM fijado y coherente en el pbxproj ($TEAMS)"
+elif [[ "$CANT_TEAMS" == "0" ]]; then
+  fallo "no hay DEVELOPMENT_TEAM en $PBXPROJ: elegí el Team en Xcode → Runner → Signing & Capabilities"
 else
-  ok "DEVELOPMENT_TEAM no es el Personal Team"
+  fallo "el pbxproj tiene DEVELOPMENT_TEAM distintos entre configuraciones ($(printf '%s' "$TEAMS" | tr '\n' ' ')): tienen que ser el mismo o el archive sale firmado con otro equipo"
 fi
 
 # 4b. Estado del pbxproj: scripts/instalar-en-iphone.sh swapea temporalmente los
@@ -172,28 +203,56 @@ else
   echo "· .env.release no existe (opcional): los --dart-define se leen sólo del entorno"
 fi
 
-for CLAVE in GOOGLE_IOS_CLIENT_ID GOOGLE_SERVER_CLIENT_ID; do
-  VALOR="$(resolver_define "$CLAVE")"
-  if [[ -z "$VALOR" ]]; then
-    fallo "falta $CLAVE (variable de entorno o .env.release): el build tiene que llevar --dart-define=$CLAVE=<id>.apps.googleusercontent.com"
-  elif es_client_id_google "$VALOR"; then
-    ok "$CLAVE = ${VALOR:0:14}…apps.googleusercontent.com"
-  else
-    fallo "$CLAVE tiene un valor que no parece un client id de Google ('${VALOR:0:24}…'): se espera <número>-<hash>.apps.googleusercontent.com"
-  fi
-done
-
-# Coherencia extra: el REVERSED_CLIENT_ID del Info.plist tiene que ser el
-# client id de iOS invertido. Si los dos existen y no coinciden, la hoja de
-# Google vuelve a un esquema que la app no registró.
 IOS_ID="$(resolver_define GOOGLE_IOS_CLIENT_ID)"
-if [[ -n "$IOS_ID" ]] && es_client_id_google "$IOS_ID" && ! grep -q "PLACEHOLDER-REEMPLAZAR" "$PLIST"; then
-  ESPERADO="com.googleusercontent.apps.${IOS_ID%.apps.googleusercontent.com}"
-  if grep -q "<string>$ESPERADO</string>" "$PLIST"; then
-    ok "Info.plist registra el REVERSED_CLIENT_ID de GOOGLE_IOS_CLIENT_ID"
+SERVER_ID="$(resolver_define GOOGLE_SERVER_CLIENT_ID)"
+
+# Google es OPCIONAL, pero todo-o-nada. La app está hecha para que sin client
+# IDs el botón no se dibuje (`SocialAuthService.googleConfigurado`): iOS entra
+# con Apple + teléfono y Android sólo con teléfono, y la 4.8 de App Store se
+# cumple igual (Apple es obligatorio sólo si hay OTRO login de terceros). Lo que
+# NO puede pasar es un estado a medias: el botón dibujado y la hoja que no vuelve
+# (falta el URL scheme), o Android que autentica sin emitir id_token (falta el
+# server client id). Hasta el 18/9/2026 esto era ✗ sin más y obligaba a hacer
+# Google Cloud entero antes de poder mandar iOS a revisión. `GOOGLE_ESTADO` lo
+# lee también el bloque 6.
+GOOGLE_ESTADO="mixto"
+if [[ -z "$IOS_ID" && -z "$SERVER_ID" ]]; then
+  if (( PLIST_CON_PLACEHOLDER )); then
+    GOOGLE_ESTADO="apagado"
+    aviso "Google apagado (sin GOOGLE_IOS_CLIENT_ID ni GOOGLE_SERVER_CLIENT_ID): 'Continuar con Google' no se dibuja. iOS entra con Apple + teléfono, Android sólo con teléfono. Para prenderlo: PUBLICAR.md Parte 5"
   else
-    fallo "Info.plist no tiene el URL scheme $ESPERADO (el reverso de GOOGLE_IOS_CLIENT_ID)"
+    fallo "ios/Runner/Info.plist ya tiene un URL scheme de Google pero no hay GOOGLE_IOS_CLIENT_ID ni GOOGLE_SERVER_CLIENT_ID: o se cargan los dos en .env.release, o se vuelve a poner el placeholder"
   fi
+else
+  GOOGLE_OK=1
+  for CLAVE in GOOGLE_IOS_CLIENT_ID GOOGLE_SERVER_CLIENT_ID; do
+    VALOR="$(resolver_define "$CLAVE")"
+    if [[ -z "$VALOR" ]]; then
+      fallo "Google a medias: falta $CLAVE (los dos van juntos, o ninguno). El build tiene que llevar --dart-define=$CLAVE=<id>.apps.googleusercontent.com"
+      GOOGLE_OK=0
+    elif es_client_id_google "$VALOR"; then
+      ok "$CLAVE = ${VALOR:0:14}…apps.googleusercontent.com"
+    else
+      fallo "$CLAVE tiene un valor que no parece un client id de Google ('${VALOR:0:24}…'): se espera <número>-<hash>.apps.googleusercontent.com"
+      GOOGLE_OK=0
+    fi
+  done
+  if (( PLIST_CON_PLACEHOLDER )); then
+    fallo "Google prendido pero ios/Runner/Info.plist todavía tiene 'PLACEHOLDER-REEMPLAZAR': va el URL scheme com.googleusercontent.apps.<REVERSED_CLIENT_ID> del client OAuth de tipo iOS, o la hoja de Google abre y nunca vuelve a la app"
+    GOOGLE_OK=0
+  elif es_client_id_google "$IOS_ID"; then
+    # El REVERSED_CLIENT_ID del Info.plist tiene que ser el client id de iOS
+    # invertido; si no coinciden, la hoja vuelve a un esquema que la app no
+    # registró.
+    ESPERADO="com.googleusercontent.apps.${IOS_ID%.apps.googleusercontent.com}"
+    if grep -q "<string>$ESPERADO</string>" "$PLIST"; then
+      ok "Info.plist registra el REVERSED_CLIENT_ID de GOOGLE_IOS_CLIENT_ID"
+    else
+      fallo "Info.plist no tiene el URL scheme $ESPERADO (el reverso de GOOGLE_IOS_CLIENT_ID)"
+      GOOGLE_OK=0
+    fi
+  fi
+  (( GOOGLE_OK )) && GOOGLE_ESTADO="prendido"
 fi
 
 # ── 6. Edge function client-auth: secrets de Google y Apple ───────────────────
@@ -232,7 +291,13 @@ else
     TMP_BODY="$(mktemp)"; TMP_ERR="$(mktemp)"
     trap 'rm -f "$TMP_BODY" "$TMP_ERR"' EXIT
 
-    for PROV in google apple; do
+    # Sign in with Apple sólo existe en iOS: un build sólo Android no lo consulta.
+    PROVEEDORES="google apple"
+    if [[ "$OBJETIVO" == "android" ]]; then
+      PROVEEDORES="google"
+      ok "client-auth · apple no aplica (--android)"
+    fi
+    for PROV in $PROVEEDORES; do
       case "$PROV" in
         google) SECRETO="GOOGLE_CLIENT_IDS" ;;
         apple)  SECRETO="APPLE_BUNDLE_IDS" ;;
@@ -243,7 +308,14 @@ else
         401:SOCIAL_TOKEN_INVALID)
           ok "client-auth · $PROV: secret $SECRETO cargado (rechazó el token basura con SOCIAL_TOKEN_INVALID)" ;;
         503:SOCIAL_VERIFY_UNAVAILABLE)
-          fallo "client-auth · $PROV: SOCIAL_VERIFY_UNAVAILABLE → falta el secret $SECRETO en Supabase (Dashboard → Edge Functions → Secrets, o 'supabase secrets set $SECRETO=…')" ;;
+          # Sin el secret de Google, la función no puede validar tokens de
+          # Google. Si el build tampoco dibuja el botón, es coherente: nadie va
+          # a mandarle uno. Si el botón está, es un 503 seguro en producción.
+          if [[ "$PROV" == "google" && "$GOOGLE_ESTADO" == "apagado" ]]; then
+            aviso "client-auth · google: sin secret GOOGLE_CLIENT_IDS, coherente con Google apagado en el build (cargarlo el día que se prenda: PUBLICAR.md Parte 5)"
+          else
+            fallo "client-auth · $PROV: SOCIAL_VERIFY_UNAVAILABLE → falta el secret $SECRETO en Supabase (Dashboard → Edge Functions → Secrets, o 'supabase secrets set $SECRETO=…')"
+          fi ;;
         429:*)
           fallo "client-auth · $PROV: 429 RATE_LIMITED (30 intentos/hora por IP): esperá y volvé a correr" ;;
         000:*)

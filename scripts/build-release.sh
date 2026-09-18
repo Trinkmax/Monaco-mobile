@@ -178,7 +178,16 @@ fi
 # ── Preflight ──────────────────────────────────────────────────────────────
 if [[ "$CORRER_PREFLIGHT" == "1" && -x "$RAIZ/scripts/preflight-tiendas.sh" ]]; then
   titulo "Preflight"
-  if ! "$RAIZ/scripts/preflight-tiendas.sh"; then
+  # El preflight sabe qué plataforma se compila: con `ios` no exige el keystore
+  # de Android, con `android` no consulta Sign in with Apple. (Escalar y no
+  # array: con `set -u`, un array vacío expandido revienta en el bash 3.2 de
+  # macOS.)
+  PREFLIGHT_FLAG=""
+  case "$OBJETIVO" in
+    ios)     PREFLIGHT_FLAG="--ios" ;;
+    android) PREFLIGHT_FLAG="--android" ;;
+  esac
+  if ! "$RAIZ/scripts/preflight-tiendas.sh" ${PREFLIGHT_FLAG:+"$PREFLIGHT_FLAG"}; then
     echo
     rojo "✗ El preflight falló: no compilo nada."
     gris "  Arreglá lo que marcó, o corré con --sin-preflight si sabés lo que hacés."
@@ -199,7 +208,10 @@ if [[ "$OBJETIVO" == "todo" || "$OBJETIVO" == "android" ]]; then
   fi
   # Sin android/key.properties, bundleRelease se corta a propósito (Play
   # rechaza un AAB firmado con debug). El mensaje lo da el propio Gradle.
-  if correr flutter build appbundle --release "${OFUSCACION[@]}" "${DEFINES[@]}"; then
+  # `${ARR[@]+"${ARR[@]}"}` y no `"${ARR[@]}"`: con `set -u`, un array VACÍO
+  # expandido revienta en el bash 3.2 de macOS ("unbound variable"). Pasaba
+  # sin .env.release (DEFINES vacío) y con --sin-ofuscar (OFUSCACION vacío).
+  if correr flutter build appbundle --release ${OFUSCACION[@]+"${OFUSCACION[@]}"} ${DEFINES[@]+"${DEFINES[@]}"}; then
     [[ "$DRY" == "1" ]] || verde "✓ build/app/outputs/bundle/release/app-release.aab"
     if [[ "$OFUSCAR" == "1" ]]; then
       gris "  símbolos Dart: build/symbols/$VERSION/android/"
@@ -259,8 +271,8 @@ if [[ "$OBJETIVO" == "todo" || "$OBJETIVO" == "ios" ]]; then
   if [[ "$OFUSCAR" == "1" ]]; then
     OFUSCACION=(--obfuscate --split-debug-info="build/symbols/$VERSION/ios")
   fi
-  if correr flutter build ipa --release "${OFUSCACION[@]}" \
-      --export-options-plist="$PLIST" "${DEFINES[@]}"; then
+  if correr flutter build ipa --release ${OFUSCACION[@]+"${OFUSCACION[@]}"} \
+      --export-options-plist="$PLIST" ${DEFINES[@]+"${DEFINES[@]}"}; then
     [[ "$DRY" == "1" ]] || verde "✓ build/ios/ipa/*.ipa"
     if [[ "$OFUSCAR" == "1" ]]; then
       gris "  símbolos Dart: build/symbols/$VERSION/ios/"

@@ -23,7 +23,7 @@ Capturas, ícono 512, feature graphic y todos los textos de las fichas están en
 | 2 | Cuenta de Google Play Console (USD 25 una vez) | play.google.com/console | TODO Android |
 | 3 | Keystore de Android (`scripts/crear-keystore.sh`) | esta Mac | subir a Play |
 | 4 | Proyecto Firebase + `flutterfire configure` + APNs key + `FCM_SERVICE_ACCOUNT_JSON` | console.firebase.google.com | push (opcional para publicar) |
-| 5 | Google Sign-In: 3 clients OAuth + REVERSED_CLIENT_ID + secret `GOOGLE_CLIENT_IDS` | console.cloud.google.com + Supabase | botón "Continuar con Google" |
+| 5 | Google Sign-In: 3 clients OAuth + REVERSED_CLIENT_ID + secret `GOOGLE_CLIENT_IDS` | console.cloud.google.com + Supabase | botón "Continuar con Google" — **opcional para la primera versión**: sin él, el botón no aparece y iOS entra con Apple + teléfono, Android con teléfono |
 | 6 | Sign in with Apple: capability en el App ID + secret `APPLE_BUNDLE_IDS` (+ key .p8 para revocar) | developer.apple.com + Supabase | botón "Continuar con Apple" (obligatorio si hay Google) |
 | 7 | Secrets `AUTH_TEST_PHONES=1100000000=123456` y `OTP_PEPPER` | Supabase → Edge Functions → Secrets | cuenta demo del revisor |
 | 8 | Completar los datos del responsable y **deployar el dashboard** con las cinco páginas legales | MonacoSmartBarber | URLs de las fichas |
@@ -106,9 +106,12 @@ dentro de `Monaco-mobile` y dentro de `MSB_FULL`.
      en <https://developer.apple.com/enroll/duns-lookup/>, tarda hasta 30 días hábiles), sitio web
      y una persona con "autoridad legal para firmar". Sirve también para Play (organización).
 3. Pagá los USD 99. Cuando llegue el mail "Welcome to the Apple Developer Program", seguí.
-4. **Xcode → Settings (⌘,) → Accounts → +** → tu Apple ID. Tiene que aparecer el Team nuevo
-   (nombre + un ID de 10 caracteres). Ese ID reemplaza al `A3WAXVR55Z` (Apple ID gratuito) en
-   `ios/Runner.xcodeproj/project.pbxproj` (tres apariciones de `DEVELOPMENT_TEAM`):
+4. **Xcode → Settings (⌘,) → Accounts → +** → tu Apple ID.
+   **Si te inscribiste como *Individual* con el mismo Apple ID que ya usabas gratis, NO aparece un
+   Team nuevo: el que tenías (`A3WAXVR55Z`) pasa a ser el del programa pago y conserva su ID.** En
+   ese caso no hay nada que cambiar en el proyecto — es lo que pasó el 14/9/2026. Confirmalo en
+   developer.apple.com → Account → **Membership details** (ahí figuran Team ID, tipo de programa y
+   vencimiento). Sólo si el ID que ves ahí es distinto del que tiene el proyecto, corré:
    ```bash
    sed -i '' 's/A3WAXVR55Z/TU_TEAM_ID/g' ios/Runner.xcodeproj/project.pbxproj
    ```
@@ -211,6 +214,13 @@ app en el teléfono de un cliente: hasta que Firebase exista, la app no reporta 
 
 ## Parte 5 — "Continuar con Google" (Google Cloud, 15 minutos)
 
+> **Se puede publicar sin esto** (decidido el 18/9/2026 para no atar la revisión de Apple a Google
+> Cloud). Con los dos client IDs vacíos la app **no dibuja** el botón de Google: en iOS se entra con
+> Apple + teléfono y en Android sólo con teléfono, y la guideline 4.8 se cumple igual (Sign in with
+> Apple es obligatorio sólo si hay *otro* login de terceros). El preflight lo marca como ⚠, no como
+> ✗. Lo que **no** se puede es dejarlo a medias: o los dos client IDs + el URL scheme del `Info.plist`
+> + el secret `GOOGLE_CLIENT_IDS`, o ninguno. Cuando se haga, va en una actualización (2.0.1).
+
 Usamos el **mismo proyecto de Google Cloud que creó Firebase** (Firebase crea uno con el mismo id).
 
 1. <https://console.cloud.google.com> → seleccioná el proyecto `Monaco` (arriba).
@@ -301,9 +311,13 @@ Apple exige ofrecer Sign in with Apple si ofrecemos Google (guideline 4.8) y que
 ### 7.1 Preflight
 
 ```bash
-./scripts/preflight-tiendas.sh      # todo ✓
-flutter test                         # todo en verde
+./scripts/preflight-tiendas.sh --ios   # sólo iOS: no exige el keystore de Android
+./scripts/preflight-tiendas.sh         # las dos tiendas
+flutter test                           # todo en verde
 ```
+
+Los ⚠ no frenan el build pero hay que leerlos: "Firebase con PLACEHOLDER" significa sin push ni
+Crashlytics, y "Google apagado" significa sin botón de Google.
 
 ### 7.2 Subir la versión
 
@@ -313,7 +327,8 @@ Connect o a Play necesita uno **mayor** que el anterior (21, 22, …). El `2.0.0
 ### 7.3 Compilar los dos artefactos
 
 ```bash
-./scripts/build-release.sh           # lee .env.release, arma AAB e IPA obfuscados
+./scripts/build-release.sh ios       # sólo el IPA (para mandar Apple primero)
+./scripts/build-release.sh           # AAB + IPA, obfuscados
 ```
 
 Deja `build/app/outputs/bundle/release/app-release.aab` y `build/ios/ipa/Monaco.ipa`
