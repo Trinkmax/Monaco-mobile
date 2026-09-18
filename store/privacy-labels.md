@@ -48,11 +48,17 @@ Lo que se usa únicamente en el dispositivo no se declara.
 | Tipo | ¿Se recolecta? | Linked | Tracking | Propósitos |
 |---|---|---|---|---|
 | **Customer Support** | Sí | Sí | No | App Functionality |
-| **Other User Content** | Sí | Sí | No | App Functionality · Customer Support |
+| **Other User Content** | Sí | Sí | No | App Functionality |
 
 Son las reseñas internas y los comentarios que el cliente escribe después de un corte
 (`client_reviews`, `crm_cases`). Nadie más que el negocio los ve: no hay contenido de un
 usuario visible para otro.
+
+**Ojo con la columna "Propósitos":** los usos que App Store Connect ofrece son sólo
+Third-Party Advertising, Developer's Advertising or Marketing, Analytics, Product
+Personalization, App Functionality y Other Purposes. "Customer Support" es un TIPO de
+dato, no un uso — la primera versión de este archivo lo listaba como uso y confundió al
+cargar la ficha (18/9/2026).
 
 | Photos or Videos · Audio Data · Gameplay Content · Emails or Text Messages | No |
 |---|---|
