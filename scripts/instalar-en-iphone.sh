@@ -154,5 +154,5 @@ else
   echo "✓ Listo. 'Monaco' quedó instalada en $NOMBRE."
   echo "  Si iOS dice 'Desarrollador no confiable':"
   echo "  Ajustes › General › VPN y Administración de dispositivos › confiar en el certificado."
-  echo "  Recordá: con Apple ID gratuito la app caduca a los 7 días."
+  echo "  Con el Developer Program (desde el 14/9/2026) esta instalación dura un año."
 fi
