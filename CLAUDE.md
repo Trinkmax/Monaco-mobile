@@ -81,17 +81,22 @@ nombre le gana. Lo leen el preflight y el build. Se convierten en `--dart-define
 para generar `ios/ExportOptions.plist` la primera vez. Los defaults de `AppConstants` ya apuntan a
 producción, así que lo único que va ahí es lo que **no** puede quedar en su default.
 
-**`scripts/preflight-tiendas.sh`** chequea, y falla con `exit 1` si algo obligatorio no está: el
-`Info.plist` sin `PLACEHOLDER-REEMPLAZAR` (el REVERSED_CLIENT_ID de Google), `firebase_options.dart`
-sin placeholders, que exista `android/key.properties`, que `DEVELOPMENT_TEAM` ya no sea el Personal
-Team `A3WAXVR55Z`, que el pbxproj no haya quedado swapeado por `instalar-en-iphone.sh` (esa corrida
-cambia los entitlements de Release y si muere sin restaurar, el build se sube sin push), que el
-deployment target sea 15.0 en el pbxproj **y** en el Podfile, que los dos client IDs de Google
-estén y tengan forma de client ID, y que la edge function `client-auth` tenga cargados
-`GOOGLE_CLIENT_IDS` / `APPLE_BUNDLE_IDS`. **Ahí el resultado bueno es un 401**
-(`SOCIAL_TOKEN_INVALID`: los secrets están y la función rechazó el token basura que le mandamos);
-un **503 `SOCIAL_VERIFY_UNAVAILABLE`** significa que el secret falta y que el botón social va a
-fallar siempre en producción.
+**`scripts/preflight-tiendas.sh`** (acepta `--ios` / `--android`; `build-release.sh <plataforma>` se
+lo pasa solo) chequea, y falla con `exit 1` si algo obligatorio no está: que `DEVELOPMENT_TEAM` esté
+fijado y sea el mismo en las tres configuraciones (**no** que sea distinto de `A3WAXVR55Z`: ver el
+punto 6 de "Riesgos conocidos"), que el pbxproj no haya quedado swapeado por `instalar-en-iphone.sh`
+(esa corrida cambia los entitlements de Release y si muere sin restaurar, el build se sube con el
+entorno de APNs equivocado), que el deployment target sea 15.0 en el pbxproj **y** en el Podfile,
+que exista `android/key.properties` (salvo `--ios`), que la edge function `client-auth` tenga
+`APPLE_BUNDLE_IDS` (salvo `--android`), y que **Google esté todo prendido o todo apagado**: los dos
+client IDs con forma de client ID + el REVERSED_CLIENT_ID en el `Info.plist` + el secret
+`GOOGLE_CLIENT_IDS`, o ninguno de los tres (entonces es ⚠: el botón no se dibuja, iOS entra con
+Apple + teléfono y Android con teléfono; la 4.8 se cumple igual). Un estado a medias es ✗. Firebase
+con `PLACEHOLDER` también es ⚠ y no ✗ (18/9/2026): la app se puede publicar sin push ni Crashlytics,
+pero es publicar a ciegas y el aviso lo dice. **En la consulta a `client-auth` el resultado bueno es
+un 401** (`SOCIAL_TOKEN_INVALID`: los secrets están y la función rechazó el token basura que le
+mandamos); un **503 `SOCIAL_VERIFY_UNAVAILABLE`** significa que el secret falta y que el botón social
+va a fallar siempre en producción.
 
 **Dock = Liquid Glass real** (`liquid_glass_renderer`, shaders, sólo Impeller): barra + burbuja
 arrastrable en `lib/app/widgets/glass/liquid_dock.dart`; `LiquidGlassWarmup` en el splash
@@ -129,7 +134,7 @@ lib/
 │   ├── supabase/                # supabaseClientProvider
 │   └── utils/                   # constants, formatters
 ├── features/
-│   ├── onboarding/              # splash, welcome (3 puertas + invitado), login_phone, login_code
+│   ├── onboarding/              # splash, welcome (carrusel de 3 láminas), login_phone, login_code
 │   │                            #   (código + nombre), biometric_gate, widgets/auth_opciones,
 │   │                            #   widgets/muro_login, widgets/google_g, utils/phone_format
 │   ├── home/                    # home_screen + widgets (home_header, wallet_points_card,
@@ -174,9 +179,15 @@ local, con WhatsApp, con los puntos y con el historial, y es lo único que la ta
 Google y Apple son login de un toque y recuperación de cuenta, **no una identidad paralela**: toda
 cuenta nueva termina con un teléfono verificado por OTP.
 
-Pantalla de entrada (`/welcome`): **Continuar con Google** · **Continuar con Apple** (sólo iOS) ·
-**Usar mi número de teléfono** · **Seguir mirando**. El bloque de las tres primeras es
-`AuthOpciones` y lo comparten la bienvenida y el muro de login.
+Pantalla de entrada (`/welcome`, rediseño del 18/sep/2026): **un carrusel de tres láminas** —
+ilustración grande arriba, título y subtítulo centrados abajo, un solo botón **Continuar**— y
+**recién en la tercera** el pie se convierte, en el mismo lugar y con la misma lámina blanca, en
+**Continuar con Google** · **Continuar con Apple** (sólo iOS) · **Usar mi número de teléfono**,
+el link **Seguir mirando** y los legales (`AnimatedSize` + `AnimatedSwitcher` con un
+`layoutBuilder` que mide sólo al hijo que entra; el carrusel cede el alto en el mismo movimiento).
+Sin pastilla verde por lámina (se sacó el 12/sep/2026: repetía el título). Los puntos del carrusel
+y el halo de la ilustración son blancos, no verdes. El bloque de las tres puertas es `AuthOpciones` y lo comparten la bienvenida y el muro de
+login; la lámina blanca de 56 es `BotonLamina`, la misma para "Continuar" y para los sociales.
 
 1. **Social** (`core/auth/social_auth_service.dart` → acción `social`). El `id_token` va a
    **nuestra edge function**, NO a `supabase.auth.signInWithIdToken`: ese camino crearía un usuario
@@ -252,6 +263,12 @@ permisos. Antes la app exigía cuenta para todo — eso es rechazo.
 
 - "Seguir mirando" → `continuarComoInvitado()` → marca en el Keychain (`guest_mode`) para que la
   próxima apertura **no** vuelva a plantar la bienvenida. `_estadoSinSesion()` la lee en `_init()`.
+  **El link navega él mismo a `/home`** (`_SeguirMirando`, 18/sep/2026). Entre el 12 y el 18/sep
+  estuvo sacado porque "no entraba", y el motivo era el router: `/welcome` está en la lista blanca
+  del invitado (el "volver" de `/login` cae ahí), así que pasar a `guest` estando en la bienvenida
+  hacía que el redirect contestara "quedate" — y si ya era invitado, el estado ni cambiaba. Fijado
+  en `test/widget/onboarding_flow_test.dart` con un harness SIN redirect: si llega al Home es
+  porque el link navegó.
 - Sin cuenta se ve: Home (con `_TarjetaInvitado` en el lugar de la tarjeta de puntos), Sucursales y
   su detalle con la fila en vivo, la cartelera, y **Premios como vidriera** (las tres categorías
   reales, sin precios). Todo eso es anon-legible: `get_org_branch_signals`,
@@ -875,7 +892,9 @@ Tres cosas que no hay que aflojar:
   hardware) y que el copy de cerrar sesión no prometa un código que el login silencioso no pide.
 - `widget/pantallas_de_error_test.dart` — el `errorBuilder` del router atrapa una ruta muerta y no
   imprime la excepción.
-- `widget/onboarding_flow_test.dart` — bienvenida con las opciones en la primera pantalla, el campo
+- `widget/onboarding_flow_test.dart` — bienvenida (el carrusel: "Continuar" avanza, las puertas
+  de entrada sólo en la última lámina, "Seguir mirando" ENTRA al Home, sin desbordar en un SE), el
+  campo
   Nombre dentro de la pantalla del código (y que el sexto dígito **no** auto-envía cuando está), el
   nombre de Google precargado, y que `clearSession()` borra PIN/biometría/invitado pero **no** el
   `device_secret`.
@@ -918,8 +937,14 @@ Tres cosas que no hay que aflojar:
    vez, a propósito.
 4. `FlutterFragmentActivity` + biometría hay que probarlos en un Android real (no hay emulador con huella).
 5. Los `defaultValue` de `AppConstants` apuntan a producción: un `flutter run` pelado pega a prod.
-6. El Personal Team `A3WAXVR55Z` no puede archivar para App Store ni firmar push **ni Sign in with
-   Apple**: hace falta el Apple Developer Program pago (ver `ENTREGA.md`).
+6. **El Team ID no dice si la membresía está paga.** `A3WAXVR55Z` nació como Personal Team (Apple ID
+   gratuito, que no archiva para App Store ni firma push ni Sign in with Apple), y al inscribirse
+   como **Individual** con el mismo Apple ID —14/9/2026— Apple convirtió ese equipo en el del
+   programa pago **conservando el ID**: no hay un segundo equipo en el selector de
+   developer.apple.com ni un ID nuevo que poner en el pbxproj. El preflight chequeaba justamente lo
+   contrario y fallaba para siempre; se corrigió. El estado real se lee en developer.apple.com →
+   Account → **Membership details**, y el síntoma de que NO está activa es que el archive muera con
+   *"Personal development teams do not support the Push Notifications capability"*.
 7. **Los client IDs de Google son placeholders**: `AppConstants.googleIosClientId` /
    `googleServerClientId` vacíos y `com.googleusercontent.apps.PLACEHOLDER-REEMPLAZAR` en el
    `Info.plist`. Mientras estén así, el botón de Google no aparece (a propósito) y el alta social

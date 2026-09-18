@@ -25,12 +25,15 @@ Supabase con `../MonacoSmartBarber`.
 ## Qué incluye
 
 ### Flujo del cliente
-0. **Alta propia + modo invitado** (sep/2026). La bienvenida ofrece **Continuar con Google**,
-   **Continuar con Apple** (sólo iOS), **Usar mi número de teléfono** y **Seguir mirando**.
-   Cualquiera puede crearse la cuenta desde la app: ya no hay que pasar por la tablet del local.
-   Sin cuenta se navega el Home, las sucursales con la fila en vivo, la cartelera y la vidriera de
-   premios; el muro de login aparece **al tocar la acción** (reservar, canjear, mis turnos, mis
-   puntos, perfil) y siempre tiene "Ahora no". Es requisito de App Store (5.1.1), no una mejora.
+0. **Alta propia + modo invitado** (sep/2026). La bienvenida es un carrusel de tres láminas
+   (ilustración grande, texto abajo, "Continuar") y en la tercera ofrece **Continuar con Google**,
+   **Continuar con Apple** (sólo iOS), **Usar mi número de teléfono** y el link **Seguir mirando**
+   (rediseño del 18/sep/2026). Cualquiera puede crearse la cuenta desde la app: ya no hay que pasar
+   por la tablet del local. Sin cuenta se navega el Home, las sucursales con la fila en vivo, la
+   cartelera y la vidriera de premios; el muro de login aparece **al tocar la acción** (reservar,
+   canjear, mis turnos, mis puntos, perfil) y siempre tiene "Ahora no". Es requisito de App Store
+   (5.1.1), no una mejora. "Seguir mirando" estuvo sacado del 12 al 18/sep porque no entraba (bug
+   del router, ya corregido: el link navega él mismo).
 1. **Splash / Welcome / Login** — teléfono → `start` → login silencioso si el dispositivo ya es
    conocido, o código de 6 dígitos por WhatsApp (`/login/codigo`), **con el campo Nombre en la
    misma pantalla** si el teléfono es nuevo (`/login/nombre` se eliminó) → Home. Con Google/Apple
@@ -102,11 +105,17 @@ la salida.
 
 ## Lo que falta y es del dueño (no es código)
 
-1. **Apple Developer Program** (USD 99/año). Hoy el Team `A3WAXVR55Z` es un Apple ID gratuito:
-   no hay TestFlight ni App Store ni firma de push. Con el programa: cambiar `DEVELOPMENT_TEAM`,
-   crear el App ID `com.monacobarber.monacoMobile` con Push, subir la **APNs key** a Firebase.
-2. **Firebase**: crear el proyecto, `flutterfire configure` (ver README), subir la **APNs key** y
-   cargar `FCM_SERVICE_ACCOUNT_JSON` en la edge function `send-push`. Mientras tanto la app
+1. **Apple Developer Program** (USD 99/año) — **pago el 14/9/2026**. El Team `A3WAXVR55Z` nació
+   gratuito y la inscripción *Individual* lo convirtió en el equipo del programa **conservando el
+   mismo Team ID**: no hay nada que cambiar en `DEVELOPMENT_TEAM` (ver punto 6 de "Riesgos
+   conocidos" en `CLAUDE.md`). Lo que sigue faltando ahí: prenderle al App ID
+   `com.monacobarber.monacoMobile` las capabilities **Push Notifications** y **Sign in with Apple**,
+   bajar las dos keys `.p8` (APNs y Sign in with Apple) y llenar `ios/Runner/Runner.entitlements`
+   con el bloque que el propio archivo tiene escrito como comentario.
+2. **Firebase** — **proyecto `monaco-barber-studio` creado y `flutterfire configure` corrido el
+   18/9/2026** (apps iOS y Android registradas, `firebase_options.dart` real, plist y JSON en su
+   lugar). Falta lo que no tiene CLI: subir la **APNs key** `62X53C5773` en Cloud Messaging y
+   cargar `FCM_SERVICE_ACCOUNT_JSON` en la edge function `send-push`. Hasta entonces la app
    funciona sin push, y **la sección de notificaciones del sistema no se dibuja**: Perfil y
    Preferencias esconden el bloque entero en vez de mostrarlo apagado con un "no disponible". Un
    interruptor que no hace nada es una función a medias —Apple lo lee como app incompleta— y
@@ -237,8 +246,10 @@ la salida.
   niega. No se declara como dato recolectado (ver el punto 5 de arriba).
 - Notificaciones: el permiso se pide después de explicar para qué (no en el primer arranque), y
   **nunca antes de que haya cuenta**: el perfil de invitado no dibuja ese interruptor (5.1.2(i)).
-- **5.1.1 — "Seguir mirando"**: la app abre y se usa sin cuenta. El login aparece sólo al tocar una
-  acción que necesita identidad, con el motivo escrito y con "Ahora no".
+- **5.1.1 — "Seguir mirando"**: la app abre y se usa sin cuenta. El link está en la tercera
+  lámina de la bienvenida, junto a las otras puertas, y **entra** (verificado en el simulador el
+  18/sep/2026: `alta_03b_seguir_mirando_entra`). El login aparece sólo al tocar una acción que
+  necesita identidad, con el motivo escrito y con "Ahora no".
 - **4.8 — Sign in with Apple**: se ofrece junto a Google, en iOS, con el flujo nativo. En Android no
   se muestra a propósito (ahí `sign_in_with_apple` abre un Custom Tab contra un servidor propio y
   deja de ser nativo; la 4.8 es de la App Store). Ojo: `SignInWithApple.isAvailable()` devuelve

@@ -170,6 +170,13 @@ Verificación: `./scripts/preflight-tiendas.sh` tiene que mostrar ✓ en "key.pr
 
 ## Parte 4 — Firebase (push). Opcional para publicar, pero conviene hacerlo antes
 
+> **Estado al 18/9/2026: pasos 1 a 3 HECHOS.** Proyecto `monaco-barber-studio` (cuenta
+> `studios.sys.work@gmail.com`), las dos apps registradas, `firebase_options.dart`,
+> `GoogleService-Info.plist` y `google-services.json` commiteados. **Quedan el 4 y el 5**, que sólo
+> se hacen desde la consola: <https://console.firebase.google.com/project/monaco-barber-studio>.
+> Hay además un proyecto vacío `monaco-ee682` creado a mano en la misma cuenta: no se usa; se
+> puede borrar desde Project settings.
+
 Sin esto la app funciona y se puede publicar: la sección de notificaciones del sistema **no se
 muestra** (no aparece apagada ni con un "no disponible" — un interruptor que no hace nada se lee
 como una app a medias), pero no llegan recordatorios de turno ni campañas. El mismo `flutterfire

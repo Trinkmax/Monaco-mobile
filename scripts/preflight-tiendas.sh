@@ -109,7 +109,11 @@ grep -q "PLACEHOLDER-REEMPLAZAR" "$PLIST" && PLIST_CON_PLACEHOLDER=1
 # hasta el 18/9/2026 era ✗ y contradecía a PUBLICAR.md, que lo declara opcional—,
 # pero publicar así es publicar a ciegas. Parte 4 de PUBLICAR.md: 20 minutos.
 FB="lib/firebase_options.dart"
-if grep -q "PLACEHOLDER" "$FB"; then
+# Se miran los VALORES (los mismos tres que chequea main.dart antes de
+# Firebase.initializeApp), no cualquier aparición de la palabra: flutterfire
+# conserva comentarios del archivo anterior y un "PLACEHOLDER" en un comentario
+# daba falso positivo con el proyecto ya configurado (18/9/2026).
+if grep -qE "(apiKey|appId|projectId): 'PLACEHOLDER" "$FB"; then
   aviso "lib/firebase_options.dart tiene PLACEHOLDER: el build sale SIN push ni Crashlytics (falta 'flutterfire configure', PUBLICAR.md Parte 4). Publicable, pero a ciegas"
 else
   ok "firebase_options.dart configurado"
