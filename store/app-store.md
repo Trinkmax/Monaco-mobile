@@ -146,36 +146,42 @@ Primera versión de la app de Monaco Barber Studio: turnos online, fila en vivo,
 | User name | `1100000000` |
 | Password | `123456` |
 
-**Notes** (≤4000 bytes) — copiar tal cual:
+**Notes** (≤4000 bytes) — copiar tal cual. **En inglés desde el 19/9/2026**: Apple pidió
+(Guideline 2.1, Information Needed) que la descripción, las instrucciones, los servicios
+externos y las diferencias regionales queden en las Notes "for reference on future
+submissions"; el texto de la respuesta está en `app-review-respuesta-2026-09-19.md`:
 
 ```
-La app es de una barbería de Córdoba, Argentina. Todo el contenido está en español.
+Monaco Barber Studio is the customer app of a barbershop with three locations in Córdoba, Argentina. All content is in Spanish. Published by studiOS (Ignacio Baldovino) on behalf of the business owner, with his authorization.
 
-CÓMO ENTRAR (cuenta de demostración; no hace falta WhatsApp)
-1. La bienvenida son tres pantallas de presentación: tocar "Continuar" dos veces. En la tercera aparecen las opciones de ingreso.
-2. Tocar "Usar mi número de teléfono", ingresar el número 1100000000 y tocar Continuar.
-3. El código de verificación es 123456. Es un número de prueba: el servidor NO envía ningún mensaje de WhatsApp y el código es fijo.
-4. Si en cambio se usa "Continuar con Apple", después de autorizar la app se pide un teléfono: ingresar el mismo 1100000000 y el mismo código 123456.
+DEMO ACCOUNT (fixed code; no WhatsApp or SMS is sent)
+User name: 1100000000 - Password/code: 123456
+1. Welcome: three intro screens; tap "Continuar" twice. The third one shows the sign-in options.
+2. Tap "Usar mi número de teléfono", enter 1100000000, tap Continuar.
+3. Enter the verification code 123456. If a name is requested, type any name.
+4. "Continuar con Apple" also works: after Apple's sheet, enter the same phone 1100000000 and code 123456.
+The demo account has the Gold tier, 2,000 points and 3 inbox notifications, so every screen shows real content.
 
-SIN CUENTA (guideline 5.1.1)
-En la tercera pantalla de bienvenida, "Seguir mirando" entra como invitado. Sin cuenta se pueden ver el inicio, las sucursales con la fila en vivo, la cartelera y la vidriera de premios. El pedido de cuenta aparece recién al tocar una acción personal (reservar, canjear, ver mis turnos), y siempre con la opción "Ahora no".
+GUEST MODE (5.1.1): on the third welcome screen, "Seguir mirando" enters without an account. Home, branches with the live queue, the board and the rewards catalog are browsable; the sign-in wall appears only on personal actions (book, redeem, my appointments), always with an "Ahora no" option.
 
-PARA PROBAR UNA RESERVA
-Elegir la sucursal Caseros o Rondeau: ahí el turno se confirma sin ningún pago. La sucursal Paraná pide una seña por Mercado Pago y abre el navegador; conviene evitarla. El turno se puede cancelar desde Turnos > el turno > Cancelar.
+MAIN FLOWS
+- Book: Turnos > Reservar > branch Caseros or Rondeau (no payment) > service > day and time > Confirmar. Cancel from Turnos > the appointment > Cancelar turno.
+- Rewards: Premios > Canjear > the reward shows a QR code to present at the shop.
+- Delete account (5.1.1(v)): Perfil > Eliminar cuenta > confirm. Also at https://monacobarber.vercel.app/eliminar-cuenta
 
-POR QUÉ NO HAY COMPRAS DENTRO DE LA APP
-Lo único que se paga es una seña de un corte de pelo, que es un servicio del mundo real prestado en el local. Guideline 3.1.3(e): en ese caso se deben usar métodos de pago distintos de las compras dentro de la app. Se cobra con Mercado Pago, en el navegador del sistema; la app nunca ve los datos de la tarjeta.
+PAYMENTS: no in-app purchases. The only payment is an optional deposit (5% of the price) that ONE branch (Paraná) requires to confirm an online booking for a haircut performed in person at the shop. It is charged by Mercado Pago in the system browser (SFSafariViewController); card data never enters the app. Guideline 3.1.3(e): services consumed outside the app must use payment methods other than IAP. The reviewer does not need to pay: choose Caseros or Rondeau.
 
-BORRAR LA CUENTA (guideline 5.1.1(v))
-Perfil > Eliminar mi cuenta, dentro de la app. También desde https://monacobarber.vercel.app/eliminar-cuenta
+EXTERNAL SERVICES: Supabase (database, authentication, edge functions), Vercel (backend API), Meta WhatsApp Cloud API (sends the login code, appointment confirmations and reminders by WhatsApp), Firebase Cloud Messaging (push) and Crashlytics (crash reports), Mercado Pago (deposit payments), Sign in with Apple, Google Sign-In (disabled in this build). No AI services, no ads, no tracking SDKs.
 
-PERMISOS
-- Notificaciones: recordatorios de turno y avisos de premios. Opcional.
-- Ubicación aproximada: sólo para ordenar las sucursales por cercanía en el primer paso de la reserva. Es opt-in (se pide al tocar "Ordenar por cercanía") y la app funciona igual sin ella.
-- Face ID: opcional, para bloquear el acceso a la app. Se resuelve en el dispositivo.
+USER CONTENT: after a visit the customer can rate the service and leave a comment; it goes privately to the business (CRM) and is never shown to other users, so there is no public user-generated content.
 
-CONTACTO
-WhatsApp +54 9 351 769-1830 - studios.sys.work@gmail.com - monacobarberstudio.com
+REGIONS: available only in Argentina. Features and content are identical everywhere; the deposit is a per-branch business setting, not a regional difference.
+
+PERMISSIONS (all optional): notifications (appointment reminders, rewards); approximate location, used only on the device to sort branches by distance and never sent to a server; Face ID to lock the app locally.
+
+Not a regulated industry. No third-party protected material: names, logos and photos belong to Monaco Barber Studio.
+
+CONTACT: WhatsApp +54 9 351 769-1830 - studios.sys.work@gmail.com - monacobarberstudio.com
 ```
 
 **Contact Information**: nombre, apellido, teléfono en formato internacional
