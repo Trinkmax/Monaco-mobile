@@ -100,7 +100,10 @@ promociones de Play (piden 4 o más).
 ### Acceso a la app (App access)
 
 **"Todas las funciones o parte de ellas están restringidas"** → agregar estas
-instrucciones:
+instrucciones. **El campo "Instrucciones adicionales" admite 500 caracteres como máximo**
+(descubierto el 23/9/2026 al cargar la ficha: la versión larga de 765 no entraba) y Play
+pide que las credenciales vayan **en inglés** si el idioma habitual es otro, así que el
+texto es corto y en inglés (422 caracteres):
 
 ```
 Nombre de la instrucción: Cuenta de demostración (login por código)
@@ -108,18 +111,13 @@ Nombre de la instrucción: Cuenta de demostración (login por código)
 Usuario: 1100000000
 Contraseña: 123456
 
-Pasos:
-1. La bienvenida son tres pantallas de presentación: tocar "Continuar" dos veces. En la tercera aparecen las opciones de ingreso.
-2. Tocar "Usar mi número de teléfono", ingresar el número 1100000000 y tocar Continuar.
-3. El código de verificación es 123456. Es un número de prueba: el servidor no envía ningún mensaje de WhatsApp y el código es fijo.
-4. Si se usa "Continuar con Google", después se pide un teléfono: ingresar el mismo 1100000000 y el mismo código 123456.
-
-Sin cuenta: en la tercera pantalla de bienvenida, "Seguir mirando" entra como invitado y deja ver el inicio, las sucursales con la fila en vivo y la vidriera de premios.
-
-Para probar una reserva conviene elegir la sucursal Caseros o Rondeau: ahí el turno se confirma sin ningún pago. La sucursal Paraná pide una seña por Mercado Pago y abre el navegador.
-
-La cuenta se puede borrar desde Perfil > Eliminar mi cuenta.
+Instrucciones adicionales:
+Welcome: tap "Continuar" twice, then "Usar mi número de teléfono". Enter 1100000000, tap Continuar, then enter code 123456 (fixed test code; no WhatsApp or SMS is sent). If a name is requested, type any name. Guest mode: "Seguir mirando" on the third welcome screen. To book without paying, choose branch Caseros or Rondeau (Paraná asks for a Mercado Pago deposit in the browser). Delete account: Perfil > Eliminar cuenta.
 ```
+
+Marcar la casilla "Los detalles de acceso… proporcionan acceso completo a todas las
+funciones": la cuenta demo tiene categoría Oro, 2.000 puntos y 3 avisos, así que ninguna
+pantalla queda fuera.
 
 ### Anuncios
 

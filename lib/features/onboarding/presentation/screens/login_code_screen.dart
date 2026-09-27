@@ -142,11 +142,18 @@ class _LoginCodeScreenState extends ConsumerState<LoginCodeScreen> {
             signupToken: signup?.token,
           );
       if (!mounted) return;
-      // Sesión lista: el router redirige a /home. El CTA queda en "cargando"
-      // hasta que esta pantalla desaparezca.
       _done = true;
       ref.read(loginFlowProvider.notifier).state = null;
       ref.read(signupPendienteProvider.notifier).state = null;
+      // Se navega A MANO: el redirect del router NO alcanza. Si el cliente
+      // entró como invitado y llegó acá desde el muro, la pila es
+      // `/home` + `/login` + `/login/codigo` (las dos últimas con push) y el
+      // redirect a `/home` encuentra que `/home` ya es la base: no saca las
+      // pantallas de login y el CTA quedaba girando para siempre mientras el
+      // Home de abajo ya cargaba los puntos. Es el rechazo de App Review del
+      // 25/9/2026 (2.1a, "the app loaded indefinitely when we attempted to
+      // sign in"). `go` reemplaza la pila entera.
+      context.go('/home');
       return;
     } on AuthException catch (e) {
       if (!mounted) return;
@@ -420,19 +427,34 @@ class _LoginCodeScreenState extends ConsumerState<LoginCodeScreen> {
             onPressed: listo && !_done ? () => _onCompleted(_code) : null,
           ).liquidEnter(index: 5),
           const SizedBox(height: 6),
+          // Con 375 pt de ancho (iPhone SE, y el iPad corriendo la app en
+          // modo compatibilidad) los dos links no entraban: "Reenviar en
+          // 0:45" desbordaba 13 px. Se achican antes que cortarse.
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              OnboardingLink(
-                label: 'Cambiar número',
-                icon: Icons.edit_rounded,
-                onTap: _loading ? null : _changeNumber,
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: OnboardingLink(
+                    label: 'Cambiar número',
+                    icon: Icons.edit_rounded,
+                    onTap: _loading ? null : _changeNumber,
+                  ),
+                ),
               ),
-              OnboardingLink(
-                label: resendLabel,
-                icon: Icons.refresh_rounded,
-                color: canResend ? MonacoColors.monacoGreen : null,
-                onTap: canResend ? _resend : null,
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: OnboardingLink(
+                    label: resendLabel,
+                    icon: Icons.refresh_rounded,
+                    color: canResend ? MonacoColors.monacoGreen : null,
+                    onTap: canResend ? _resend : null,
+                  ),
+                ),
               ),
             ],
           ).liquidEnter(index: 6),

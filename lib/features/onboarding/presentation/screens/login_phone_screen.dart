@@ -148,12 +148,15 @@ class _LoginPhoneScreenState extends ConsumerState<LoginPhoneScreen> {
       if (!mounted) return;
 
       if (res.sessionReady) {
-        // Dispositivo conocido: la sesión ya está y el router redirige solo
-        // (unauthenticated → authenticated). No navegamos a mano
-        // y dejamos el CTA en "cargando" hasta que la pantalla desaparezca.
+        // Dispositivo conocido: la sesión ya está. Se navega A MANO, no se
+        // espera al redirect: si el cliente vino como invitado desde el muro,
+        // `/login` está apilada sobre `/home` y el redirect a `/home` no la
+        // saca (ver `_verify` en login_code_screen.dart, rechazo de App
+        // Review del 25/9/2026).
         _done = true;
         ref.read(loginFlowProvider.notifier).state = null;
         ref.read(signupPendienteProvider.notifier).state = null;
+        context.go('/home');
         return;
       }
       if (res.otpSent) {
