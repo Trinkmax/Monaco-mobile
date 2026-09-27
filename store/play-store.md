@@ -63,7 +63,7 @@ RESERVA CON SEÑA
 - Algunas sucursales piden una seña para confirmar el turno online. Se paga con Mercado Pago, se descuenta del precio final y te explicamos las condiciones antes de pagar.
 
 ENTRAR ES FÁCIL
-- Con tu número de teléfono (te mandamos un código por WhatsApp), con Google o con Apple.
+- Con tu número de teléfono: te mandamos un código por WhatsApp y listo.
 - También podés mirar la app sin crear una cuenta.
 - Podés borrar tu cuenta desde Perfil cuando quieras.
 
